@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <OutputType>Exe</OutputType>
+        <TargetFramework>net10.0</TargetFramework>
+        <Nullable>enable</Nullable>
+        <IsPackable>false</IsPackable>
+    </PropertyGroup>
+
+    <ItemGroup><PackageReference Include="TUnit" Version="1.67.0" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="../../src/Soenneker.Librarian.Abstractions/Soenneker.Librarian.Abstractions.csproj" />
+        <ProjectReference Include="../../src/Soenneker.Librarian.Core/Soenneker.Librarian.Core.csproj" />
+        <ProjectReference Include="../../src/Soenneker.Librarian.Memory/Soenneker.Librarian.Memory.csproj" />
+        <ProjectReference Include="../../src/Soenneker.Librarian.FileSystem/Soenneker.Librarian.FileSystem.csproj" />
+        <ProjectReference Include="../../src/Soenneker.Librarian.Redis/Soenneker.Librarian.Redis.csproj" />
+    </ItemGroup>
+
+</Project>

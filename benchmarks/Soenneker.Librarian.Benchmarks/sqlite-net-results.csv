@@ -1,0 +1,21 @@
+# .NET 10.0.12; Microsoft Windows 10.0.26200; X64; CPUs=192; documents=100000; tiering disabled
+# All results validated; all engines and their indexes warm before timing.
+Query,Engine,MedianMicroseconds,BytesPerOperation,IterationsPerRound,Rounds
+Equality-10,Librarian,8.983,6840,2000,7
+Equality-10,LiteDB-5.0.21,29.341,63440,2000,7
+Equality-10,sqlite-net-1.11.285,11.866,9064,2000,7
+Range-page-10,Librarian,10.337,8665,2000,7
+Range-page-10,LiteDB-5.0.21,41.159,89563,2000,7
+Range-page-10,sqlite-net-1.11.285,13.113,11801,2000,7
+Count-10,Librarian,2.013,1600,2000,7
+Count-10,LiteDB-5.0.21,29.925,65006,2000,7
+Count-10,sqlite-net-1.11.285,3.574,2176,2000,7
+Exists-50%-hits,Librarian,2.228,1600,2000,7
+Exists-50%-hits,LiteDB-5.0.21,22.159,44621,2000,7
+Exists-50%-hits,sqlite-net-1.11.285,2.537,344,2000,7
+First-equality,Librarian,2.989,1896,2000,7
+First-equality,LiteDB-5.0.21,18.134,43887,2000,7
+First-equality,sqlite-net-1.11.285,6.204,4864,2000,7
+Deep-page-90000-10,Librarian,8.644,6944,100,7
+Deep-page-90000-10,LiteDB-5.0.21,53694.283,189235872,100,7
+Deep-page-90000-10,sqlite-net-1.11.285,1240.940,8912,100,7

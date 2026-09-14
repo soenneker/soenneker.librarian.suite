@@ -1,0 +1,20 @@
+<Solution>
+  <Folder Name="/.github/">
+    <File Path=".github/renovate.json" />
+  </Folder>
+  <Folder Name="/.github/workflows/">
+    <File Path=".github/workflows/build-and-test.yml" />
+    <File Path=".github/workflows/codeql.yml" />
+    <File Path=".github/workflows/publish-package.yml" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/Soenneker.Librarian.Abstractions/Soenneker.Librarian.Abstractions.csproj" />
+    <Project Path="src/Soenneker.Librarian.Core/Soenneker.Librarian.Core.csproj" />
+    <Project Path="src/Soenneker.Librarian.FileSystem/Soenneker.Librarian.FileSystem.csproj" />
+    <Project Path="src/Soenneker.Librarian.Memory/Soenneker.Librarian.Memory.csproj" />
+    <Project Path="src/Soenneker.Librarian.Redis/Soenneker.Librarian.Redis.csproj" />
+  </Folder>
+  <Folder Name="/test/">
+    <Project Path="test/Soenneker.Librarian.Suite.Tests/Soenneker.Librarian.Suite.Tests.csproj" />
+  </Folder>
+</Solution>

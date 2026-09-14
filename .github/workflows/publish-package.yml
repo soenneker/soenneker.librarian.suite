@@ -1,0 +1,154 @@
+name: publish-package
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - 'test/**'
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: write
+  packages: write
+
+env:
+  PipelineEnvironment: true
+  NUGET_XMLDOC_MODE: skip
+
+jobs:
+  publish-package:
+    runs-on: ubuntu-latest
+
+    services:
+      redis:
+        image: redis:8
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    env:
+      LIBRARIAN_TEST_REDIS: localhost:6379
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Setting up build version
+        shell: bash
+        run: |
+          echo "BUILD_VERSION=4.0.${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
+
+      - name: Get release notes from latest commit
+        shell: bash
+        run: |
+          notes="$(git log -1 --pretty=%B | sed '/^Co-authored-by:/d')"
+          delimiter="NOTES_$(openssl rand -hex 16)"
+          {
+            echo "PACKAGE_RELEASE_NOTES<<$delimiter"
+            printf '%s\n' "$notes"
+            echo "$delimiter"
+          } >> "$GITHUB_ENV"
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore tests
+        run: dotnet restore test/Soenneker.Librarian.Suite.Tests/Soenneker.Librarian.Suite.Tests.csproj --verbosity minimal
+
+      - name: Build tests
+        run: dotnet build test/Soenneker.Librarian.Suite.Tests/Soenneker.Librarian.Suite.Tests.csproj --configuration Release --no-restore --verbosity minimal
+
+      - name: Test
+        run: dotnet test --project test/Soenneker.Librarian.Suite.Tests/Soenneker.Librarian.Suite.Tests.csproj --configuration Release --no-build --no-restore --verbosity normal
+
+      - name: Pack individual NuGet packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          packages=(
+            Soenneker.Librarian.Abstractions
+            Soenneker.Librarian.Core
+            Soenneker.Librarian.Memory
+            Soenneker.Librarian.FileSystem
+            Soenneker.Librarian.Redis
+          )
+
+          for package in "${packages[@]}"; do
+            dotnet pack "src/$package/$package.csproj" \
+              --configuration Release \
+              --no-build \
+              --no-restore \
+              --output ./artifacts
+            test -f "artifacts/$package.$BUILD_VERSION.nupkg"
+          done
+
+      - name: Log in to NuGet
+        uses: NuGet/login@v1
+        id: nuget-login
+        with:
+          user: soenneker
+
+      - name: Publish to NuGet
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          for i in 1 2; do
+            output_file="$(mktemp)"
+
+            set +e
+            dotnet nuget push "./artifacts/*.nupkg" \
+              --source "https://api.nuget.org/v3/index.json" \
+              --api-key "${{ steps.nuget-login.outputs.NUGET_API_KEY }}" \
+              --skip-duplicate 2>&1 | tee "$output_file"
+            exit_code=${PIPESTATUS[0]}
+            set -e
+
+            if [ $exit_code -eq 0 ]; then
+              exit 0
+            fi
+
+            if grep -qiE 'Quota Exceeded|retry after:' "$output_file"; then
+              echo "NuGet throttled this publish. Not retrying inside the same job."
+              exit 1
+            fi
+
+            if [ "$i" -lt 2 ]; then
+              echo "Transient failure, retrying once in 15 seconds..."
+              sleep 15
+            else
+              exit $exit_code
+            fi
+          done
+
+      - name: Publish to GitHub Packages
+        shell: bash
+        run: |
+          dotnet nuget push "./artifacts/*.nupkg" \
+            --source "https://nuget.pkg.github.com/soenneker/index.json" \
+            --api-key "${{ secrets.GH__TOKEN }}" \
+            --skip-duplicate
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GH__TOKEN }}
+        shell: bash
+        run: |
+          printf '%s\n' "$PACKAGE_RELEASE_NOTES" > release-notes.txt
+          gh release create "v$BUILD_VERSION" \
+            --title "v$BUILD_VERSION" \
+            --notes-file release-notes.txt
