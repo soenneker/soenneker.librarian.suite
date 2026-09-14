@@ -8,7 +8,6 @@ using System.Threading.Tasks;
 using Soenneker.Dtos.IdValuePair;
 using Soenneker.Extensions.Task;
 using Soenneker.Extensions.ValueTask;
-using Soenneker.Hashing.Sha256.Abstract;
 using Soenneker.Librarian.Abstractions;
 using Soenneker.Librarian.Abstractions.Queries;
 using Soenneker.Utils.Json;
@@ -27,23 +26,17 @@ public sealed partial class RedisLibrarianContainer : ILibrarianContainer
     private RedisKey Ids => _prefix + "ids";
     private RedisKey Document(string id) => _prefix + "document:" + id;
     private string DocumentPattern(string field) => _prefix + "document:*->" + field;
-    private static string Field(string path) => RedisIndexValue.Hex(path, "index:");
+    private static string Field(string path) => "index:" + RedisIndexValue.KeySegment(path);
     private RedisKey Index(string path) => IndexedKey("index:", path);
     private RedisKey Distinct(string path) => IndexedKey("distinct:", path);
     private RedisKey Present(string path) => IndexedKey("present:", path);
     private RedisKey Bucket(string path, string value) => IndexedKey("bucket:", path, value);
 
-    internal RedisLibrarianContainer(string key, string name, RedisLibrarianDatabase database, ISha256HashingUtil sha256HashingUtil)
+    internal RedisLibrarianContainer(string name, RedisLibrarianDatabase database)
     {
         _database = database;
-        var identity = new PooledStringBuilder(checked(key.Length * 4));
-        try
-        {
-            RedisIndexValue.AppendHex(ref identity, key);
-            // One database hash tag lets a transaction include multiple containers in Redis Cluster.
-            _prefix = "librarian:{" + sha256HashingUtil.Hash(identity.AsSpan()).ToUpperInvariant() + "}:batches:" + RedisIndexValue.Hex(name) + ":";
-        }
-        finally { identity.Dispose(); }
+        // One readable namespace hash tag lets a transaction include multiple containers in Redis Cluster.
+        _prefix = database.StoragePrefix + RedisIndexValue.KeySegment(name) + ":";
     }
 
     private string IndexedKey(string kind, string path, string? value = null)
@@ -53,7 +46,7 @@ public sealed partial class RedisLibrarianContainer : ILibrarianContainer
         {
             builder.Append(_prefix);
             builder.Append(kind);
-            RedisIndexValue.AppendHex(ref builder, path);
+            builder.Append(RedisIndexValue.KeySegment(path));
             if (value is not null)
             {
                 builder.Append(':');
@@ -73,7 +66,7 @@ public sealed partial class RedisLibrarianContainer : ILibrarianContainer
     private static string Id(string id)
     {
         ArgumentNullException.ThrowIfNull(id);
-        return RedisIndexValue.Hex(id.ToUpperInvariant());
+        return RedisIndexValue.KeySegment(id.ToUpperInvariant());
     }
 
     private ITransaction Transaction(IDatabase store, RedisValue version)

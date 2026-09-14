@@ -10,6 +10,29 @@ namespace Soenneker.Librarian.Redis;
 
 internal static class RedisIndexValue
 {
+    // Keep key segments readable while protecting separators, SORT patterns, and lexicographic ID bounds.
+    internal static string KeySegment(string text)
+    {
+        var builder = new PooledStringBuilder(text.Length);
+        try
+        {
+            Span<char> hex = stackalloc char[4];
+            foreach (char character in text)
+            {
+                if (char.IsAsciiLetterOrDigit(character) || character is '.' or '-' or '_')
+                    builder.Append(character);
+                else
+                {
+                    builder.Append('%');
+                    ((int)character).TryFormat(hex, out _, "X4", CultureInfo.InvariantCulture);
+                    builder.Append(hex);
+                }
+            }
+            return builder.ToString();
+        }
+        finally { builder.Dispose(); }
+    }
+
     internal static string Hex(string text, string prefix = "")
     {
         var builder = new PooledStringBuilder(checked(prefix.Length + text.Length * 4));

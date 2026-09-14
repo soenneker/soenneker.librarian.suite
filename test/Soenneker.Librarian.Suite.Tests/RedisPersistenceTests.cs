@@ -15,6 +15,36 @@ namespace Soenneker.Librarian.Suite.Tests;
 public class RedisPersistenceTests
 {
     [Test]
+    public async Task Readable_keys_support_custom_prefixes_and_escape_reserved_characters()
+    {
+        await using var fixture = new RedisPersistenceFixture("flywheel");
+        var store = await fixture.GetStore();
+        ILibrarianContainer jobs = await fixture.Database.GetContainer("flywheel.jobs");
+        await jobs.AddItem("job-123", "{\"value\":{\"state\":\"scheduled\"}}");
+        await jobs.EnsureIndex("value.state");
+        string prefix = fixture.RedisPrefix + "flywheel.jobs:";
+        Check(await store.HashGetAsync(prefix + "document:JOB-123", "id") == "job-123", "Document key is not readable.");
+        Check(await store.KeyExistsAsync(prefix + "index:value.state"), "Index path is not readable.");
+        Check(await jobs.CountByIndex("value.state", "scheduled") == 1, "Readable index failed.");
+        await using var other = new RedisLibrarianDatabase(fixture.Key, _ => ValueTask.FromResult(store), keyPrefix: "flywheel");
+        Check(await (await other.GetContainer("flywheel.jobs")).GetItem("JOB-123") is not null, "Factory prefix differs from configuration prefix.");
+        await using var isolated = new RedisLibrarianDatabase(fixture.Key, _ => ValueTask.FromResult(store));
+        Check(await (await isolated.GetContainer("flywheel.jobs")).GetItem("job-123") is null, "Prefixes are not isolated.");
+        Check((await other.GetServerTime()).Year >= 2026, "Server time failed with a custom prefix.");
+
+        ILibrarianContainer special = await fixture.Database.GetContainer("jobs:*->{x}%");
+        string[] ids = ["a:b", "a%003Ab", "*->json", "{x}", "~", "é", ""];
+        foreach (string id in ids) await special.AddItem(id, "{\"name\":\"same\"}");
+        await special.EnsureIndex("name");
+        Check((await special.GetAllIds()).Count == ids.Length, "Escaped IDs collided or broke SORT.");
+        Check(await special.CountByIndex("name", "same") == ids.Length, "Escaped IDs exceeded index bounds.");
+        Check((await special.FindByIndex<RedisRow>("name", "same")).Items.Count == ids.Length, "Indexed reads lost escaped IDs.");
+        foreach (string id in ids) Check(await special.GetItem(id) is not null, "Escaped ID cannot be read.");
+        await special.DeleteAllItems();
+        Check(await special.CountByIndex("name", "same") == 0, "Escaped IDs survived clear.");
+    }
+
+    [Test]
     public async Task Mutations_are_visible_immediately_across_instances_without_save()
     {
         await using var fixture = new RedisPersistenceFixture();

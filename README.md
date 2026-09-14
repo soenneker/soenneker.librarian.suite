@@ -100,7 +100,7 @@ Add to application configuration:
 ```json
 {
   "Azure": { "Redis": { "ConnectionString": "localhost:6379" } },
-  "Librarian": { "Redis": { "Key": "my-app:librarian", "Database": -1 } }
+  "Librarian": { "Redis": { "Key": "my-app:librarian", "KeyPrefix": "librarian", "Database": -1 } }
 }
 ```
 

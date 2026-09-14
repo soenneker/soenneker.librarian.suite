@@ -47,5 +47,5 @@ Memory and FileSystem batches clone changed containers and rebuild their explici
 
 ## Redis Cluster and prototype migration
 
-Redis containers now share a database namespace hash slot to support cross-container transactions. This concentrates each database on one Redis Cluster slot. The new `:batches:` key layout does **not** automatically migrate data from the earlier `:native:` prototype layout; export and import existing prototype data before switching.
+Redis containers share a database namespace hash slot to support cross-container transactions. This concentrates each database on one Redis Cluster slot. The readable `:containers:` key layout does not automatically migrate data from earlier layouts.
 

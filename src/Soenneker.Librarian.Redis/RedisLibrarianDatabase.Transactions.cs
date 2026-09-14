@@ -21,7 +21,7 @@ public sealed partial class RedisLibrarianDatabase
             string[] names = batch.Writes.Select(write => write.Container).Concat(batch.Conditions.Select(condition => condition.Container))
                 .Distinct(StringComparer.Ordinal).ToArray();
             foreach (string name in names)
-                if (!_containers.ContainsKey(name)) _containers.Add(name, new RedisLibrarianContainer(_key, name, this, _sha256HashingUtil));
+                if (!_containers.ContainsKey(name)) _containers.Add(name, new RedisLibrarianContainer(name, this));
             if (names.Length == 0) return true;
             for (int attempt = 0; ; attempt++)
             {

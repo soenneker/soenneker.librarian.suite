@@ -1,7 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Soenneker.Librarian.Abstractions;
-using Soenneker.Hashing.Sha256.Registrars;
 using Soenneker.Redis.Client.Registrars;
 
 namespace Soenneker.Librarian.Redis.Registrars;
@@ -19,7 +18,6 @@ public static class RedisLibrarianDatabaseRegistrar
     public static IServiceCollection AddRedisLibrarianDatabaseAsSingleton(this IServiceCollection services)
     {
         services.AddRedisClientAsSingleton()
-                .AddSha256HashingUtilAsSingleton()
                 .TryAddSingleton<ILibrarianDatabase, RedisLibrarianDatabase>();
 
         return services;
@@ -33,7 +31,6 @@ public static class RedisLibrarianDatabaseRegistrar
     public static IServiceCollection AddRedisLibrarianDatabaseAsScoped(this IServiceCollection services)
     {
         services.AddRedisClientAsScoped()
-                .AddSha256HashingUtilAsScoped()
                 .TryAddScoped<ILibrarianDatabase, RedisLibrarianDatabase>();
 
         return services;

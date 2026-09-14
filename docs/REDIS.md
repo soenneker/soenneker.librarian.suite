@@ -10,6 +10,7 @@
 | --- | --- | --- |
 | `Azure:Redis:ConnectionString` | Yes | Connection used by `Soenneker.Redis.Client` |
 | `Librarian:Redis:Key` | Yes | Database namespace owned by this provider |
+| `Librarian:Redis:KeyPrefix` | No | Top-level key prefix; defaults to `librarian` |
 | `Librarian:Redis:Database` | No | Redis database number; defaults to `-1`, the connection default |
 
 Both `AddRedisLibrarianDatabaseAsSingleton()` and `AddRedisLibrarianDatabaseAsScoped()` are available. The provider does not dispose the injected client or its shared multiplexer.
@@ -32,7 +33,23 @@ Both `AddRedisLibrarianDatabaseAsSingleton()` and `AddRedisLibrarianDatabaseAsSc
 - There is no document cache, dirty tracking, or periodic save.
 - Cancellation is checked before dispatch. Already dispatched commands are awaited and may commit.
 
-## Query support
+## Redis key layout
+
+Container names, document IDs, and index paths are readable in Redis browsers:
+
+```text
+flywheel:{my-app}:containers:flywheel.jobs:document:JOB-123
+flywheel:{my-app}:containers:flywheel.jobs:ids
+flywheel:{my-app}:containers:flywheel.jobs:index:value.state
+```
+
+Set `Librarian:Redis:KeyPrefix` to `flywheel`, or pass `keyPrefix: "flywheel"` to either explicit database constructor. `Key` selects the readable namespace (`my-app` above); its braces form a Redis Cluster hash tag that keeps the containers together. The namespace is not hashed. Use the same prefix and namespace on every instance that shares data.
+
+ASCII letters, digits, dots, hyphens, and underscores remain readable. Other UTF-16 characters are escaped as `%XXXX` to protect key separators and Redis patterns. Document IDs are normalized to uppercase for case-insensitive lookup; the hash's `id` field retains the original spelling. Index values retain their sortable encoding to preserve exact range ordering.
+
+This `:containers:` layout replaces the hex-encoded `:batches:` layout. Existing data is not read or migrated automatically.
+
+## Supported queries
 
 | Supported | Details |
 | --- | --- |
@@ -77,7 +94,7 @@ This example uses the `users` container and `User` model from the [README](../RE
 - All containers in a database namespace share a hash slot, allowing conditional batches across containers. Cluster deployments require Redis 8 or later for `SORT` with external key patterns.
 - Configure Redis persistence for the durability you need and use a non-evicting database for document storage.
 - Keep the configured namespace under the provider's ownership; external key changes bypass document/index coordination.
-- The current `:batches:` layout does not read earlier `:native:`, snapshot, or scripted prototype layouts. Use a fresh namespace or explicitly migrate prototype data.
+- The current `:containers:` layout does not read earlier `:batches:`, `:native:`, snapshot, or scripted prototype layouts.
 
 ## Integration tests
 
