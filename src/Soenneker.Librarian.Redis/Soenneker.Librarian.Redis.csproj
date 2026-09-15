@@ -43,7 +43,7 @@
     </ItemGroup>
 
     <ItemGroup>
-        <PackageReference Include="Soenneker.Utils.PooledStringBuilders" Version="4.0.31" />
+        <PackageReference Include="Soenneker.Utils.PooledStringBuilders" Version="4.0.32" />
         <PackageReference Include="Soenneker.Utils.Json" Version="4.0.2704" />
         <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.12" />
         <PackageReference Include="Soenneker.Redis.Client" Version="4.0.2335" />
