@@ -45,7 +45,7 @@
     <ItemGroup>
         <PackageReference Include="Soenneker.Utils.Json" Version="4.0.2704" />
         <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.12" />
-        <PackageReference Include="Soenneker.Extensions.Configuration" Version="4.0.891" />
+        <PackageReference Include="Soenneker.Extensions.Configuration" Version="4.0.892" />
         <PackageReference Include="Soenneker.Utils.Method" Version="4.0.462" />
         <ProjectReference Include="../Soenneker.Librarian.Abstractions/Soenneker.Librarian.Abstractions.csproj" />
     </ItemGroup>
