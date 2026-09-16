@@ -43,10 +43,10 @@
     </ItemGroup>
 
     <ItemGroup>
-        <PackageReference Include="Soenneker.Utils.Json" Version="4.0.2704" />
+        <PackageReference Include="Soenneker.Utils.Json" Version="4.0.2712" />
         <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.12" />
-        <PackageReference Include="Soenneker.Extensions.Configuration" Version="4.0.891" />
-        <PackageReference Include="Soenneker.Utils.Method" Version="4.0.462" />
+        <PackageReference Include="Soenneker.Extensions.Configuration" Version="4.0.895" />
+        <PackageReference Include="Soenneker.Utils.Method" Version="4.0.463" />
         <ProjectReference Include="../Soenneker.Librarian.Abstractions/Soenneker.Librarian.Abstractions.csproj" />
     </ItemGroup>
 </Project>
