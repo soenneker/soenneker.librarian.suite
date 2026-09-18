@@ -24,7 +24,8 @@ internal static class AuditBenchmarks
         Measure("Indexed-page-Select-fresh", _ => root.Where(row => row.Score >= 50000 && row.Score < 50100).OrderBy(row => row.Score).Take(10).Select(row => row.Score).ToArray().Length, 200);
         Measure("Indexed-page-Select-reused", _ => reusable.ToArray().Length, 200);
         Measure("Unindexed-Take-10", _ => root.Take(10).ToList().Count, 30);
-        Measure("Fallback-Where-Take-10", _ => root.Where(row => row.Score % 2 == 0).Take(10).ToList().Count, 30);
+        // Match every document so hash/insertion enumeration order does not change the amount of fallback work.
+        Measure("Fallback-Where-Take-10", _ => root.Where(row => row.Score % 1 == 0).Take(10).ToList().Count, 30);
         Measure("Split-Where-page", _ => root.Where(row => row.Score >= 50000).Where(row => row.Score < 50100).OrderBy(row => row.Score).Take(10).ToList().Count, 30);
     }
 

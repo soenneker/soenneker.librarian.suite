@@ -4,6 +4,7 @@ using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 
 namespace Soenneker.Librarian.Core.Indexes;
 
@@ -43,21 +44,30 @@ internal sealed class QueryPlan
 
     internal static QueryPlan? Create(Expression expression, IQueryProvider provider)
     {
-        var calls = new Stack<MethodCallExpression>();
+        var count = 0;
         Expression root = expression;
         while (root is MethodCallExpression call && call.Method.DeclaringType == typeof(Queryable))
         {
-            calls.Push(call);
+            count++;
             root = call.Arguments[0];
         }
-        if (root is not ConstantExpression { Value: IQueryable query } || query.Provider != provider)
+        if (count == 0 || root is not ConstantExpression { Value: IQueryable query } || query.Provider != provider)
             return null;
 
+        InlineBuffer<MethodCallExpression> buffer = default;
+        Span<MethodCallExpression> calls = count <= 8 ? buffer : new MethodCallExpression[count];
+        root = expression;
+        for (int i = count - 1; i >= 0; i--)
+        {
+            calls[i] = (MethodCallExpression)root;
+            root = calls[i].Arguments[0];
+        }
         var plan = new QueryPlan();
         var paged = false;
         var ordered = false;
-        while (calls.TryPop(out MethodCallExpression? call))
+        for (var i = 0; i < count; i++)
         {
+            MethodCallExpression call = calls[i];
             string name = call.Method.Name;
             if (name == nameof(Queryable.Where) && !paged && call.Arguments[1] is UnaryExpression { Operand: LambdaExpression predicate }
                 && predicate.Parameters.Count == 1 && plan.TryFilter(predicate.Body, predicate.Parameters[0]))
@@ -83,7 +93,7 @@ internal sealed class QueryPlan
                 && GetProperty(order.Body, order.Parameters[0]) is { } property && property.PropertyType != typeof(string))
             {
                 // ThenBy needs the original ordered sequence, not an array containing already sorted rows.
-                if (calls.TryPeek(out MethodCallExpression? next) && next.Method.Name is nameof(Queryable.ThenBy) or nameof(Queryable.ThenByDescending))
+                if (i + 1 < count && calls[i + 1].Method.Name is nameof(Queryable.ThenBy) or nameof(Queryable.ThenByDescending))
                     break;
                 plan.Property ??= property;
                 plan.OrderProperty = property;
@@ -120,10 +130,19 @@ internal sealed class QueryPlan
     private bool TryFilter(Expression expression, ParameterExpression parameter)
     {
         (PropertyInfo Property, IndexKey? Minimum, IndexKey? Maximum, bool IncludeMinimum, bool IncludeMaximum, bool Empty) saved = (Property, Minimum, Maximum, IncludeMinimum, IncludeMaximum, Empty);
-        List<IndexFilter>? savedAdditional = AdditionalFilters is null ? null : new(AdditionalFilters);
+        List<IndexFilter>? savedAdditional = AdditionalFilters;
+        int count = savedAdditional?.Count ?? 0;
+        InlineBuffer<IndexFilter> buffer = default;
+        Span<IndexFilter> savedFilters = count <= 8 ? buffer : new IndexFilter[count];
+        if (savedAdditional is not null) CollectionsMarshal.AsSpan(savedAdditional).CopyTo(savedFilters);
         if (Filter(expression, parameter)) return true;
         (Property, Minimum, Maximum, IncludeMinimum, IncludeMaximum, Empty) = saved;
         AdditionalFilters = savedAdditional;
+        if (savedAdditional is not null)
+        {
+            if (savedAdditional.Count > count) savedAdditional.RemoveRange(count, savedAdditional.Count - count);
+            savedFilters[..count].CopyTo(CollectionsMarshal.AsSpan(savedAdditional));
+        }
         return false;
     }
 
@@ -183,7 +202,9 @@ internal sealed class QueryPlan
         else
         {
             AdditionalFilters ??= new();
-            int index = AdditionalFilters.FindIndex(filter => filter.Property == property);
+            var index = -1;
+            for (var i = 0; i < AdditionalFilters.Count; i++)
+                if (AdditionalFilters[i].Property == property) { index = i; break; }
             IndexFilter filter = index < 0 ? new(property) : AdditionalFilters[index];
             filter.Apply(key, operation);
             if (index < 0) AdditionalFilters.Add(filter);

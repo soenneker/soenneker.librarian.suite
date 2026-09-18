@@ -11,10 +11,13 @@ public sealed partial class LibrarianContainer
     private IndexPage QueryMultipleIndexes<T>(QueryPlan plan)
     {
         int length = 1 + (plan.AdditionalFilters?.Count ?? 0);
-        var filters = new IndexFilter[length];
-        var indexes = new DocumentIndex[length];
+        InlineBuffer<IndexFilter> filterBuffer = default;
+        InlineBuffer<DocumentIndex> indexBuffer = default;
+        Span<IndexFilter> filters = length <= 8 ? ((Span<IndexFilter>)filterBuffer)[..length] : new IndexFilter[length];
+        Span<DocumentIndex> indexes = length <= 8 ? indexBuffer : new DocumentIndex[length];
         filters[0] = plan.PrimaryFilter;
-        plan.AdditionalFilters?.CopyTo(filters, 1);
+        if (plan.AdditionalFilters is { } additional)
+            System.Runtime.InteropServices.CollectionsMarshal.AsSpan(additional).CopyTo(filters[1..]);
         foreach (IndexFilter filter in filters)
             if (_automaticIndexes.TryGetValue((typeof(T), filter.Property), out AutomaticIndex? existing)
                 && existing.Index.Count(filter) == 0) return IndexPage.Empty;
@@ -26,7 +29,7 @@ public sealed partial class LibrarianContainer
             int count = indexes[i].Count(filters[i]);
             if (count < smallest) { driver = i; smallest = count; }
         }
-        if (smallest == 0) return IndexPage.Empty;
+        if (smallest <= plan.Skip) return IndexPage.Empty;
 
         bool needsSort = !plan.CountOnly && plan.OrderProperty is { } order && order != filters[driver].Property;
         DocumentIndex? orderIndex = needsSort ? GetAutomaticIndex<T>(plan.OrderProperty!).Index : null;
@@ -49,43 +52,68 @@ public sealed partial class LibrarianContainer
                 needsSort = false;
             }
         }
-        List<string>? matches = plan.CountOnly ? null : new List<string>(Math.Min(smallest, needsSort ? 256 : plan.Take));
-        var countMatches = 0;
-        foreach (string id in driverIndex.Candidates(driverFilter, !needsSort && plan.OrderProperty is not null && plan.Descending))
-        {
-            var match = true;
-            for (var i = 0; i < length; i++)
-            {
-                if (i == driver) continue;
-                if (!indexes[i].TryGetKey(id, out IndexKey key) || !filters[i].Matches(key)) { match = false; break; }
-            }
-            if (!match) continue;
-            countMatches++;
-            if (needsSort) matches!.Add(id);
-            else if (countMatches > plan.Skip) matches?.Add(id);
-            if (!needsSort && (long)countMatches >= (long)plan.Skip + plan.Take) break;
-        }
-        if (plan.CountOnly)
-        {
-            plan.Count = Math.Min(plan.Take, Math.Max(0, countMatches - plan.Skip));
-            return IndexPage.Empty;
-        }
-        int skip = needsSort ? plan.Skip : 0;
-        int take = Math.Min(plan.Take, Math.Max(0, matches!.Count - skip));
+        if (!needsSort) return CaptureMatches(plan, indexes[..length], filters, driver, driverIndex, driverFilter, smallest);
+        var matches = new List<string>(Math.Min(smallest, 256));
+        foreach (string id in driverIndex.Candidates(driverFilter, false))
+            if (Matches(id, indexes[..length], filters, driver)) matches.Add(id);
+        int take = Math.Min(plan.Take, Math.Max(0, matches.Count - plan.Skip));
         if (take == 0) return IndexPage.Empty;
-        if (needsSort)
-        {
-            matches.Sort((left, right) =>
-            {
-                orderIndex!.TryGetKey(left, out IndexKey a);
-                orderIndex.TryGetKey(right, out IndexKey b);
-                int comparison = a.CompareTo(b);
-                if (comparison == 0) comparison = StringComparer.OrdinalIgnoreCase.Compare(left, right);
-                return plan.Descending ? -comparison : comparison;
-            });
-        }
+        SortMatches(matches, orderIndex!, plan.Descending);
         string[] documents = ArrayPool<string>.Shared.Rent(take);
-        for (var i = 0; i < take; i++) documents[i] = _items[matches[skip + i]];
+        for (var i = 0; i < take; i++) documents[i] = _items[matches[plan.Skip + i]];
         return new IndexPage(documents, take);
+    }
+
+    private static bool Matches(string id, ReadOnlySpan<DocumentIndex> indexes, ReadOnlySpan<IndexFilter> filters, int driver)
+    {
+        for (var i = 0; i < filters.Length; i++)
+        {
+            if (i == driver) continue;
+            if (!indexes[i].TryGetKey(id, out IndexKey key) || !filters[i].Matches(key)) return false;
+        }
+        return true;
+    }
+
+    private IndexPage CaptureMatches(QueryPlan plan, ReadOnlySpan<DocumentIndex> indexes, ReadOnlySpan<IndexFilter> filters,
+        int driver, DocumentIndex driverIndex, IndexFilter driverFilter, int smallest)
+    {
+        string[]? documents = plan.CountOnly ? null : ArrayPool<string>.Shared.Rent(Math.Min(smallest - plan.Skip, plan.Take));
+        var countMatches = 0;
+        var written = 0;
+        try
+        {
+            foreach (string id in driverIndex.Candidates(driverFilter, plan.OrderProperty is not null && plan.Descending))
+            {
+                if (!Matches(id, indexes, filters, driver)) continue;
+                countMatches++;
+                if (countMatches > plan.Skip && documents is not null) documents[written++] = _items[id];
+                if ((long)countMatches >= (long)plan.Skip + plan.Take) break;
+            }
+            plan.Count = Math.Min(plan.Take, Math.Max(0, countMatches - plan.Skip));
+            if (written == 0) return IndexPage.Empty;
+            var page = new IndexPage(documents!, written);
+            documents = null; // Transfer ownership to the caller's page lease.
+            return page;
+        }
+        finally
+        {
+            if (documents is not null)
+            {
+                Array.Clear(documents, 0, written);
+                ArrayPool<string>.Shared.Return(documents);
+            }
+        }
+    }
+
+    private static void SortMatches(List<string> matches, DocumentIndex orderIndex, bool descending)
+    {
+        matches.Sort((left, right) =>
+        {
+            orderIndex.TryGetKey(left, out IndexKey a);
+            orderIndex.TryGetKey(right, out IndexKey b);
+            int comparison = a.CompareTo(b);
+            if (comparison == 0) comparison = StringComparer.OrdinalIgnoreCase.Compare(left, right);
+            return descending ? -comparison : comparison;
+        });
     }
 }

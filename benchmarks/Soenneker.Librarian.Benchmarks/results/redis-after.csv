@@ -1,0 +1,4 @@
+Operation,MedianMicroseconds,ProcessBytesPerOperation,CommandsPerOperation
+Redis-equality-count,254.318,3717,2.00
+Redis-equality-page-10,326.387,8334,2.00
+Redis-update-unchanged-index-values,864.404,11276,14.00

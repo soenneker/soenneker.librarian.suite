@@ -69,12 +69,12 @@ internal sealed class LibrarianQueryProvider<T>(LibrarianContainer container) : 
     {
         result = null;
         Expression source = expression;
-        var paging = new Stack<MethodCallExpression>();
+        var count = 0;
         while (source is MethodCallExpression call && call.Method.DeclaringType == typeof(Queryable)
                && call.Method.Name is nameof(Queryable.Skip) or nameof(Queryable.Take)
                && call.Arguments[1] is ConstantExpression { Value: int })
         {
-            paging.Push(call);
+            count++;
             source = call.Arguments[0];
         }
         if (source is not MethodCallExpression projection || projection.Method.DeclaringType != typeof(Queryable)
@@ -84,8 +84,19 @@ internal sealed class LibrarianQueryProvider<T>(LibrarianContainer container) : 
         var plan = QueryPlan.Create(projection.Arguments[0], this);
         if (plan is null || plan.ResidualPredicate is not null || plan.Prefix != projection.Arguments[0]) return false;
         // Only side-effect-free auto-property projections may move across Skip.
-        while (paging.TryPop(out MethodCallExpression? page))
+        InlineBuffer<MethodCallExpression> buffer = default;
+        Span<MethodCallExpression> paging = count <= 8 ? buffer : new MethodCallExpression[count];
+        source = expression;
+        for (int i = count - 1; i >= 0; i--)
+        {
+            paging[i] = (MethodCallExpression)source;
+            source = paging[i].Arguments[0];
+        }
+        for (var i = 0; i < count; i++)
+        {
+            MethodCallExpression page = paging[i];
             plan.ApplyPage(page.Method.Name, (int)((ConstantExpression)page.Arguments[1]).Value!);
+        }
         result = container.QuerySnapshot<T>(plan).GetAwaiter().GetResult().Select(QueryFunction<T, TElement>.Get(selector));
         return true;
     }

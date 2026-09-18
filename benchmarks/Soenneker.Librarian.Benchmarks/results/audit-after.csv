@@ -1,0 +1,12 @@
+# .NET 10.0.12; Microsoft Windows 10.0.26200; X64; CPUs=192; documents=100000; tiering disabled
+# All results validated; all engines and their indexes warm before timing.
+Operation,MedianMicroseconds,BytesPerOperation
+First-scan-snapshot-single-sample,6228.800,1605424
+First-Payload-index-single-sample,112254.500,60461904
+BuildQueryable,0.020,0
+Compose-Where-OrderBy-Skip-Take,2.913,2784
+Indexed-page-Select-fresh,10.367,8697
+Indexed-page-Select-reused,6.265,4688
+Unindexed-Take-10,8.750,5328
+Fallback-Where-Take-10,16.600,9942
+Split-Where-page,14.247,8646

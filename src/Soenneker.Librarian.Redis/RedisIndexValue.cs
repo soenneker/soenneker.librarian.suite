@@ -1,7 +1,5 @@
 using System;
 using System.Globalization;
-using System.Numerics;
-using System.Text;
 using System.Text.Json;
 using Soenneker.Utils.Json;
 using Soenneker.Utils.PooledStringBuilders;
@@ -13,6 +11,10 @@ internal static class RedisIndexValue
     // Keep key segments readable while protecting separators, SORT patterns, and lexicographic ID bounds.
     internal static string KeySegment(string text)
     {
+        var safe = true;
+        foreach (char character in text)
+            if (!char.IsAsciiLetterOrDigit(character) && character is not ('.' or '-' or '_')) { safe = false; break; }
+        if (safe) return text;
         var builder = new PooledStringBuilder(text.Length);
         try
         {
@@ -62,6 +64,22 @@ internal static class RedisIndexValue
 
     internal static string Encode(object? value)
     {
+        // Preserve the serializer fallback for enums and custom values, but avoid a JSON document for scalar keys.
+        switch (value)
+        {
+            case null: return "0";
+            case string text: return Hex(text, "3");
+            case bool boolean: return boolean ? "11" : "10";
+            case decimal number: return Number(number);
+            case int number: return Number(number);
+            case long number: return Number(number);
+            case uint number: return Number(number);
+            case ulong number: return Number(number);
+            case short number: return Number(number);
+            case ushort number: return Number(number);
+            case byte number: return Number(number);
+            case sbyte number: return Number(number);
+        }
         JsonElement? element = JsonUtil.SerializeToElement(value);
         return element is { } scalar ? Encode(scalar) : "0";
     }
@@ -79,18 +97,37 @@ internal static class RedisIndexValue
     // Fixed-width decimal encoding keeps the exact decimal order in Redis lexicographic sorted sets.
     private static string Number(decimal value)
     {
-        int[] bits = decimal.GetBits(value);
-        BigInteger integer = (uint)bits[0] + ((BigInteger)(uint)bits[1] << 32) + ((BigInteger)(uint)bits[2] << 64);
-        integer *= BigInteger.Pow(10, 28 - ((bits[3] >> 16) & 255));
-        if (bits[3] < 0) integer = -integer;
-        return "2" + (integer + BigInteger.Pow(10, 57)).ToString("D58", CultureInfo.InvariantCulture);
+        return string.Create(59, value, static (destination, number) =>
+        {
+            // The stored format is 10^57 + number * 10^28, padded to 58 digits, prefixed by '2'.
+            // Decimal's fixed-point formatter supplies the exact magnitude without BigInteger temporaries.
+            destination.Fill('0');
+            destination[0] = '2';
+            destination[1] = '1';
+            Span<char> digits = stackalloc char[59];
+            decimal.Abs(number).TryFormat(digits, out int written, "F28", CultureInfo.InvariantCulture);
+            int target = destination.Length - 1;
+            for (int i = written - 1; i >= 0; i--)
+                if (digits[i] != '.') destination[target--] = digits[i];
+            if (number >= 0) return;
+            // Subtract the magnitude from 10^57 using a decimal ten's complement.
+            destination[1] = '0';
+            var carry = 1;
+            for (int i = destination.Length - 1; i >= 2; i--)
+            {
+                int digit = 9 - (destination[i] - '0') + carry;
+                destination[i] = (char)('0' + digit % 10);
+                carry = digit / 10;
+            }
+        });
     }
 
     internal static string? Read(JsonElement document, string path)
     {
-        foreach (string segment in path.Split('.'))
+        ReadOnlySpan<char> pathSpan = path.AsSpan();
+        foreach (Range segment in pathSpan.Split('.'))
         {
-            if (document.ValueKind != JsonValueKind.Object || !document.TryGetProperty(segment, out document)) return null;
+            if (document.ValueKind != JsonValueKind.Object || !document.TryGetProperty(pathSpan[segment], out document)) return null;
         }
         return Encode(document);
     }
@@ -98,7 +135,7 @@ internal static class RedisIndexValue
     internal static void ValidatePath(string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        foreach (string segment in path.Split('.'))
-            if (segment.Length == 0) throw new ArgumentException("Index paths cannot contain empty segments.", nameof(path));
+        if (path[0] == '.' || path[^1] == '.' || path.Contains("..", StringComparison.Ordinal))
+            throw new ArgumentException("Index paths cannot contain empty segments.", nameof(path));
     }
 }

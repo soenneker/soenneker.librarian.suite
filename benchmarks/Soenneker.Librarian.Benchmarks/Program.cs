@@ -7,6 +7,9 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Soenneker.Librarian.Memory;
 
 CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;
+if (args.Contains("--hotpaths")) { await HotPathBenchmarks.Run(); return; }
+if (args.Contains("--encoding")) { RedisBenchmarks.Encoding(); return; }
+if (args.Contains("--redis")) { await RedisBenchmarks.Run(); return; }
 const int size = 100_000;
 Console.WriteLine($"# {RuntimeInformation.FrameworkDescription}; {RuntimeInformation.OSDescription}; {RuntimeInformation.ProcessArchitecture}; CPUs={Environment.ProcessorCount}; documents={size}; tiering disabled");
 await using var database = new MemoryLibrarianDatabase(NullLogger<MemoryLibrarianDatabase>.Instance);

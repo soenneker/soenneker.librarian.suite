@@ -1,5 +1,20 @@
 # LINQ comparison
 
+The latest optimization comparison is in [the 2026-09-17 report](../../docs/PERFORMANCE-2026-09-17.md), with raw data in `results/*-before.csv` and `results/*-after.csv`. Its baseline is commit `06ee034`, running the same final benchmark sources and project references as the changed version.
+
+Additional modes:
+
+```sh
+dotnet run --project benchmarks/Soenneker.Librarian.Benchmarks -c Release -- --hotpaths
+dotnet run --project benchmarks/Soenneker.Librarian.Benchmarks -c Release -- --encoding
+# Requires LIBRARIAN_TEST_REDIS pointing to an existing test server:
+dotnet run --project benchmarks/Soenneker.Librarian.Benchmarks -c Release -- --redis
+```
+
+`--hotpaths` measures raw reads/writes, bulk copies, snapshot creation, indexed writes, batch staging and cold rebuilding at 10,000 documents. `--encoding` measures key encoding without network traffic and with preboxed scalar inputs. `--redis` uses a unique namespace, validates results, measures five rounds of 200 operations, reports whole-process managed allocations and client command counts, and deletes only its own keys in `finally`. It does not start or stop the Redis server. Run benchmarks separately from tests or other benchmarks.
+
+The current `--audit` fallback predicate matches all documents via an unsupported modulo expression, ensuring enumeration order does not alter how many documents are consumed. Older top-level audit CSVs used an even-score predicate and should not be compared directly with that row in `results/`.
+
 Run from the repository root:
 
 ```sh

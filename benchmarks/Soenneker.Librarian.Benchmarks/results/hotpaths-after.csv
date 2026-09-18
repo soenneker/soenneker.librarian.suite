@@ -1,0 +1,9 @@
+Operation,MedianMicroseconds,BytesPerOperation
+GetItem,0.032,0
+Update-unindexed,0.064,0
+GetAllItems-10000,21.488,80056
+GetAllIds-10000,16.214,80056
+Snapshot-10000,87.383,400056
+Update-two-automatic-indexes,1.511,120
+Batch-10000-three-explicit-indexes,16770.510,9182850
+Batch-and-cold-numeric-index-10000,24970.310,14070593

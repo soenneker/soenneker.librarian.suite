@@ -118,12 +118,24 @@ public sealed partial class LibrarianContainer
 
     private static AutomaticIndex CreateAutomaticIndex<T>(PropertyInfo property)
     {
-        ParameterExpression parameter = Expression.Parameter(typeof(T));
-        Func<T, object?> getter = Expression.Lambda<Func<T, object?>>(Expression.Convert(Expression.Property(parameter, property), typeof(object)), parameter).Compile();
-        return new AutomaticIndex(value => IndexKey.FromValue(getter((T)value)));
+        ParameterExpression parameter = Expression.Parameter(typeof(object));
+        MemberExpression value = Expression.Property(Expression.Convert(parameter, typeof(T)), property);
+        // Build the scalar key directly so indexing value-type properties never boxes each document's value.
+        bool text = property.PropertyType == typeof(string);
+        bool boolean = property.PropertyType == typeof(bool);
+        Expression kind = text
+            ? Expression.Condition(Expression.Equal(value, Expression.Constant(null, typeof(string))), Expression.Constant(0), Expression.Constant(3))
+            : Expression.Constant(boolean ? 1 : 2);
+        Expression number = text ? Expression.Constant(0m)
+            : boolean ? Expression.Condition(value, Expression.Constant(1m), Expression.Constant(0m))
+            : Expression.Convert(value, typeof(decimal));
+        NewExpression key = Expression.New(typeof(IndexKey).GetConstructor([typeof(int), typeof(decimal), typeof(string)])!,
+            kind, number, text ? value : Expression.Constant(null, typeof(string)));
+        var getter = Expression.Lambda<Func<object, IndexKey?>>(Expression.Convert(key, typeof(IndexKey?)), parameter).Compile();
+        return new AutomaticIndex(getter);
     }
 
-    private void PrepareAutomaticIndexes<T>(IndexFilter[] filters, PropertyInfo? order)
+    private void PrepareAutomaticIndexes<T>(ReadOnlySpan<IndexFilter> filters, PropertyInfo? order)
     {
         List<(PropertyInfo Property, AutomaticIndex Index)>? pending = null;
         for (var i = 0; i < filters.Length + (order is null ? 0 : 1); i++)

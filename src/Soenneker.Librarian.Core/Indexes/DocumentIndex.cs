@@ -1,7 +1,7 @@
 using System;
 using System.Buffers;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Threading;
 
@@ -60,22 +60,15 @@ internal sealed class DocumentIndex
             node.Left = node.Right = node.Previous = node.Next = null;
             node.Size = 1;
         }
-        _counts.TryGetValue(actual, out int count);
-        _counts[actual] = count + 1;
+        CollectionsMarshal.GetValueRefOrAddDefault(_counts, actual, out _)++;
 
-        DocumentIndexNode? current = _root;
         DocumentIndexNode? previous = null;
         DocumentIndexNode? next = null;
-        while (current is not null)
-        {
-            if (Compare(node, current) < 0) { next = current; current = current.Left; }
-            else { previous = current; current = current.Right; }
-        }
+        _root = Insert(_root, node, ref previous, ref next);
         node.Previous = previous;
         node.Next = next;
         if (previous is not null) previous.Next = node;
         if (next is not null) next.Previous = node;
-        _root = Insert(_root, node);
     }
 
     internal void Remove(string id)
@@ -107,22 +100,32 @@ internal sealed class DocumentIndex
         ? Count(key) : CountRange(filter.Minimum, filter.Maximum, filter.IncludeMinimum, filter.IncludeMaximum);
 
     // Enumerated only while the owning container holds its mutation gate.
-    internal IEnumerable<string> Candidates(IndexFilter filter, bool descending)
+    internal CandidateEnumerator Candidates(IndexFilter filter, bool descending)
     {
         int lower = filter.Minimum is { } min ? Rank(min, !filter.IncludeMinimum) : 0;
         int upper = filter.Maximum is { } max ? Rank(max, filter.IncludeMaximum) : Size(_root);
-        DocumentIndexNode? node = At(descending ? upper - 1 : lower);
-        for (int remaining = upper - lower; remaining > 0; remaining--)
+        return new CandidateEnumerator(At(descending ? upper - 1 : lower), upper - lower, descending);
+    }
+
+    internal struct CandidateEnumerator(DocumentIndexNode? next, int remaining, bool descending)
+    {
+        public string Current { get; private set; } = null!;
+        public readonly CandidateEnumerator GetEnumerator() => this;
+
+        public bool MoveNext()
         {
-            yield return node!.Id;
-            node = descending ? node.Previous : node.Next;
+            if (remaining <= 0) return false;
+            Current = next!.Id;
+            next = descending ? next.Previous : next.Next;
+            remaining--;
+            return true;
         }
     }
 
     internal int CountRange(IndexKey? minimum, IndexKey? maximum, bool includeMinimum = true, bool includeMaximum = true)
         => Math.Max(0, (maximum is { } hi ? Rank(hi, includeMaximum) : Size(_root)) - (minimum is { } lo ? Rank(lo, !includeMinimum) : 0));
 
-    internal IndexPage Equal(IndexKey key, ConcurrentDictionary<string, string> items, int skip, int take, CancellationToken token)
+    internal IndexPage Equal(IndexKey key, Dictionary<string, string> items, int skip, int take, CancellationToken token)
     {
         int count = Count(key);
         if (skip >= count) return IndexPage.Empty;
@@ -131,7 +134,7 @@ internal sealed class DocumentIndex
     }
 
     internal IndexPage Range(IndexKey? minimum, IndexKey? maximum, bool descending,
-        ConcurrentDictionary<string, string> items, int skip, int take, CancellationToken token, bool includeMinimum = true, bool includeMaximum = true)
+        Dictionary<string, string> items, int skip, int take, CancellationToken token, bool includeMinimum = true, bool includeMaximum = true)
     {
         if (minimum is { } min && maximum is { } max)
         {
@@ -148,7 +151,7 @@ internal sealed class DocumentIndex
         return Capture(start, Math.Min(count - skip, take), descending, items, token);
     }
 
-    private IndexPage Capture(int rank, int count, bool descending, ConcurrentDictionary<string, string> items, CancellationToken token)
+    private IndexPage Capture(int rank, int count, bool descending, Dictionary<string, string> items, CancellationToken token)
     {
         string[] buffer = ArrayPool<string>.Shared.Rent(count);
         var written = 0;
@@ -202,12 +205,14 @@ internal sealed class DocumentIndex
         return null;
     }
 
-    private static DocumentIndexNode Insert(DocumentIndexNode? root, DocumentIndexNode node)
+    private static DocumentIndexNode Insert(DocumentIndexNode? root, DocumentIndexNode node,
+        ref DocumentIndexNode? previous, ref DocumentIndexNode? successor)
     {
         if (root is null) return node;
         if (Compare(node, root) < 0)
         {
-            root.Left = Insert(root.Left, node);
+            successor = root;
+            root.Left = Insert(root.Left, node, ref previous, ref successor);
             if (root.Left.Priority < root.Priority)
             {
                 DocumentIndexNode next = root.Left;
@@ -219,7 +224,8 @@ internal sealed class DocumentIndex
         }
         else
         {
-            root.Right = Insert(root.Right, node);
+            previous = root;
+            root.Right = Insert(root.Right, node, ref previous, ref successor);
             if (root.Right.Priority < root.Priority)
             {
                 DocumentIndexNode next = root.Right;

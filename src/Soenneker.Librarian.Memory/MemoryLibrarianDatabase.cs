@@ -1,5 +1,4 @@
 using System;
-using System.Linq;
 using Soenneker.Librarian.Abstractions.Transactions;
 using System.Collections.Generic;
 using System.Threading;
@@ -18,7 +17,7 @@ public sealed class MemoryLibrarianDatabase(ILogger<MemoryLibrarianDatabase> log
     private readonly AsyncLock _gate = new();
     private readonly LibrarianBatchExecutor _batches = new();
 
-    private readonly Dictionary<string, ILibrarianContainer> _containers = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, LibrarianContainer> _containers = new(StringComparer.Ordinal);
 
     private ValueAtomicBool _disposed = new(false);
 
@@ -29,13 +28,19 @@ public sealed class MemoryLibrarianDatabase(ILogger<MemoryLibrarianDatabase> log
         using (await _gate.Lock(cancellationToken).NoSync())
         {
             ObjectDisposedException.ThrowIf(_disposed.Value, this);
-            if (!_containers.TryGetValue(containerName, out ILibrarianContainer? container))
-            {
-                container = new LibrarianContainer(containerName, this, logger, mutationGate: _batches.Gate);
-                _containers.Add(containerName, container);
-            }
-            return container;
+            return GetOrCreateContainer(containerName);
         }
+    }
+
+    // Called only while holding _gate.
+    private LibrarianContainer GetOrCreateContainer(string name)
+    {
+        if (!_containers.TryGetValue(name, out LibrarianContainer? container))
+        {
+            container = new LibrarianContainer(name, this, logger, mutationGate: _batches.Gate);
+            _containers.Add(name, container);
+        }
+        return container;
     }
 
     public async ValueTask<bool> Execute(LibrarianBatch batch, CancellationToken cancellationToken = default)
@@ -44,10 +49,9 @@ public sealed class MemoryLibrarianDatabase(ILogger<MemoryLibrarianDatabase> log
         using (await _gate.Lock(cancellationToken).NoSync())
         {
             ObjectDisposedException.ThrowIf(_disposed.Value, this);
-            foreach (string name in batch.Writes.Select(write => write.Container).Concat(batch.Conditions.Select(condition => condition.Container)).Distinct(StringComparer.Ordinal))
-                if (!_containers.ContainsKey(name)) _containers.Add(name, new LibrarianContainer(name, this, logger, mutationGate: _batches.Gate));
-            Dictionary<string, LibrarianContainer> containers = _containers.ToDictionary(pair => pair.Key, pair => (LibrarianContainer)pair.Value, StringComparer.Ordinal);
-            return await _batches.Execute(batch, containers, cancellationToken: cancellationToken).NoSync();
+            foreach (LibrarianWrite write in batch.Writes) GetOrCreateContainer(write.Container);
+            foreach (LibrarianCondition condition in batch.Conditions) GetOrCreateContainer(condition.Container);
+            return await _batches.Execute(batch, _containers, cancellationToken: cancellationToken).NoSync();
         }
     }
 
@@ -71,7 +75,7 @@ public sealed class MemoryLibrarianDatabase(ILogger<MemoryLibrarianDatabase> log
         using (await _gate.Lock(cancellationToken).NoSync())
         {
             ObjectDisposedException.ThrowIf(_disposed.Value, this);
-            if (!_containers.Remove(containerName, out ILibrarianContainer? container))
+            if (!_containers.Remove(containerName, out LibrarianContainer? container))
                 return false;
             container.Dispose();
             return true;

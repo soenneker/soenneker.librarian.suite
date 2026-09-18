@@ -1,0 +1,9 @@
+# .NET 10.0.12; Microsoft Windows 10.0.26200; X64; CPUs=192; documents=100000; tiering disabled
+# All results validated; all engines and their indexes warm before timing.
+Operation,MedianMicroseconds,BytesPerOperation
+Broad-multi-field-ordered-page-3,5.887,5200
+Multi-field-ordered-page-3,9.141,6136
+Filter-order-other-property-page-3,8.923,5384
+Multi-field-count,3.855,2376
+Indexed-residual-take-3,12.787,11525
+Select-Skip-90000-Take-10,9.035,7736

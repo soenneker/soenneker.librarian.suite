@@ -20,7 +20,8 @@ public sealed partial class LibrarianContainer : ILibrarianContainer
     private readonly ILibrarianDatabase _database;
     private readonly ILogger _logger;
 
-    private ConcurrentDictionary<string, string> _items;
+    // Every access is protected by _mutationGate, including batch publication and query snapshots.
+    private Dictionary<string, string> _items;
     private readonly ConcurrentDictionary<Type, object> _queryRoots = new();
 
     private ValueAtomicBool _disposed = new(false);
@@ -37,16 +38,12 @@ public sealed partial class LibrarianContainer : ILibrarianContainer
 
         if (existingData is null || existingData.Count == 0)
         {
-            _items = new ConcurrentDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            _items = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             _logger.LogWarning("No existing data found for container ({containerName})", containerName);
             return;
         }
 
-        // concurrencyLevel: a reasonable default; capacity: existing count
-        _items = new ConcurrentDictionary<string, string>(
-            concurrencyLevel: Environment.ProcessorCount,
-            capacity: existingData.Count,
-            comparer: StringComparer.OrdinalIgnoreCase);
+        _items = new Dictionary<string, string>(existingData.Count, StringComparer.OrdinalIgnoreCase);
 
         foreach (IdValuePair data in existingData)
         {
@@ -155,7 +152,7 @@ public sealed partial class LibrarianContainer : ILibrarianContainer
         {
             ThrowIfDisposed();
             cancellationToken.ThrowIfCancellationRequested();
-            if (!_items.TryRemove(id, out _))
+            if (!_items.Remove(id))
                 throw new KeyNotFoundException($"Failed to delete item ({id})");
             _queryScanSnapshot = null;
             foreach (DocumentIndex index in _indexes.Values)

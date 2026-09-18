@@ -1,0 +1,3 @@
+Operation,MedianMicroseconds,BytesPerOperation
+Redis-decimal-key,0.117,144
+Redis-safe-key-segment,0.011,0

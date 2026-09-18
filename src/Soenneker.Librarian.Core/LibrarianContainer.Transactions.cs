@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Text.Json;
 using System.Threading;
@@ -20,32 +19,34 @@ public sealed partial class LibrarianContainer
     internal List<IdValuePair> SnapshotForBatch(LibrarianContainerState? state = null)
     {
         ThrowIfDisposed();
-        var result = new List<IdValuePair>();
-        foreach (KeyValuePair<string, string> pair in state?.Items ?? _items) result.Add(new IdValuePair { Id = pair.Key, Value = pair.Value });
+        Dictionary<string, string> items = state?.Items ?? _items;
+        var result = new List<IdValuePair>(items.Count);
+        foreach (KeyValuePair<string, string> pair in items) result.Add(new IdValuePair { Id = pair.Key, Value = pair.Value });
         return result;
     }
 
     internal LibrarianContainerState PrepareBatch(IEnumerable<LibrarianWrite> writes, CancellationToken token)
     {
         ThrowIfDisposed();
-        var items = new ConcurrentDictionary<string, string>(_items, StringComparer.OrdinalIgnoreCase);
+        var items = new Dictionary<string, string>(_items, StringComparer.OrdinalIgnoreCase);
         foreach (LibrarianWrite write in writes)
         {
             token.ThrowIfCancellationRequested();
-            if (write.Value is null) items.TryRemove(write.Id, out _);
+            if (write.Value is null) items.Remove(write.Id);
             else items[write.Id] = write.Value;
         }
         var indexes = new Dictionary<string, DocumentIndex>(StringComparer.Ordinal);
         foreach (string path in _indexes.Keys)
+            indexes.Add(path, new DocumentIndex(path));
+        if (indexes.Count > 0)
         {
-            var index = new DocumentIndex(path);
             foreach (KeyValuePair<string, string> pair in items)
             {
                 token.ThrowIfCancellationRequested();
                 using JsonDocument document = JsonDocument.Parse(pair.Value);
-                index.Set(pair.Key, index.Extract(document.RootElement));
+                foreach (DocumentIndex index in indexes.Values)
+                    index.Set(pair.Key, index.Extract(document.RootElement));
             }
-            indexes.Add(path, index);
         }
         return new(items, indexes, new IndexKey?[indexes.Count]);
     }

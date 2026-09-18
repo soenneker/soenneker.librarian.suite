@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -20,10 +21,11 @@ public sealed partial class RedisLibrarianContainer : ILibrarianContainer
 {
     private readonly RedisLibrarianDatabase _database;
     private readonly string _prefix;
+    private readonly ConcurrentDictionary<Type, object> _queryRoots = new();
     private volatile bool _disposed;
-    private RedisKey Version => _prefix + "version";
-    private RedisKey Schema => _prefix + "schema";
-    private RedisKey Ids => _prefix + "ids";
+    private readonly RedisKey Version;
+    private readonly RedisKey Schema;
+    private readonly RedisKey Ids;
     private RedisKey Document(string id) => _prefix + "document:" + id;
     private string DocumentPattern(string field) => _prefix + "document:*->" + field;
     private static string Field(string path) => "index:" + RedisIndexValue.KeySegment(path);
@@ -37,6 +39,9 @@ public sealed partial class RedisLibrarianContainer : ILibrarianContainer
         _database = database;
         // One readable namespace hash tag lets a transaction include multiple containers in Redis Cluster.
         _prefix = database.StoragePrefix + RedisIndexValue.KeySegment(name) + ":";
+        Version = _prefix + "version";
+        Schema = _prefix + "schema";
+        Ids = _prefix + "ids";
     }
 
     private string IndexedKey(string kind, string path, string? value = null)
@@ -105,6 +110,8 @@ public sealed partial class RedisLibrarianContainer : ILibrarianContainer
                 var path = pathValue.ToString();
                 RedisValue old = await store.HashGetAsync(Document(normalized), Field(path)).NoSync();
                 string? value = json is null ? null : RedisIndexValue.Read(json.RootElement, path);
+                // RedisValue equality can compare digit strings numerically; encoded decimal keys require exact text equality.
+                if (string.Equals(old.IsNull ? null : old.ToString(), value, StringComparison.Ordinal)) continue;
                 long count = old.IsNull ? 0 : await store.SetLengthAsync(Bucket(path, old.ToString())).NoSync();
                 values.Add((path, old, value, count));
             }
@@ -227,8 +234,8 @@ public sealed partial class RedisLibrarianContainer : ILibrarianContainer
         while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            RedisValue version = await store.StringGetAsync(Version).NoSync();
             if (await store.SetContainsAsync(Schema, fieldPath).NoSync()) return;
+            RedisValue version = await store.StringGetAsync(Version).NoSync();
             RedisValue[] documents = await store.SortAsync(Ids, sortType: SortType.Alphabetic, get: ["#", DocumentPattern("json")]).NoSync();
             var entries = new List<(string Id, string Value)>();
             for (var i = 0; i < documents.Length; i += 2)
@@ -318,13 +325,17 @@ public sealed partial class RedisLibrarianContainer : ILibrarianContainer
     public IQueryable<T> BuildQueryable<T>()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        return new RedisQueryable<T>(new RedisQueryProvider<T>(this));
+        return (IQueryable<T>)_queryRoots.GetOrAdd(typeof(T), static (_, container) =>
+            new RedisQueryable<T>(new RedisQueryProvider<T>(container)), this);
     }
 
     internal async ValueTask<RedisResult> ExecuteQuery(RedisQueryPlan plan)
     {
         foreach (string path in plan.Paths) await EnsureIndex(path).NoSync();
         IDatabase store = await Store(CancellationToken.None).NoSync();
+        // SCARD and SORT each execute atomically in Redis. A persistent set needs no optimistic retry or temporary set.
+        if (plan.Order is null && TryDirectSet(plan.Filter, out RedisKey direct))
+            return await ReadQuerySet(store, direct, plan).NoSync();
         while (true)
         {
             RedisValue version = await store.StringGetAsync(Version).NoSync();
@@ -334,19 +345,7 @@ public sealed partial class RedisLibrarianContainer : ILibrarianContainer
             {
                 RedisKey matches = await Evaluate(store, plan.Filter, temporaryKeys).NoSync();
                 if (plan.Order is not null) matches = await Combine(store, SetOperation.Intersect, [matches, Present(plan.Order)], temporaryKeys).NoSync();
-                RedisResult result;
-                if (plan.CountOnly)
-                {
-                    long count = await store.SetLengthAsync(matches).NoSync();
-                    result = RedisResult.Create(Math.Min(plan.Take, Math.Max(0, count - plan.Skip)));
-                }
-                else
-                {
-                    RedisValue[] documents = plan.Take == 0 ? [] : await store.SortAsync(matches, skip: plan.Skip, take: plan.Take,
-                        order: plan.Descending ? Order.Descending : Order.Ascending, sortType: SortType.Alphabetic,
-                        by: plan.Order is null ? default : DocumentPattern(Field(plan.Order)), get: [DocumentPattern("json")]).NoSync();
-                    result = RedisResult.Create(documents);
-                }
+                RedisResult result = await ReadQuerySet(store, matches, plan).NoSync();
                 // Never accept a result if temporary sets could have expired during a long attempt.
                 if (version == await store.StringGetAsync(Version).NoSync() && Stopwatch.GetElapsedTime(started) < TimeSpan.FromMinutes(4)) return result;
             }
@@ -357,9 +356,35 @@ public sealed partial class RedisLibrarianContainer : ILibrarianContainer
         }
     }
 
+    private async ValueTask<RedisResult> ReadQuerySet(IDatabase store, RedisKey matches, RedisQueryPlan plan)
+    {
+        if (plan.CountOnly)
+        {
+            long count = await store.SetLengthAsync(matches).NoSync();
+            return RedisResult.Create(Math.Min(plan.Take, Math.Max(0, count - plan.Skip)));
+        }
+        RedisValue[] documents = plan.Take == 0 ? [] : await store.SortAsync(matches, skip: plan.Skip, take: plan.Take,
+            order: plan.Descending ? Order.Descending : Order.Ascending, sortType: SortType.Alphabetic,
+            by: plan.Order is null ? default : DocumentPattern(Field(plan.Order)), get: [DocumentPattern("json")]).NoSync();
+        return RedisResult.Create(documents);
+    }
+
+    private bool TryDirectSet(RedisQueryFilter filter, out RedisKey key)
+    {
+        if (filter.Operation == "all") { key = Ids; return true; }
+        if (filter.Operation == "term" && filter.Minimum[0] == '[' && filter.Maximum.Length == filter.Minimum.Length + 1
+            && filter.Maximum[^1] == '~' && filter.Maximum.AsSpan(0, filter.Minimum.Length).SequenceEqual(filter.Minimum))
+        {
+            key = Bucket(filter.Path!, filter.Minimum[1..^1]);
+            return true;
+        }
+        key = default;
+        return false;
+    }
+
     private async ValueTask<RedisKey> Evaluate(IDatabase store, RedisQueryFilter filter, List<RedisKey> temporaryKeys)
     {
-        if (filter.Operation == "all") return Ids;
+        if (TryDirectSet(filter, out RedisKey direct)) return direct;
         if (filter.Operation == "term")
         {
             // Only distinct encoded index values cross the network; Redis combines their document-ID sets.
@@ -375,6 +400,7 @@ public sealed partial class RedisLibrarianContainer : ILibrarianContainer
 
     private async ValueTask<RedisKey> Combine(IDatabase store, SetOperation operation, RedisKey[] keys, List<RedisKey> temporaryKeys)
     {
+        if (keys.Length == 1) return keys[0];
         RedisKey destination = _prefix + "query:" + Guid.NewGuid().ToString("N");
         temporaryKeys.Add(destination);
         if (keys.Length == 0) return destination;
@@ -388,5 +414,9 @@ public sealed partial class RedisLibrarianContainer : ILibrarianContainer
         return destination;
     }
 
-    public void Dispose() => _disposed = true;
+    public void Dispose()
+    {
+        _disposed = true;
+        _queryRoots.Clear();
+    }
 }
