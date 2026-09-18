@@ -11,6 +11,8 @@ using Soenneker.Librarian.Redis;
 
 namespace Soenneker.Librarian.Suite.Tests;
 
+// Share the Redis integration constraint; competing operations within a test still run concurrently.
+[NotInParallel("Redis")]
 public class TransactionTests
 {
     [Test]

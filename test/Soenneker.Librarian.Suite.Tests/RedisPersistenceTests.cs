@@ -12,6 +12,8 @@ using Soenneker.Librarian.Redis.Registrars;
 
 namespace Soenneker.Librarian.Suite.Tests;
 
+// Independent fixtures share Redis and its client worker pool. Keep concurrency inside each test deliberate.
+[NotInParallel("Redis")]
 public class RedisPersistenceTests
 {
     [Test]
