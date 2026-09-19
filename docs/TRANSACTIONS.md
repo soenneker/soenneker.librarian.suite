@@ -44,7 +44,9 @@ Separate read calls do not form a snapshot. Cancellation or a connection failure
 
 ## Batch sizing
 
-Memory and FileSystem batches clone changed containers and rebuild their explicit indexes before publication; automatic indexes rebuild lazily. FileSystem persists the whole database file. Account for these costs when sizing batches.
+Memory and FileSystem batches prepare only changed documents and their explicit and automatic index keys. Validation and automatic property extraction complete before publication; FileSystem also persists before publication. The shared gate protects incremental publication across all containers. Unchanged writes preserve indexes and cached scan snapshots. FileSystem still serializes and persists the whole database file, so its persistence cost grows with the database size.
+
+Redis batches skip unchanged index values and fetch a document's old indexed fields together. Condition-only batches validate every expected raw value in one server script, without a write transaction or version increment.
 
 ## Redis Cluster and prototype migration
 

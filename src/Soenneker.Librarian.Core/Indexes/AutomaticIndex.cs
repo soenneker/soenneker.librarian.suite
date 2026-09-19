@@ -6,11 +6,11 @@ internal sealed class AutomaticIndex(Func<object, IndexKey?> extract)
 {
     internal readonly DocumentIndex Index = new("automatic");
 
-    internal void Set(string id, object? value)
+    internal IndexKey? Extract(object? value)
     {
-        IndexKey? key;
-        try { key = value is null ? null : extract(value); }
-        catch (Exception) { key = null; } // Match BuildQueryable's invalid-document behavior without rejecting raw writes.
-        Index.Set(id, key);
+        try { return value is null ? null : extract(value); }
+        catch (Exception) { return null; } // Match BuildQueryable's invalid-document behavior without rejecting raw writes.
     }
+
+    internal void Set(string id, object? value) => Index.Set(id, Extract(value));
 }

@@ -170,8 +170,17 @@ public sealed partial class PostgresLibrarianContainer : ILibrarianContainer
         return items;
     }
 
-    public async ValueTask<List<string>> GetAllItems(CancellationToken cancellationToken = default) =>
-        (await GetLibrarianItems(cancellationToken).NoSync()).Select(item => item.Value).ToList();
+    public async ValueTask<List<string>> GetAllItems(CancellationToken cancellationToken = default)
+    {
+        Check();
+        await using NpgsqlConnection connection = await _database.Open(cancellationToken).NoSync();
+        await using NpgsqlCommand command = Command(connection,
+            "SELECT document FROM public.librarian_postgres_documents WHERE database_key=$1 AND container=$2 ORDER BY id_key");
+        await using NpgsqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken).NoSync();
+        var items = new List<string>();
+        while (await reader.ReadAsync(cancellationToken).NoSync()) items.Add(reader.GetString(0));
+        return items;
+    }
 
     public async ValueTask<List<string>> GetAllIds(CancellationToken cancellationToken = default)
     {

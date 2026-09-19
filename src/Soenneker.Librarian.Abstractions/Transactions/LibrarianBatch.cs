@@ -16,8 +16,19 @@ public sealed class LibrarianBatch
         ArgumentNullException.ThrowIfNull(writes);
         LibrarianWrite[] writeArray = writes.ToArray();
         LibrarianCondition[] conditionArray = conditions?.ToArray() ?? [];
-        Validate(writeArray.Select(write => write is null ? throw new ArgumentException("Writes cannot contain null.") : (write.Container, write.Id)));
-        Validate(conditionArray.Select(condition => condition is null ? throw new ArgumentException("Conditions cannot contain null.") : (condition.Container, condition.Id)));
+        HashSet<(string, string)>? addresses = writeArray.Length > 1 ? new(writeArray.Length, AddressComparer.Instance) : null;
+        foreach (LibrarianWrite write in writeArray)
+        {
+            if (write is null) throw new ArgumentException("Writes cannot contain null.", nameof(writes));
+            Validate(write.Container, write.Id, addresses);
+        }
+        addresses?.Clear();
+        if (conditionArray.Length > 1) addresses ??= new(conditionArray.Length, AddressComparer.Instance);
+        foreach (LibrarianCondition condition in conditionArray)
+        {
+            if (condition is null) throw new ArgumentException("Conditions cannot contain null.", nameof(conditions));
+            Validate(condition.Container, condition.Id, addresses);
+        }
         Writes = Array.AsReadOnly(writeArray);
         Conditions = Array.AsReadOnly(conditionArray);
     }
@@ -27,15 +38,20 @@ public sealed class LibrarianBatch
     /// <summary>Conditions evaluated against the state immediately preceding the commit.</summary>
     public IReadOnlyList<LibrarianCondition> Conditions { get; }
 
-    private static void Validate(IEnumerable<(string Container, string Id)> addresses)
+    private static void Validate(string container, string id, HashSet<(string, string)>? addresses)
     {
-        var containers = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
-        foreach ((string container, string id) in addresses)
-        {
-            ArgumentException.ThrowIfNullOrWhiteSpace(container);
-            ArgumentNullException.ThrowIfNull(id);
-            if (!containers.TryGetValue(container, out HashSet<string>? ids)) containers.Add(container, ids = new(StringComparer.OrdinalIgnoreCase));
-            if (!ids.Add(id)) throw new ArgumentException($"Duplicate document '{id}' in container '{container}'.");
-        }
+        ArgumentException.ThrowIfNullOrWhiteSpace(container);
+        ArgumentNullException.ThrowIfNull(id);
+        if (addresses is not null && !addresses.Add((container, id)))
+            throw new ArgumentException($"Duplicate document '{id}' in container '{container}'.");
+    }
+
+    private sealed class AddressComparer : IEqualityComparer<(string Container, string Id)>
+    {
+        internal static readonly AddressComparer Instance = new();
+        public bool Equals((string Container, string Id) x, (string Container, string Id) y) =>
+            StringComparer.Ordinal.Equals(x.Container, y.Container) && StringComparer.OrdinalIgnoreCase.Equals(x.Id, y.Id);
+        public int GetHashCode((string Container, string Id) value) =>
+            HashCode.Combine(StringComparer.Ordinal.GetHashCode(value.Container), StringComparer.OrdinalIgnoreCase.GetHashCode(value.Id));
     }
 }

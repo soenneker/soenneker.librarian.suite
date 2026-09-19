@@ -12,6 +12,18 @@ namespace Soenneker.Librarian.Redis;
 
 public sealed partial class RedisLibrarianDatabase
 {
+    private const string CheckConditionsScript = """
+        for i = 1, #KEYS do
+            local value = redis.call('HGET', KEYS[i], 'json')
+            if ARGV[i * 2 - 1] == '0' then
+                if value ~= false then return 0 end
+            elseif value ~= ARGV[i * 2] then
+                return 0
+            end
+        end
+        return 1
+        """;
+
     public async ValueTask<bool> Execute(LibrarianBatch batch, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(batch);
@@ -23,6 +35,20 @@ public sealed partial class RedisLibrarianDatabase
             foreach (string name in names)
                 if (!_containers.ContainsKey(name)) _containers.Add(name, new RedisLibrarianContainer(name, this));
             if (names.Length == 0) return true;
+            if (batch.Writes.Count == 0)
+            {
+                var keys = new RedisKey[batch.Conditions.Count];
+                var values = new RedisValue[keys.Length * 2];
+                for (int i = 0; i < keys.Length; i++)
+                {
+                    LibrarianCondition condition = batch.Conditions[i];
+                    keys[i] = ((RedisLibrarianContainer)_containers[condition.Container]).BatchDocument(condition.Id);
+                    values[i * 2] = condition.ExpectedValue is null ? "0" : "1";
+                    values[i * 2 + 1] = condition.ExpectedValue ?? "";
+                }
+                cancellationToken.ThrowIfCancellationRequested();
+                return (long)await store.ScriptEvaluateAsync(CheckConditionsScript, keys, values).NoSync() == 1;
+            }
             for (var attempt = 0; ; attempt++)
             {
                 cancellationToken.ThrowIfCancellationRequested();

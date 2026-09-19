@@ -210,7 +210,7 @@ All methods above are awaitable and accept a cancellation token. Document IDs ar
 
 Update related documents across containers in one all-or-nothing operation with `ILibrarianDatabase.Execute`. Add conditions to prevent overwriting concurrent changes; if a condition fails, it returns `false` and applies no writes.
 
-Available with all three providers, including coordination across application instances with Redis. See the [atomic batch guide](docs/TRANSACTIONS.md) for an example, provider guarantees, and retry handling.
+Available with all four providers, including coordination across application instances with Redis and PostgreSQL. See the [atomic batch guide](docs/TRANSACTIONS.md) for an example, provider guarantees, and retry handling.
 
 ## Typed repositories
 

@@ -88,7 +88,7 @@ public sealed class MemoryLibrarianDatabase(ILogger<MemoryLibrarianDatabase> log
         {
             if (!_disposed.TrySetTrue())
                 return;
-            foreach (ILibrarianContainer container in _containers.Values)
+            foreach (LibrarianContainer container in _containers.Values)
                 container.Dispose();
             _containers.Clear();
         }

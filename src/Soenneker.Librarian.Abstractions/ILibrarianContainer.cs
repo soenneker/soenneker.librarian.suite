@@ -58,6 +58,14 @@ public interface ILibrarianContainer : IDisposable
     ValueTask<LibrarianQueryResult<T>> FindRangeByIndex<T>(string fieldPath, object? minimum = null, object? maximum = null,
         bool descending = false, int skip = 0, int take = 100, CancellationToken cancellationToken = default);
 
+    /// <summary>Counts an inclusive range directly from an existing index without fetching documents.</summary>
+    /// <remarks>Null bounds are unbounded. Bound types must match and minimum must not exceed maximum.
+    /// Built-in providers use index cardinality; the default implementation materializes the matching JSON values.</remarks>
+    async ValueTask<int> CountRangeByIndex(string fieldPath, object? minimum = null, object? maximum = null,
+        CancellationToken cancellationToken = default) =>
+        (await FindRangeByIndex<System.Text.Json.JsonElement>(fieldPath, minimum, maximum, take: int.MaxValue,
+            cancellationToken: cancellationToken).ConfigureAwait(false)).Items.Count;
+
     /// <summary>
     /// Creates a deferred query with automatic indexes for supported scalar property filters and ordering.
     /// </summary>
@@ -94,6 +102,25 @@ public interface ILibrarianContainer : IDisposable
     /// <param name="cancellationToken">Token used to cancel the read.</param>
     /// <returns>The document if found, otherwise null.</returns>
     ValueTask<string?> GetItem(string id, CancellationToken cancellationToken = default);
+
+    /// <summary>Reads documents in request order, preserving duplicates and returning null for missing IDs.</summary>
+    /// <remarks>Built-in providers capture one consistent snapshot without deserializing documents. Redis uses one server
+    /// script and PostgreSQL one statement. The default implementation for third-party providers performs separate reads;
+    /// use batch conditions when coordinating decisions across reads. Do not modify the IDs until the operation completes.</remarks>
+    async ValueTask<string?[]> GetItems(IReadOnlyList<string> ids, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(ids);
+        cancellationToken.ThrowIfCancellationRequested();
+        var result = new string?[ids.Count];
+        for (int i = 0; i < ids.Count; i++) ArgumentNullException.ThrowIfNull(ids[i]);
+        for (int i = 0; i < ids.Count; i++) result[i] = await GetItem(ids[i], cancellationToken).ConfigureAwait(false);
+        return result;
+    }
+
+    /// <summary>Counts all documents without deserialization or requiring a user-created index.</summary>
+    /// <remarks>Built-in providers use native container cardinality. The default implementation reads document IDs.</remarks>
+    async ValueTask<int> CountItems(CancellationToken cancellationToken = default) =>
+        (await GetAllIds(cancellationToken).ConfigureAwait(false)).Count;
 
     /// <summary>
     /// Retrieves a document by its ID, throwing an exception if not found.

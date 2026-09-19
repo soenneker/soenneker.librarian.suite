@@ -25,11 +25,16 @@ public sealed class LibrarianBatchExecutor
         ArgumentNullException.ThrowIfNull(batch);
         using (await Gate.Lock(cancellationToken).NoSync())
         {
+            cancellationToken.ThrowIfCancellationRequested();
             foreach (LibrarianCondition condition in batch.Conditions)
                 if (!string.Equals(containers[condition.Container].ReadForBatch(condition.Id), condition.ExpectedValue, StringComparison.Ordinal)) return false;
+            if (batch.Writes.Count == 0) return true;
             var prepared = new Dictionary<string, LibrarianContainerState>(StringComparer.Ordinal);
             foreach (IGrouping<string, LibrarianWrite> group in batch.Writes.GroupBy(write => write.Container, StringComparer.Ordinal))
-                prepared.Add(group.Key, containers[group.Key].PrepareBatch(group, cancellationToken));
+            {
+                LibrarianContainerState state = containers[group.Key].PrepareBatch(group, cancellationToken);
+                if (state.Writes.Count > 0) prepared.Add(group.Key, state);
+            }
             cancellationToken.ThrowIfCancellationRequested();
             if (persist is not null && prepared.Count > 0)
             {

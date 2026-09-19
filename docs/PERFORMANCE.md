@@ -1,6 +1,6 @@
 # Performance comparison
 
-For the latest same-version before/after measurements covering writes, allocations, query planning, and Redis, see the [2026-09-17 performance pass](PERFORMANCE-2026-09-17.md). The engine comparison below is preserved from the earlier benchmark run.
+For incremental batch writes and the bulk read/count APIs used by Flywheel, see the [2026-09-19 integration pass](FLYWHEEL-INTEGRATION.md). The [2026-09-17 performance pass](PERFORMANCE-2026-09-17.md) covers earlier write, query, and Redis measurements. The engine comparison below is preserved from the earlier benchmark run.
 
 100,000 documents, warm indexes, .NET 10.0.12 Release. Librarian LINQ, LiteDB 5.0.21 native expression queries, and sqlite-net-pcl 1.11.285 all use in-memory storage. Query construction and execution are included. Times are medians over seven rounds.
 

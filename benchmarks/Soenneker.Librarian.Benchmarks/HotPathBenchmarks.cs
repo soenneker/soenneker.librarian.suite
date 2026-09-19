@@ -25,13 +25,14 @@ internal static class HotPathBenchmarks
         await container.EnsureIndex("score");
         await container.EnsureIndex("group");
         await container.EnsureIndex("payload");
-        var batch = new LibrarianBatch([new("hotpaths", ids[0], json[0])]);
-        AuditBenchmarks.Measure("Batch-10000-three-explicit-indexes", _ => database.Execute(batch).GetAwaiter().GetResult() ? 1 : 0, 10);
-        // A batch invalidates automatic indexes; this measures both its staging and a cold numeric rebuild.
-        AuditBenchmarks.Measure("Batch-and-cold-numeric-index-10000", _ =>
+        var batches = new[] { new LibrarianBatch([new("hotpaths", ids[0], json[0])]), new LibrarianBatch([new("hotpaths", ids[0], json[1])]) };
+        AuditBenchmarks.Measure("Batch-10000-three-explicit-indexes", i => database.Execute(batches[i % 2]).GetAwaiter().GetResult() ? 1 : 0, 100);
+        // Alternate values to measure real writes; the numeric index should survive each batch.
+        root.Count(row => row.Score >= 0);
+        AuditBenchmarks.Measure("Batch-and-numeric-count-10000", i =>
         {
-            database.Execute(batch).GetAwaiter().GetResult();
+            database.Execute(batches[i % 2]).GetAwaiter().GetResult();
             return root.Count(row => row.Score >= 0);
-        }, 10);
+        }, 100);
     }
 }
