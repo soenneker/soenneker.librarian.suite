@@ -4,6 +4,7 @@ using System.Linq;
 using System.Linq.Expressions;
 using System.Threading;
 using System.Threading.Tasks;
+using Soenneker.Extensions.ValueTask;
 
 namespace Soenneker.Librarian.Abstractions.Queries;
 
@@ -13,7 +14,7 @@ public static class LibrarianQueryableExtensions
     /// <summary>Materializes the query asynchronously, checking cancellation while collecting results.</summary>
     public static async ValueTask<List<T>> ToListAsync<T>(this IQueryable<T> query, CancellationToken cancellationToken = default)
     {
-        IEnumerable<T> source = await Provider(query).ExecuteAsync<IEnumerable<T>>(query.Expression, cancellationToken).ConfigureAwait(false);
+        IEnumerable<T> source = await Provider(query).ExecuteAsync<IEnumerable<T>>(query.Expression, cancellationToken).NoSync();
         var results = new List<T>();
         foreach (T item in source) { cancellationToken.ThrowIfCancellationRequested(); results.Add(item); }
         cancellationToken.ThrowIfCancellationRequested();
@@ -22,7 +23,7 @@ public static class LibrarianQueryableExtensions
 
     /// <summary>Materializes the query into an array asynchronously.</summary>
     public static async ValueTask<T[]> ToArrayAsync<T>(this IQueryable<T> query, CancellationToken cancellationToken = default) =>
-        (await query.ToListAsync(cancellationToken).ConfigureAwait(false)).ToArray();
+        (await query.ToListAsync(cancellationToken).NoSync()).ToArray();
 
     /// <summary>Counts query results asynchronously.</summary>
     public static ValueTask<int> CountAsync<T>(this IQueryable<T> query, CancellationToken cancellationToken = default) => query.ExecuteAsync(q => q.Count(), cancellationToken);

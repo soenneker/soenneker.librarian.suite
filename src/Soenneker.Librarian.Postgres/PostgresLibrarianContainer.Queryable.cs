@@ -5,6 +5,8 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Npgsql;
+using Soenneker.Extensions.Task;
+using Soenneker.Extensions.ValueTask;
 
 namespace Soenneker.Librarian.Postgres;
 
@@ -21,8 +23,8 @@ public sealed partial class PostgresLibrarianContainer
     internal async ValueTask<object?> ExecuteQuery(PostgresQueryPlan plan, CancellationToken cancellationToken = default)
     {
         Check();
-        foreach (string path in plan.Paths) await EnsureIndex(path, cancellationToken).ConfigureAwait(false);
-        await using NpgsqlConnection connection = await _database.Open(cancellationToken).ConfigureAwait(false);
+        foreach (string path in plan.Paths) await EnsureIndex(path, cancellationToken).NoSync();
+        await using NpgsqlConnection connection = await _database.Open(cancellationToken).NoSync();
         await using NpgsqlCommand command = Command(connection, "");
         string Parameter(object value)
         {
@@ -129,13 +131,13 @@ public sealed partial class PostgresLibrarianContainer
                 value = "(" + value + ")::numeric(57,28)";
             command.CommandText = "SELECT " + function + "(" + value + ") FROM (" + page + ") page JOIN public.librarian_postgres_documents d " +
                 "ON d.database_key=$1 AND d.container=$2 AND d.id_key=page.id_key";
-            object? result = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+            object? result = await command.ExecuteScalarAsync(cancellationToken).NoSync();
             return result is DBNull ? null : result;
         }
         if (plan.CountOnly)
         {
             command.CommandText = "SELECT COUNT(*) FROM (" + page + ") page";
-            return (long)(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false))!;
+            return (long)(await command.ExecuteScalarAsync(cancellationToken).NoSync())!;
         }
 
         string selected = plan.Projection is null ? "documents.document" : string.Join(",", plan.Projection.Expressions.Select(column =>
@@ -143,11 +145,11 @@ public sealed partial class PostgresLibrarianContainer
             "to_jsonb(" + column.Sql(Parameter, "documents") + ")::text"));
         command.CommandText = "SELECT " + selected + " FROM (" + page + ") page " +
             "JOIN public.librarian_postgres_documents documents ON documents.database_key=$1 AND documents.container=$2 AND documents.id_key=page.id_key ORDER BY " + pageOrder;
-        await using NpgsqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        await using NpgsqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken).NoSync();
         if (plan.Projection is not null)
         {
             var rows = new List<string?[]>();
-            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            while (await reader.ReadAsync(cancellationToken).NoSync())
             {
                 var row = new string?[reader.FieldCount];
                 for (var i = 0; i < row.Length; i++) row[i] = reader.IsDBNull(i) ? null : reader.GetString(i);
@@ -156,7 +158,7 @@ public sealed partial class PostgresLibrarianContainer
             return rows;
         }
         var documents = new List<string>();
-        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) documents.Add(reader.GetString(0));
+        while (await reader.ReadAsync(cancellationToken).NoSync()) documents.Add(reader.GetString(0));
         return documents;
     }
 }

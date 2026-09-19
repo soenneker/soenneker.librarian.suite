@@ -4,6 +4,8 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Npgsql;
+using Soenneker.Extensions.Task;
+using Soenneker.Extensions.ValueTask;
 using Soenneker.Librarian.Abstractions.Queries;
 using Soenneker.Utils.Json;
 
@@ -15,21 +17,21 @@ public sealed partial class PostgresLibrarianContainer
     {
         await using NpgsqlCommand command = Command(connection,
             "SELECT EXISTS(SELECT 1 FROM public.librarian_postgres_indexes WHERE database_key=$1 AND container=$2 AND path=$3)", path);
-        return (bool)(await command.ExecuteScalarAsync(token).ConfigureAwait(false))!;
+        return (bool)(await command.ExecuteScalarAsync(token).NoSync())!;
     }
 
     public async ValueTask EnsureIndex(string fieldPath, CancellationToken cancellationToken = default)
     {
         Check();
         PostgresIndexValue.ValidatePath(fieldPath);
-        await using NpgsqlConnection connection = await _database.Open(cancellationToken).ConfigureAwait(false);
-        if (await HasIndex(connection, fieldPath, cancellationToken).ConfigureAwait(false)) return;
-        await using NpgsqlTransaction transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
-        await _database.LockWrites(connection, cancellationToken).ConfigureAwait(false);
-        if (await HasIndex(connection, fieldPath, cancellationToken).ConfigureAwait(false)) return;
+        await using NpgsqlConnection connection = await _database.Open(cancellationToken).NoSync();
+        if (await HasIndex(connection, fieldPath, cancellationToken).NoSync()) return;
+        await using NpgsqlTransaction transaction = await connection.BeginTransactionAsync(cancellationToken).NoSync();
+        await _database.LockWrites(connection, cancellationToken).NoSync();
+        if (await HasIndex(connection, fieldPath, cancellationToken).NoSync()) return;
         await using (NpgsqlCommand command = Command(connection,
             "INSERT INTO public.librarian_postgres_indexes (database_key,container,path) VALUES ($1,$2,$3)", fieldPath))
-            await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            await command.ExecuteNonQueryAsync(cancellationToken).NoSync();
 
         // Bounded keyset pages keep index construction from buffering the whole container.
         string? after = null;
@@ -40,9 +42,9 @@ public sealed partial class PostgresLibrarianContainer
             await using (NpgsqlCommand command = Command(connection,
                 "SELECT id_key,document FROM public.librarian_postgres_documents WHERE database_key=$1 AND container=$2" + predicate + " ORDER BY id_key LIMIT 256",
                 after is null ? [] : [after]))
-            await using (NpgsqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
+            await using (NpgsqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken).NoSync())
             {
-                while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                while (await reader.ReadAsync(cancellationToken).NoSync())
                 {
                     using JsonDocument json = JsonDocument.Parse(reader.GetString(1));
                     entries.Add((reader.GetString(0), PostgresIndexValue.Read(json.RootElement, fieldPath)));
@@ -50,17 +52,17 @@ public sealed partial class PostgresLibrarianContainer
             }
             if (entries.Count == 0) break;
             foreach ((string id, string? value) in entries)
-                if (value is not null) await InsertValue(connection, id, fieldPath, value, cancellationToken).ConfigureAwait(false);
+                if (value is not null) await InsertValue(connection, id, fieldPath, value, cancellationToken).NoSync();
             after = entries[^1].Id;
         }
         cancellationToken.ThrowIfCancellationRequested();
-        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).NoSync();
     }
 
     private async ValueTask RequireIndex(NpgsqlConnection connection, string path, CancellationToken token)
     {
         PostgresIndexValue.ValidatePath(path);
-        if (!await HasIndex(connection, path, token).ConfigureAwait(false)) throw new InvalidOperationException($"Index '{path}' does not exist.");
+        if (!await HasIndex(connection, path, token).NoSync()) throw new InvalidOperationException($"Index '{path}' does not exist.");
     }
 
     private async ValueTask<LibrarianQueryResult<T>> Indexed<T>(string path, string? minimum, string? maximum, bool descending,
@@ -69,8 +71,8 @@ public sealed partial class PostgresLibrarianContainer
         Check();
         ArgumentOutOfRangeException.ThrowIfNegative(skip);
         ArgumentOutOfRangeException.ThrowIfLessThan(take, 1);
-        await using NpgsqlConnection connection = await _database.Open(token).ConfigureAwait(false);
-        await RequireIndex(connection, path, token).ConfigureAwait(false);
+        await using NpgsqlConnection connection = await _database.Open(token).NoSync();
+        await RequireIndex(connection, path, token).NoSync();
         var values = new List<object> { path };
         var bounds = "";
         if (minimum is not null) { values.Add(minimum); bounds += $" AND v.value>=${values.Count + 2}"; }
@@ -89,9 +91,9 @@ public sealed partial class PostgresLibrarianContainer
                    ORDER BY page.value {direction},page.id_key {direction}
                    """;
         await using NpgsqlCommand command = Command(connection, sql, values.ToArray());
-        await using NpgsqlDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false);
+        await using NpgsqlDataReader reader = await command.ExecuteReaderAsync(token).NoSync();
         var items = new List<T>();
-        while (await reader.ReadAsync(token).ConfigureAwait(false)) items.Add(JsonUtil.Deserialize<T>(reader.GetString(0))!);
+        while (await reader.ReadAsync(token).NoSync()) items.Add(JsonUtil.Deserialize<T>(reader.GetString(0))!);
         return new LibrarianQueryResult<T> { Items = items, Index = path, IndexEntriesExamined = items.Count, DocumentsDeserialized = items.Count };
     }
 
@@ -114,17 +116,17 @@ public sealed partial class PostgresLibrarianContainer
     private async ValueTask<object> Aggregate(string path, object? value, bool exists, CancellationToken token)
     {
         Check();
-        await using NpgsqlConnection connection = await _database.Open(token).ConfigureAwait(false);
-        await RequireIndex(connection, path, token).ConfigureAwait(false);
+        await using NpgsqlConnection connection = await _database.Open(token).NoSync();
+        await RequireIndex(connection, path, token).NoSync();
         var from = "FROM public.librarian_postgres_values WHERE database_key=$1 AND container=$2 AND path=$3 AND value=$4";
         await using NpgsqlCommand command = Command(connection,
             exists ? "SELECT EXISTS(SELECT 1 " + from + ")" : "SELECT COUNT(*) " + from, path, PostgresIndexValue.Encode(value));
-        return (await command.ExecuteScalarAsync(token).ConfigureAwait(false))!;
+        return (await command.ExecuteScalarAsync(token).NoSync())!;
     }
 
     public async ValueTask<int> CountByIndex(string fieldPath, object? value, CancellationToken cancellationToken = default) =>
-        checked((int)(long)await Aggregate(fieldPath, value, false, cancellationToken).ConfigureAwait(false));
+        checked((int)(long)await Aggregate(fieldPath, value, false, cancellationToken).NoSync());
 
     public async ValueTask<bool> ExistsByIndex(string fieldPath, object? value, CancellationToken cancellationToken = default) =>
-        (bool)await Aggregate(fieldPath, value, true, cancellationToken).ConfigureAwait(false);
+        (bool)await Aggregate(fieldPath, value, true, cancellationToken).NoSync();
 }

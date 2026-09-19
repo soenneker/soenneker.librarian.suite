@@ -6,6 +6,7 @@ using System.Linq;
 using System.Linq.Expressions;
 using System.Threading;
 using System.Threading.Tasks;
+using Soenneker.Extensions.ValueTask;
 using Soenneker.Librarian.Abstractions.Queries;
 using Soenneker.Utils.Json;
 
@@ -38,7 +39,7 @@ internal sealed class PostgresQueryProvider<T>(PostgresLibrarianContainer contai
     {
         cancellationToken.ThrowIfCancellationRequested();
         var plan = PostgresQueryPlan.Create(expression, this);
-        object? result = await container.ExecuteQuery(plan, cancellationToken).ConfigureAwait(false);
+        object? result = await container.ExecuteQuery(plan, cancellationToken).NoSync();
         cancellationToken.ThrowIfCancellationRequested();
         if (plan.Terminal == nameof(Queryable.Count)) return (TResult)(object)checked((int)(long)result!);
         if (plan.Terminal == nameof(Queryable.LongCount)) return (TResult)result!;

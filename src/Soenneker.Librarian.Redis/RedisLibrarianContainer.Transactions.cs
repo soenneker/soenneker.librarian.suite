@@ -15,7 +15,7 @@ public sealed partial class RedisLibrarianContainer
     internal async ValueTask<Action<ITransaction, List<Task>>?> PrepareBatch(IDatabase store,
         IEnumerable<LibrarianCondition> conditions, IEnumerable<LibrarianWrite> writes, CancellationToken token)
     {
-        ObjectDisposedException.ThrowIf(_disposed, this);
+        ObjectDisposedException.ThrowIf(_disposed.Value, this);
         RedisValue version = await store.StringGetAsync(Version).NoSync();
         foreach (LibrarianCondition condition in conditions)
         {

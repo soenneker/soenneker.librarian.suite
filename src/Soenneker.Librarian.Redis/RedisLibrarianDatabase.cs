@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Soenneker.Asyncs.Locks;
+using Soenneker.Atomics.ValueBools;
 using Soenneker.Extensions.Configuration;
 using Soenneker.Extensions.ValueTask;
 using Soenneker.Librarian.Abstractions;
@@ -21,7 +22,7 @@ public sealed partial class RedisLibrarianDatabase : ILibrarianDatabase
     private readonly int _database;
     private readonly AsyncLock _gate = new();
     private readonly Dictionary<string, ILibrarianContainer> _containers = new(StringComparer.Ordinal);
-    private volatile bool _disposed;
+    private ValueAtomicBool _disposed = new(false);
 
     public RedisLibrarianDatabase(IConfiguration configuration, IRedisClient redisClient, ILogger<RedisLibrarianDatabase> logger)
         : this(configuration.GetValueStrict<string>("Librarian:Redis:Key"), redisClient, logger,
@@ -54,12 +55,12 @@ public sealed partial class RedisLibrarianDatabase : ILibrarianDatabase
 
     internal async ValueTask<IDatabase> GetStore(CancellationToken token)
     {
-        ObjectDisposedException.ThrowIf(_disposed, this);
+        ObjectDisposedException.ThrowIf(_disposed.Value, this);
         token.ThrowIfCancellationRequested();
         if (_storeFactory is not null) return await _storeFactory(token).NoSync();
         ConnectionMultiplexer connection = await _client!.Get(token).NoSync();
         token.ThrowIfCancellationRequested();
-        ObjectDisposedException.ThrowIf(_disposed, this);
+        ObjectDisposedException.ThrowIf(_disposed.Value, this);
         return connection.GetDatabase(_database);
     }
 
@@ -68,7 +69,7 @@ public sealed partial class RedisLibrarianDatabase : ILibrarianDatabase
         ArgumentException.ThrowIfNullOrWhiteSpace(containerName);
         using (await _gate.Lock(cancellationToken).NoSync())
         {
-            ObjectDisposedException.ThrowIf(_disposed, this);
+            ObjectDisposedException.ThrowIf(_disposed.Value, this);
             if (!_containers.TryGetValue(containerName, out ILibrarianContainer? container))
                 _containers.Add(containerName, container = new RedisLibrarianContainer(containerName, this));
             return container;
@@ -77,14 +78,14 @@ public sealed partial class RedisLibrarianDatabase : ILibrarianDatabase
 
     public ValueTask Save(CancellationToken cancellationToken = default)
     {
-        ObjectDisposedException.ThrowIf(_disposed, this);
+        ObjectDisposedException.ThrowIf(_disposed.Value, this);
         cancellationToken.ThrowIfCancellationRequested();
         return ValueTask.CompletedTask;
     }
 
     public ValueTask MarkDirty(string containerName, CancellationToken cancellationToken = default)
     {
-        ObjectDisposedException.ThrowIf(_disposed, this);
+        ObjectDisposedException.ThrowIf(_disposed.Value, this);
         return ValueTask.CompletedTask;
     }
 
@@ -93,7 +94,7 @@ public sealed partial class RedisLibrarianDatabase : ILibrarianDatabase
         ArgumentException.ThrowIfNullOrWhiteSpace(containerName);
         using (await _gate.Lock(cancellationToken).NoSync())
         {
-            ObjectDisposedException.ThrowIf(_disposed, this);
+            ObjectDisposedException.ThrowIf(_disposed.Value, this);
             if (!_containers.Remove(containerName, out ILibrarianContainer? container)) return false;
             container.Dispose();
             return true;
@@ -104,8 +105,7 @@ public sealed partial class RedisLibrarianDatabase : ILibrarianDatabase
     {
         using (await _gate.Lock(CancellationToken.None).NoSync())
         {
-            if (_disposed) return;
-            _disposed = true;
+            if (!_disposed.TrySetTrue()) return;
             foreach (ILibrarianContainer container in _containers.Values) container.Dispose();
             _containers.Clear();
         }

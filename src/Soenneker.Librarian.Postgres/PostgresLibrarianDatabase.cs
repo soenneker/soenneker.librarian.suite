@@ -4,7 +4,10 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
 using Npgsql;
+using Soenneker.Atomics.ValueBools;
 using Soenneker.Extensions.Configuration;
+using Soenneker.Extensions.Task;
+using Soenneker.Extensions.ValueTask;
 using Soenneker.Librarian.Abstractions;
 using Soenneker.Librarian.Abstractions.Transactions;
 
@@ -17,7 +20,7 @@ public sealed class PostgresLibrarianDatabase : ILibrarianDatabase
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly Dictionary<string, PostgresLibrarianContainer> _containers = new(StringComparer.Ordinal);
     private volatile bool _initialized;
-    private volatile bool _disposed;
+    private ValueAtomicBool _disposed = new(false);
     internal string Key { get; }
 
     public PostgresLibrarianDatabase(IConfiguration configuration)
@@ -43,7 +46,7 @@ public sealed class PostgresLibrarianDatabase : ILibrarianDatabase
         Key = PostgresIndexValue.Hex(key);
     }
 
-    internal void Check() => ObjectDisposedException.ThrowIf(_disposed, this);
+    internal void Check() => ObjectDisposedException.ThrowIf(_disposed.Value, this);
 
     internal async ValueTask<NpgsqlConnection> Open(CancellationToken token)
     {
@@ -51,27 +54,27 @@ public sealed class PostgresLibrarianDatabase : ILibrarianDatabase
         token.ThrowIfCancellationRequested();
         if (!_initialized)
         {
-            await _gate.WaitAsync(token).ConfigureAwait(false);
+            await _gate.WaitAsync(token).NoSync();
             try
             {
                 Check();
                 if (!_initialized)
                 {
-                    await using NpgsqlConnection connection = await _source.OpenConnectionAsync(token).ConfigureAwait(false);
-                    await using NpgsqlTransaction transaction = await connection.BeginTransactionAsync(token).ConfigureAwait(false);
+                    await using NpgsqlConnection connection = await _source.OpenConnectionAsync(token).NoSync();
+                    await using NpgsqlTransaction transaction = await connection.BeginTransactionAsync(token).NoSync();
                     // Serialize first-time DDL across processes; released on commit or rollback.
                     await using (var command = new NpgsqlCommand("SELECT pg_advisory_xact_lock(-704382180949935101)", connection, transaction))
-                        await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                        await command.ExecuteNonQueryAsync(token).NoSync();
                     await using (var command = new NpgsqlCommand(Schema, connection, transaction))
-                        await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
-                    await transaction.CommitAsync(token).ConfigureAwait(false);
+                        await command.ExecuteNonQueryAsync(token).NoSync();
+                    await transaction.CommitAsync(token).NoSync();
                     _initialized = true;
                 }
             }
             finally { _gate.Release(); }
         }
         Check();
-        return await _source.OpenConnectionAsync(token).ConfigureAwait(false);
+        return await _source.OpenConnectionAsync(token).NoSync();
     }
 
     internal NpgsqlCommand Command(NpgsqlConnection connection, string sql, params object[] values)
@@ -85,16 +88,16 @@ public sealed class PostgresLibrarianDatabase : ILibrarianDatabase
     {
         await using (NpgsqlCommand command = Command(connection,
             "INSERT INTO public.librarian_postgres_databases (database_key) VALUES ($1) ON CONFLICT DO NOTHING", Key))
-            await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+            await command.ExecuteNonQueryAsync(token).NoSync();
         await using (NpgsqlCommand command = Command(connection,
             "SELECT database_key FROM public.librarian_postgres_databases WHERE database_key=$1 FOR UPDATE", Key))
-            await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+            await command.ExecuteNonQueryAsync(token).NoSync();
     }
 
     public async ValueTask<ILibrarianContainer> GetContainer(string containerName, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(containerName);
-        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        await _gate.WaitAsync(cancellationToken).NoSync();
         try
         {
             Check();
@@ -108,22 +111,22 @@ public sealed class PostgresLibrarianDatabase : ILibrarianDatabase
     public async ValueTask<bool> Execute(LibrarianBatch batch, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(batch);
-        await using NpgsqlConnection connection = await Open(cancellationToken).ConfigureAwait(false);
-        await using NpgsqlTransaction transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
-        await LockWrites(connection, cancellationToken).ConfigureAwait(false);
+        await using NpgsqlConnection connection = await Open(cancellationToken).NoSync();
+        await using NpgsqlTransaction transaction = await connection.BeginTransactionAsync(cancellationToken).NoSync();
+        await LockWrites(connection, cancellationToken).NoSync();
         foreach (LibrarianCondition condition in batch.Conditions)
         {
             using var container = new PostgresLibrarianContainer(condition.Container, this);
-            string? current = await container.Read(connection, condition.Id, cancellationToken).ConfigureAwait(false);
+            string? current = await container.Read(connection, condition.Id, cancellationToken).NoSync();
             if (!string.Equals(current, condition.ExpectedValue, StringComparison.Ordinal)) return false;
         }
         foreach (LibrarianWrite write in batch.Writes)
         {
             using var container = new PostgresLibrarianContainer(write.Container, this);
-            await container.Write(connection, write.Id, write.Value, "upsert", cancellationToken).ConfigureAwait(false);
+            await container.Write(connection, write.Id, write.Value, "upsert", cancellationToken).NoSync();
         }
         cancellationToken.ThrowIfCancellationRequested();
-        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).NoSync();
         return true;
     }
 
@@ -143,7 +146,7 @@ public sealed class PostgresLibrarianDatabase : ILibrarianDatabase
     public async ValueTask<bool> UnloadContainer(string containerName, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(containerName);
-        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        await _gate.WaitAsync(cancellationToken).NoSync();
         try
         {
             Check();
@@ -156,14 +159,13 @@ public sealed class PostgresLibrarianDatabase : ILibrarianDatabase
 
     public async ValueTask DisposeAsync()
     {
-        await _gate.WaitAsync().ConfigureAwait(false);
+        await _gate.WaitAsync().NoSync();
         try
         {
-            if (_disposed) return;
-            _disposed = true;
+            if (!_disposed.TrySetTrue()) return;
             foreach (PostgresLibrarianContainer container in _containers.Values) container.Dispose();
             _containers.Clear();
-            if (_ownsSource) await _source.DisposeAsync().ConfigureAwait(false);
+            if (_ownsSource) await _source.DisposeAsync().NoSync();
         }
         finally { _gate.Release(); }
     }

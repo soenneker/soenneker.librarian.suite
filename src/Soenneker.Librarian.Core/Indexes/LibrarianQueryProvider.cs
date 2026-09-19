@@ -4,6 +4,7 @@ using System.Linq;
 using System.Linq.Expressions;
 using System.Threading;
 using System.Threading.Tasks;
+using Soenneker.Extensions.ValueTask;
 using Soenneker.Librarian.Abstractions.Queries;
 
 namespace Soenneker.Librarian.Core.Indexes;
@@ -156,13 +157,13 @@ internal sealed class LibrarianQueryProvider<T>(LibrarianContainer container) : 
         expression = NormalizeProjectedPaging(NormalizeTerminal(NormalizeProjectedCount(expression)));
         if (CountPlan(expression) is { } countPlan)
         {
-            await container.QuerySnapshot<T>(countPlan, cancellationToken).ConfigureAwait(false);
+            await container.QuerySnapshot<T>(countPlan, cancellationToken).NoSync();
             string method = ((MethodCallExpression)expression).Method.Name;
             object count = method switch { nameof(Queryable.Any) => countPlan.Count != 0, nameof(Queryable.LongCount) => (long)countPlan.Count, _ => countPlan.Count };
             return (TResult)count;
         }
         var plan = QueryPlan.Create(expression, this);
-        IQueryable<T> source = (await container.QuerySource<T>(plan, cancellationToken).ConfigureAwait(false)).AsQueryable();
+        IQueryable<T> source = (await container.QuerySource<T>(plan, cancellationToken).NoSync()).AsQueryable();
         Expression rewritten = new ReplaceSource(this, plan?.Prefix, source.Expression).Visit(expression)!;
         cancellationToken.ThrowIfCancellationRequested();
         if (rewritten == source.Expression && source is TResult direct) return direct;

@@ -6,6 +6,7 @@ using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Soenneker.Atomics.ValueBools;
 using Soenneker.Dtos.IdValuePair;
 using Soenneker.Extensions.Task;
 using Soenneker.Extensions.ValueTask;
@@ -22,7 +23,7 @@ public sealed partial class RedisLibrarianContainer : ILibrarianContainer
     private readonly RedisLibrarianDatabase _database;
     private readonly string _prefix;
     private readonly ConcurrentDictionary<Type, object> _queryRoots = new();
-    private volatile bool _disposed;
+    private ValueAtomicBool _disposed = new(false);
     private readonly RedisKey Version;
     private readonly RedisKey Schema;
     private readonly RedisKey SortSchema;
@@ -67,7 +68,7 @@ public sealed partial class RedisLibrarianContainer : ILibrarianContainer
 
     private async ValueTask<IDatabase> Store(CancellationToken token)
     {
-        ObjectDisposedException.ThrowIf(_disposed, this);
+        ObjectDisposedException.ThrowIf(_disposed.Value, this);
         return await _database.GetStore(token).NoSync();
     }
 
@@ -331,7 +332,7 @@ public sealed partial class RedisLibrarianContainer : ILibrarianContainer
 
     public IQueryable<T> BuildQueryable<T>()
     {
-        ObjectDisposedException.ThrowIf(_disposed, this);
+        ObjectDisposedException.ThrowIf(_disposed.Value, this);
         return (IQueryable<T>)_queryRoots.GetOrAdd(typeof(T), static (_, container) =>
             new RedisQueryable<T>(new RedisQueryProvider<T>(container)), this);
     }
@@ -431,7 +432,7 @@ public sealed partial class RedisLibrarianContainer : ILibrarianContainer
 
     public void Dispose()
     {
-        _disposed = true;
+        if (!_disposed.TrySetTrue()) return;
         _queryRoots.Clear();
     }
 }

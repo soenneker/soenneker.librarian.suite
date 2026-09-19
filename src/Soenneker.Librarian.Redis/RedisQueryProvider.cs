@@ -5,6 +5,7 @@ using System.Linq;
 using System.Linq.Expressions;
 using System.Threading;
 using System.Threading.Tasks;
+using Soenneker.Extensions.ValueTask;
 using Soenneker.Librarian.Abstractions.Queries;
 using Soenneker.Utils.Json;
 using StackExchange.Redis;
@@ -34,7 +35,7 @@ internal sealed class RedisQueryProvider<T>(RedisLibrarianContainer container) :
     {
         cancellationToken.ThrowIfCancellationRequested();
         var plan = RedisQueryPlan.Create(expression, this);
-        RedisResult result = await container.ExecuteQuery(plan, cancellationToken).ConfigureAwait(false);
+        RedisResult result = await container.ExecuteQuery(plan, cancellationToken).NoSync();
         cancellationToken.ThrowIfCancellationRequested();
         if (plan.Terminal == nameof(Queryable.Count)) return (TResult)(object)checked((int)(long)result);
         if (plan.Terminal == nameof(Queryable.LongCount)) return (TResult)(object)(long)result;
