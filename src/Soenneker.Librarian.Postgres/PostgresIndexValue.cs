@@ -4,37 +4,10 @@ using System.Text.Json;
 using Soenneker.Utils.Json;
 using Soenneker.Utils.PooledStringBuilders;
 
-namespace Soenneker.Librarian.Redis;
+namespace Soenneker.Librarian.Postgres;
 
-internal static class RedisIndexValue
+internal static class PostgresIndexValue
 {
-    // Keep key segments readable while protecting separators, SORT patterns, and lexicographic ID bounds.
-    internal static string KeySegment(string text)
-    {
-        var safe = true;
-        foreach (char character in text)
-            if (!char.IsAsciiLetterOrDigit(character) && character is not ('.' or '-' or '_')) { safe = false; break; }
-        if (safe) return text;
-        var builder = new PooledStringBuilder(text.Length);
-        try
-        {
-            Span<char> hex = stackalloc char[4];
-            foreach (char character in text)
-            {
-                if (char.IsAsciiLetterOrDigit(character) || character is '.' or '-' or '_')
-                    builder.Append(character);
-                else
-                {
-                    builder.Append('%');
-                    ((int)character).TryFormat(hex, out _, "X4", CultureInfo.InvariantCulture);
-                    builder.Append(hex);
-                }
-            }
-            return builder.ToString();
-        }
-        finally { builder.Dispose(); }
-    }
-
     internal static string Hex(string text, string prefix = "")
     {
         var builder = new PooledStringBuilder(checked(prefix.Length + text.Length * 4));
@@ -94,7 +67,7 @@ internal static class RedisIndexValue
         _ => throw new ArgumentException("Indexed values must be null, booleans, decimal-compatible numbers, or strings.")
     };
 
-    // Fixed-width decimal encoding keeps the exact decimal order in Redis lexicographic sorted sets.
+    // Fixed-width decimal encoding keeps the exact decimal order in PostgreSQL C-collated B-tree indexes.
     private static string Number(decimal value)
     {
         return string.Create(59, value, static (destination, number) =>

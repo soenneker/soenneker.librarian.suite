@@ -55,28 +55,36 @@ This `:containers:` layout replaces the hex-encoded `:batches:` layout. Existing
 | --- | --- |
 | Scalar comparisons | Indexed JSON properties |
 | Boolean expressions | AND, OR, NOT |
+| Prefix filters | Ordinal `StartsWith`, including explicit `StringComparison.Ordinal` |
+| Membership | Captured arrays/lists/default-comparer sets and inline arrays |
 | Ordering | One `OrderBy` or `OrderByDescending` |
 | Paging | `Skip` and `Take` after filtering and ordering |
-| Aggregates | `Count`, `LongCount`, `Any` |
+| Aggregates | `Count`, `LongCount`, `Any`, `All` |
 | Single results | `First`, `Single`, and their default variants |
+| Projection | Direct scalar/constructor/DTO projections with `Take`, `First`, or `Single` bounding the result |
 
 Unsupported expressions throw `NotSupportedException`. Queries do not fall back to loading all documents for local filtering.
 
-LINQ enumeration executes synchronously. Use `FindByIndex`, `FindRangeByIndex`, `CountByIndex`, and `ExistsByIndex` for asynchronous execution.
+LINQ enumeration executes synchronously by default. Use `ToListAsync`, `CountAsync`, `AnyAsync`, and the other terminal extensions in `Soenneker.Librarian.Abstractions.Queries` to await Redis I/O with cancellation. Explicit index methods remain available. Cancellation checks occur between commands; commands already dispatched are awaited, and temporary query sets are cleaned up before return.
 
-For projection, materialize the server page first:
+Bound projections before materialization:
 
 ```csharp
-var page = users.BuildQueryable<User>()
+using Soenneker.Librarian.Abstractions.Queries;
+
+var names = await users.BuildQueryable<User>()
     .Where(user => user.Age >= 18)
     .OrderBy(user => user.Age)
     .Take(25)
-    .ToList();
-
-var names = page.Select(user => user.Name).ToList();
+    .Select(user => user.Name)
+    .ToListAsync(cancellationToken);
 ```
 
 This example uses the `users` container and `User` model from the [README](../README.md#query-documents).
+
+Filters and ordering must precede paging and projection. Unbounded projections, numeric aggregates, secondary ordering, suffix/substring searches, joins, grouping, and `Distinct` remain unsupported. Projection transfers only the requested document page, then extracts selected fields without constructing full document objects. It does not reduce the raw document bytes within that page. A projected `Count`/`Any` needs no page bound because it fetches no documents. See [cross-provider capabilities](QUERY-CAPABILITIES.md).
+
+Indexed LINQ sorting now stores a value-plus-document-ID hash field, making equal-value pages deterministic. Existing index definitions gain these fields on their first ordered query through a version-checked transaction; the upgrade reads encoded index values and IDs, not document bodies. Ordinary writes and batches maintain the fields thereafter. Upgrade all writers using a namespace before relying on these fields: older clients do not maintain them. Unload and `DeleteAllItems` retain index definitions and their upgrade markers.
 
 ## Index behavior and cost
 

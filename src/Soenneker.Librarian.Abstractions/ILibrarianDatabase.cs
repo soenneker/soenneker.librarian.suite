@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 namespace Soenneker.Librarian.Abstractions;
 
 /// <summary>
-/// A document database implemented by a memory, filesystem, or Redis provider.
+/// A document database implemented by a memory, filesystem, Redis, or PostgreSQL provider.
 /// </summary>
 public interface ILibrarianDatabase : IAsyncDisposable
 {
@@ -19,6 +19,8 @@ public interface ILibrarianDatabase : IAsyncDisposable
     /// publishing the new state. Redis coordinates across instances with conditional transactions and database-wide hash slots.
     /// Cancellation is checked before commit; an operation already dispatched may commit. A transport failure can leave
     /// the Redis commit outcome unknown; callers must reconcile authoritative state before retrying non-idempotent work.</remarks>
+    /// <remarks>PostgreSQL uses a server transaction and a logical database row lock shared by all writes across instances.
+    /// Reads use statement snapshots. A cancelled or interrupted PostgreSQL commit can also have an unknown outcome.</remarks>
     ValueTask<bool> Execute(LibrarianBatch batch, CancellationToken cancellationToken = default) =>
         throw new NotSupportedException("This provider does not support atomic batches.");
 
@@ -28,7 +30,7 @@ public interface ILibrarianDatabase : IAsyncDisposable
     /// <param name="containerName">The name of the container.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A ValueTask representing the asynchronous operation.</returns>
-    /// <remarks>Records an already committed in-memory mutation. Cancellation does not suppress dirty tracking. Redis writes immediately and performs no dirty tracking.</remarks>
+    /// <remarks>Records an already committed in-memory mutation. Cancellation does not suppress dirty tracking. Redis and PostgreSQL write immediately and perform no dirty tracking.</remarks>
     ValueTask MarkDirty(string containerName, CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -47,14 +49,14 @@ public interface ILibrarianDatabase : IAsyncDisposable
     /// <remarks>
     /// The filesystem provider writes through a temporary sibling file before replacing the database. Load, serialization, write, and cancellation
     /// failures propagate to the caller and leave pending changes eligible for retry. Background saves log failures and retry.
-    /// Redis mutations commit immediately; Save is a no-op and failures propagate from the mutation itself.
+    /// Redis and PostgreSQL mutations commit immediately; Save is a no-op and failures propagate from the mutation itself.
     /// Redis commands already dispatched are awaited even when the token is cancelled.
     /// Await filesystem database disposal to flush pending changes; stop container operations before disposing the database.
     /// </remarks>
     ValueTask Save(CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Unloads and disposes the named container. Filesystem providers save first; memory providers discard data; Redis providers release only the local handle.
+    /// Unloads and disposes the named container. Filesystem providers save first; memory providers discard data; Redis and PostgreSQL providers release only the local handle.
     /// </summary>
     /// <param name="containerName">Name of the container to target.</param>
     /// <param name="cancellationToken">Token used to cancel the operation.</param>

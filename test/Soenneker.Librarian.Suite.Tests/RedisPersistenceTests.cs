@@ -135,7 +135,7 @@ public class RedisPersistenceTests
         Check(first.BuildQueryable<RedisRow>().Any(row => row.Amount > 6), "Any query failed.");
         Check(first.BuildQueryable<RedisRow>().Where(row => row.Amount == 7).Single().Name == "row-7", "Single query failed.");
         Check(first.BuildQueryable<RedisRow>().Take(0).Count() == 0, "Take zero failed.");
-        try { _ = first.BuildQueryable<RedisRow>().Where(row => row.Name.StartsWith("row")).ToList(); throw new Exception("Local fallback was accepted."); }
+        try { _ = first.BuildQueryable<RedisRow>().Where(row => row.Name.EndsWith("row")).ToList(); throw new Exception("Local fallback was accepted."); }
         catch (NotSupportedException) { }
         try { _ = first.BuildQueryable<RedisRow>().Take(2).Where(row => row.Amount > 1).ToList(); throw new Exception("Filter after paging changed semantics."); }
         catch (NotSupportedException) { }

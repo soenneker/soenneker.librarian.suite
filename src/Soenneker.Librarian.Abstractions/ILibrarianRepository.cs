@@ -35,7 +35,7 @@ public interface ILibrarianRepository<TDocument> where TDocument : Document
         bool descending = false, int skip = 0, int take = 100, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Builds a queryable collection of a specified type.
+    /// Obtains a deferred queryable collection of a specified type. Use LibrarianQueryableExtensions for asynchronous execution.
     /// </summary>
     /// <typeparam name="T">The type of elements in the queryable collection.</typeparam>
     /// <param name="cancellationToken">Token to monitor for cancellation requests.</param>
@@ -51,7 +51,7 @@ public interface ILibrarianRepository<TDocument> where TDocument : Document
     ValueTask<TDocument?> GetItem(string id, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Materializes an already-built in-memory query.
+    /// Synchronously materializes a query using its provider; remote queries may block on I/O.
     /// </summary>
     /// <typeparam name="T">Type of value handled by the Librarian Repository.</typeparam>
     /// <param name="queryable">Queryable for the get items operation.</param>

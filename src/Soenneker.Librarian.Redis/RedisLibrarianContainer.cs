@@ -25,10 +25,12 @@ public sealed partial class RedisLibrarianContainer : ILibrarianContainer
     private volatile bool _disposed;
     private readonly RedisKey Version;
     private readonly RedisKey Schema;
+    private readonly RedisKey SortSchema;
     private readonly RedisKey Ids;
     private RedisKey Document(string id) => _prefix + "document:" + id;
     private string DocumentPattern(string field) => _prefix + "document:*->" + field;
     private static string Field(string path) => "index:" + RedisIndexValue.KeySegment(path);
+    private static string SortField(string path) => "sort:" + RedisIndexValue.KeySegment(path);
     private RedisKey Index(string path) => IndexedKey("index:", path);
     private RedisKey Distinct(string path) => IndexedKey("distinct:", path);
     private RedisKey Present(string path) => IndexedKey("present:", path);
@@ -41,6 +43,7 @@ public sealed partial class RedisLibrarianContainer : ILibrarianContainer
         _prefix = database.StoragePrefix + RedisIndexValue.KeySegment(name) + ":";
         Version = _prefix + "version";
         Schema = _prefix + "schema";
+        SortSchema = _prefix + "sort-schema";
         Ids = _prefix + "ids";
     }
 
@@ -129,11 +132,13 @@ public sealed partial class RedisLibrarianContainer : ILibrarianContainer
                 if (value.New is null)
                 {
                     commands.Add(transaction.HashDeleteAsync(Document(normalized), Field(value.Path)));
+                    commands.Add(transaction.HashDeleteAsync(Document(normalized), SortField(value.Path)));
                     commands.Add(transaction.SetRemoveAsync(Present(value.Path), normalized));
                 }
                 else
                 {
                     commands.Add(transaction.HashSetAsync(Document(normalized), Field(value.Path), value.New));
+                    commands.Add(transaction.HashSetAsync(Document(normalized), SortField(value.Path), value.New + "!" + normalized));
                     commands.Add(transaction.SortedSetAddAsync(Index(value.Path), value.New + "!" + normalized, 0));
                     commands.Add(transaction.SortedSetAddAsync(Distinct(value.Path), value.New, 0));
                     commands.Add(transaction.SetAddAsync(Bucket(value.Path, value.New), normalized));
@@ -251,12 +256,14 @@ public sealed partial class RedisLibrarianContainer : ILibrarianContainer
             foreach ((string Id, string Value) entry in entries)
             {
                 commands.Add(transaction.HashSetAsync(Document(entry.Id), Field(fieldPath), entry.Value));
+                commands.Add(transaction.HashSetAsync(Document(entry.Id), SortField(fieldPath), entry.Value + "!" + entry.Id));
                 commands.Add(transaction.SortedSetAddAsync(Index(fieldPath), entry.Value + "!" + entry.Id, 0));
                 commands.Add(transaction.SortedSetAddAsync(Distinct(fieldPath), entry.Value, 0));
                 commands.Add(transaction.SetAddAsync(Bucket(fieldPath, entry.Value), entry.Id));
                 commands.Add(transaction.SetAddAsync(Present(fieldPath), entry.Id));
             }
             commands.Add(transaction.SetAddAsync(Schema, fieldPath));
+            commands.Add(transaction.SetAddAsync(SortSchema, fieldPath));
             commands.Add(transaction.StringIncrementAsync(Version));
             if (await Commit(transaction, commands).NoSync()) return;
         }
@@ -329,23 +336,25 @@ public sealed partial class RedisLibrarianContainer : ILibrarianContainer
             new RedisQueryable<T>(new RedisQueryProvider<T>(container)), this);
     }
 
-    internal async ValueTask<RedisResult> ExecuteQuery(RedisQueryPlan plan)
+    internal async ValueTask<RedisResult> ExecuteQuery(RedisQueryPlan plan, CancellationToken cancellationToken = default)
     {
-        foreach (string path in plan.Paths) await EnsureIndex(path).NoSync();
-        IDatabase store = await Store(CancellationToken.None).NoSync();
+        foreach (string path in plan.Paths) await EnsureIndex(path, cancellationToken).NoSync();
+        IDatabase store = await Store(cancellationToken).NoSync();
+        if (plan.Order is not null) await EnsureSortFields(store, plan.Order, cancellationToken).NoSync();
         // SCARD and SORT each execute atomically in Redis. A persistent set needs no optimistic retry or temporary set.
         if (plan.Order is null && TryDirectSet(plan.Filter, out RedisKey direct))
-            return await ReadQuerySet(store, direct, plan).NoSync();
+            return await ReadQuerySet(store, direct, plan, cancellationToken).NoSync();
         while (true)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             RedisValue version = await store.StringGetAsync(Version).NoSync();
             var temporaryKeys = new List<RedisKey>();
             long started = Stopwatch.GetTimestamp();
             try
             {
-                RedisKey matches = await Evaluate(store, plan.Filter, temporaryKeys).NoSync();
-                if (plan.Order is not null) matches = await Combine(store, SetOperation.Intersect, [matches, Present(plan.Order)], temporaryKeys).NoSync();
-                RedisResult result = await ReadQuerySet(store, matches, plan).NoSync();
+                RedisKey matches = await Evaluate(store, plan.Filter, temporaryKeys, cancellationToken).NoSync();
+                if (plan.Order is not null) matches = await Combine(store, SetOperation.Intersect, [matches, Present(plan.Order)], temporaryKeys, cancellationToken).NoSync();
+                RedisResult result = await ReadQuerySet(store, matches, plan, cancellationToken).NoSync();
                 // Never accept a result if temporary sets could have expired during a long attempt.
                 if (version == await store.StringGetAsync(Version).NoSync() && Stopwatch.GetElapsedTime(started) < TimeSpan.FromMinutes(4)) return result;
             }
@@ -356,8 +365,9 @@ public sealed partial class RedisLibrarianContainer : ILibrarianContainer
         }
     }
 
-    private async ValueTask<RedisResult> ReadQuerySet(IDatabase store, RedisKey matches, RedisQueryPlan plan)
+    private async ValueTask<RedisResult> ReadQuerySet(IDatabase store, RedisKey matches, RedisQueryPlan plan, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         if (plan.CountOnly)
         {
             long count = await store.SetLengthAsync(matches).NoSync();
@@ -365,7 +375,7 @@ public sealed partial class RedisLibrarianContainer : ILibrarianContainer
         }
         RedisValue[] documents = plan.Take == 0 ? [] : await store.SortAsync(matches, skip: plan.Skip, take: plan.Take,
             order: plan.Descending ? Order.Descending : Order.Ascending, sortType: SortType.Alphabetic,
-            by: plan.Order is null ? default : DocumentPattern(Field(plan.Order)), get: [DocumentPattern("json")]).NoSync();
+            by: plan.Order is null ? default : DocumentPattern(SortField(plan.Order)), get: [DocumentPattern("json")]).NoSync();
         return RedisResult.Create(documents);
     }
 
@@ -382,24 +392,29 @@ public sealed partial class RedisLibrarianContainer : ILibrarianContainer
         return false;
     }
 
-    private async ValueTask<RedisKey> Evaluate(IDatabase store, RedisQueryFilter filter, List<RedisKey> temporaryKeys)
+    private async ValueTask<RedisKey> Evaluate(IDatabase store, RedisQueryFilter filter, List<RedisKey> temporaryKeys, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (filter.Operation == "none") return await Combine(store, SetOperation.Union, [], temporaryKeys, cancellationToken).NoSync();
+        if (filter.Operation == "in") return await Combine(store, SetOperation.Union,
+            filter.Values!.Select(value => Bucket(filter.Path!, value)).ToArray(), temporaryKeys, cancellationToken).NoSync();
         if (TryDirectSet(filter, out RedisKey direct)) return direct;
         if (filter.Operation == "term")
         {
             // Only distinct encoded index values cross the network; Redis combines their document-ID sets.
             string Bound(string bound) => bound is "-" or "+" ? bound : bound[..bound.IndexOf('!')];
             RedisResult[] values = (RedisResult[]?)await store.ExecuteAsync("ZRANGEBYLEX", Distinct(filter.Path!), Bound(filter.Minimum), Bound(filter.Maximum)).NoSync() ?? [];
-            return await Combine(store, SetOperation.Union, values.Select(value => Bucket(filter.Path!, value.ToString())).ToArray(), temporaryKeys).NoSync();
+            return await Combine(store, SetOperation.Union, values.Select(value => Bucket(filter.Path!, value.ToString())).ToArray(), temporaryKeys, cancellationToken).NoSync();
         }
-        RedisKey left = await Evaluate(store, filter.Left!, temporaryKeys).NoSync();
-        if (filter.Operation == "not") return await Combine(store, SetOperation.Difference, [Ids, left], temporaryKeys).NoSync();
-        RedisKey right = await Evaluate(store, filter.Right!, temporaryKeys).NoSync();
-        return await Combine(store, filter.Operation == "and" ? SetOperation.Intersect : SetOperation.Union, [left, right], temporaryKeys).NoSync();
+        RedisKey left = await Evaluate(store, filter.Left!, temporaryKeys, cancellationToken).NoSync();
+        if (filter.Operation == "not") return await Combine(store, SetOperation.Difference, [Ids, left], temporaryKeys, cancellationToken).NoSync();
+        RedisKey right = await Evaluate(store, filter.Right!, temporaryKeys, cancellationToken).NoSync();
+        return await Combine(store, filter.Operation == "and" ? SetOperation.Intersect : SetOperation.Union, [left, right], temporaryKeys, cancellationToken).NoSync();
     }
 
-    private async ValueTask<RedisKey> Combine(IDatabase store, SetOperation operation, RedisKey[] keys, List<RedisKey> temporaryKeys)
+    private async ValueTask<RedisKey> Combine(IDatabase store, SetOperation operation, RedisKey[] keys, List<RedisKey> temporaryKeys, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         if (keys.Length == 1) return keys[0];
         RedisKey destination = _prefix + "query:" + Guid.NewGuid().ToString("N");
         temporaryKeys.Add(destination);

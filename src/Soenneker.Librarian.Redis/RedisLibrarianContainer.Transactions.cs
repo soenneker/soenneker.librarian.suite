@@ -34,12 +34,12 @@ public sealed partial class RedisLibrarianContainer
             using JsonDocument? json = write.Value is not null && paths.Length > 0 ? JsonDocument.Parse(write.Value) : null;
             foreach (RedisValue pathValue in paths)
             {
-                string path = pathValue.ToString();
+                var path = pathValue.ToString();
                 RedisValue old = await store.HashGetAsync(Document(id), Field(path)).NoSync();
                 string? next = json is null ? null : RedisIndexValue.Read(json.RootElement, path);
                 if (!old.IsNull)
                 {
-                    string previous = old.ToString();
+                    var previous = old.ToString();
                     deltas[(path, previous)] = deltas.GetValueOrDefault((path, previous)) - 1;
                     actions.Add((transaction, commands) =>
                     {
@@ -52,6 +52,7 @@ public sealed partial class RedisLibrarianContainer
                     actions.Add((transaction, commands) =>
                     {
                         commands.Add(transaction.HashDeleteAsync(Document(id), Field(path)));
+                        commands.Add(transaction.HashDeleteAsync(Document(id), SortField(path)));
                         commands.Add(transaction.SetRemoveAsync(Present(path), id));
                     });
                 }
@@ -61,6 +62,7 @@ public sealed partial class RedisLibrarianContainer
                     actions.Add((transaction, commands) =>
                     {
                         commands.Add(transaction.HashSetAsync(Document(id), Field(path), next));
+                        commands.Add(transaction.HashSetAsync(Document(id), SortField(path), next + "!" + id));
                         commands.Add(transaction.SortedSetAddAsync(Index(path), next + "!" + id, 0));
                         commands.Add(transaction.SetAddAsync(Bucket(path, next), id));
                         commands.Add(transaction.SetAddAsync(Present(path), id));

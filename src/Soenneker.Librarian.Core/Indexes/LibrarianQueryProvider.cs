@@ -2,10 +2,13 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
+using System.Threading;
+using System.Threading.Tasks;
+using Soenneker.Librarian.Abstractions.Queries;
 
 namespace Soenneker.Librarian.Core.Indexes;
 
-internal sealed class LibrarianQueryProvider<T>(LibrarianContainer container) : IQueryProvider, ILibrarianSequenceProvider
+internal sealed class LibrarianQueryProvider<T>(LibrarianContainer container) : ILibrarianAsyncQueryProvider, ILibrarianSequenceProvider
 {
     public IEnumerable<TElement> ExecuteSequence<TElement>(Expression expression)
     {
@@ -122,7 +125,7 @@ internal sealed class LibrarianQueryProvider<T>(LibrarianContainer container) : 
     {
         ArgumentNullException.ThrowIfNull(expression);
         if (TryElement(expression, out object? element)) return element;
-        expression = NormalizeTerminal(expression);
+        expression = NormalizeTerminal(NormalizeProjectedCount(expression));
         if (TryCount(expression, out object? count)) return count;
         (IQueryable<T> source, Expression rewritten) = Prepare(expression);
         return source.Provider.Execute(rewritten);
@@ -132,7 +135,7 @@ internal sealed class LibrarianQueryProvider<T>(LibrarianContainer container) : 
     {
         ArgumentNullException.ThrowIfNull(expression);
         if (TryElement(expression, out object? element)) return (TResult)element!;
-        expression = NormalizeTerminal(expression);
+        expression = NormalizeTerminal(NormalizeProjectedCount(expression));
         if (TryCount(expression, out object? count)) return (TResult)count!;
         if (typeof(TResult) == typeof(IEnumerable<T>))
         {
@@ -147,6 +150,70 @@ internal sealed class LibrarianQueryProvider<T>(LibrarianContainer container) : 
         return source.Provider.Execute<TResult>(rewritten);
     }
 
+    public async ValueTask<TResult> ExecuteAsync<TResult>(Expression expression, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        expression = NormalizeProjectedPaging(NormalizeTerminal(NormalizeProjectedCount(expression)));
+        if (CountPlan(expression) is { } countPlan)
+        {
+            await container.QuerySnapshot<T>(countPlan, cancellationToken).ConfigureAwait(false);
+            string method = ((MethodCallExpression)expression).Method.Name;
+            object count = method switch { nameof(Queryable.Any) => countPlan.Count != 0, nameof(Queryable.LongCount) => (long)countPlan.Count, _ => countPlan.Count };
+            return (TResult)count;
+        }
+        var plan = QueryPlan.Create(expression, this);
+        IQueryable<T> source = (await container.QuerySource<T>(plan, cancellationToken).ConfigureAwait(false)).AsQueryable();
+        Expression rewritten = new ReplaceSource(this, plan?.Prefix, source.Expression).Visit(expression)!;
+        cancellationToken.ThrowIfCancellationRequested();
+        if (rewritten == source.Expression && source is TResult direct) return direct;
+        return source.Provider.Execute<TResult>(rewritten);
+    }
+
+    private static Expression NormalizeProjectedPaging(Expression expression)
+    {
+        var pages = new List<MethodCallExpression>();
+        Expression source = expression;
+        while (source is MethodCallExpression page && page.Method.DeclaringType == typeof(Queryable) &&
+            page.Method.Name is nameof(Queryable.Skip) or nameof(Queryable.Take) && page.Arguments[1] is ConstantExpression { Value: int })
+        {
+            pages.Add(page);
+            source = page.Arguments[0];
+        }
+        if (pages.Count == 0 || source is not MethodCallExpression projection || projection.Method.DeclaringType != typeof(Queryable) ||
+            projection.Method.Name != nameof(Queryable.Select) || projection.Method.GetGenericArguments()[0] != typeof(T) ||
+            projection.Arguments[1] is not UnaryExpression { Operand: LambdaExpression selector } || selector.Parameters.Count != 1 ||
+            QueryPlan.GetProperty(selector.Body, selector.Parameters[0]) is null) return expression;
+        source = projection.Arguments[0];
+        for (int i = pages.Count - 1; i >= 0; i--)
+            source = Expression.Call(typeof(Queryable), pages[i].Method.Name, [typeof(T)], source, pages[i].Arguments[1]);
+        return Expression.Call(typeof(Queryable), nameof(Queryable.Select), [typeof(T), selector.ReturnType], source, projection.Arguments[1]);
+    }
+
+    // Count and Any do not need a selected scalar. Push their paging to the indexed source,
+    // while leaving arbitrary projections and predicate overloads on the ordinary path.
+    private static Expression NormalizeProjectedCount(Expression expression)
+    {
+        if (expression is not MethodCallExpression terminal || terminal.Method.DeclaringType != typeof(Queryable) ||
+            terminal.Method.Name is not (nameof(Queryable.Count) or nameof(Queryable.LongCount) or nameof(Queryable.Any)) || terminal.Arguments.Count != 1)
+            return expression;
+        var pages = new List<MethodCallExpression>();
+        Expression source = terminal.Arguments[0];
+        while (source is MethodCallExpression page && page.Method.DeclaringType == typeof(Queryable) &&
+            page.Method.Name is nameof(Queryable.Skip) or nameof(Queryable.Take) && page.Arguments[1] is ConstantExpression { Value: int })
+        {
+            pages.Add(page);
+            source = page.Arguments[0];
+        }
+        if (source is not MethodCallExpression projection || projection.Method.DeclaringType != typeof(Queryable) ||
+            projection.Method.Name != nameof(Queryable.Select) || projection.Method.GetGenericArguments()[0] != typeof(T) ||
+            projection.Arguments[1] is not UnaryExpression { Operand: LambdaExpression selector } ||
+            selector.Parameters.Count != 1 || QueryPlan.GetProperty(selector.Body, selector.Parameters[0]) is null)
+            return expression;
+        source = projection.Arguments[0];
+        for (int i = pages.Count - 1; i >= 0; i--)
+            source = Expression.Call(typeof(Queryable), pages[i].Method.Name, [typeof(T)], source, pages[i].Arguments[1]);
+        return Expression.Call(typeof(Queryable), terminal.Method.Name, [typeof(T)], source);
+    }
     private static Expression NormalizeTerminal(Expression expression)
     {
         if (expression is not MethodCallExpression call || call.Method.DeclaringType != typeof(Queryable)
@@ -189,21 +256,26 @@ internal sealed class LibrarianQueryProvider<T>(LibrarianContainer container) : 
         return true;
     }
 
+    private QueryPlan? CountPlan(Expression expression)
+    {
+        if (expression is not MethodCallExpression call || call.Method.DeclaringType != typeof(Queryable)
+            || call.Method.Name is not (nameof(Queryable.Count) or nameof(Queryable.Any) or nameof(Queryable.LongCount))
+            || call.Method.GetGenericArguments()[0] != typeof(T)) return null;
+        Expression source = call.Arguments[0];
+        QueryPlan? plan = call.Arguments.Count == 2 && call.Arguments[1] is UnaryExpression { Operand: LambdaExpression predicate }
+            ? QueryPlan.CreatePredicate(source, predicate, this) : QueryPlan.Create(source, this);
+        if (plan is null || plan.ResidualPredicate is not null || plan.Prefix != source) return null;
+        plan.CountOnly = true;
+        if (call.Method.Name == nameof(Queryable.Any)) plan.Take = Math.Min(plan.Take, 1);
+        return plan;
+    }
+
     private bool TryCount(Expression expression, out object? result)
     {
         result = null;
-        if (expression is not MethodCallExpression call || call.Method.DeclaringType != typeof(Queryable)
-            || call.Method.Name is not (nameof(Queryable.Count) or nameof(Queryable.Any) or nameof(Queryable.LongCount))
-            || call.Method.GetGenericArguments()[0] != typeof(T)) return false;
-        Expression source = call.Arguments[0];
-        QueryPlan? plan = call.Arguments.Count == 2 && call.Arguments[1] is UnaryExpression { Operand: LambdaExpression predicate }
-            ? QueryPlan.CreatePredicate(source, predicate, this)
-            : QueryPlan.Create(source, this);
-        if (plan is null || plan.ResidualPredicate is not null || plan.Prefix != source) return false;
-        plan.CountOnly = true;
-        if (call.Method.Name == nameof(Queryable.Any)) plan.Take = Math.Min(plan.Take, 1);
+        if (CountPlan(expression) is not { } plan) return false;
         container.QuerySnapshot<T>(plan).GetAwaiter().GetResult();
-        result = call.Method.Name switch
+        result = ((MethodCallExpression)expression).Method.Name switch
         {
             nameof(Queryable.Any) => (object)(plan.Count != 0),
             nameof(Queryable.LongCount) => (long)plan.Count,
@@ -211,7 +283,6 @@ internal sealed class LibrarianQueryProvider<T>(LibrarianContainer container) : 
         };
         return true;
     }
-
     private (IQueryable<T>, Expression) Prepare(Expression expression)
     {
         var plan = QueryPlan.Create(expression, this);

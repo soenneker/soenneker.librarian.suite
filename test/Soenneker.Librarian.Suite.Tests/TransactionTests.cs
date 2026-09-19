@@ -19,6 +19,7 @@ public class TransactionTests
     [Arguments("memory")]
     [Arguments("filesystem")]
     [Arguments("redis")]
+    [Arguments("postgres")]
     public async Task Cross_container_conditions_and_writes_commit_together(string provider)
     {
         await using var fixture = new BatchFixture(provider);
@@ -42,6 +43,7 @@ public class TransactionTests
     [Arguments("memory")]
     [Arguments("filesystem")]
     [Arguments("redis")]
+    [Arguments("postgres")]
     public async Task Rejected_or_cancelled_batch_changes_nothing(string provider)
     {
         await using var fixture = new BatchFixture(provider);
@@ -58,6 +60,7 @@ public class TransactionTests
     [Arguments("memory")]
     [Arguments("filesystem")]
     [Arguments("redis")]
+    [Arguments("postgres")]
     public async Task Index_validation_rolls_back_the_whole_batch_and_success_updates_indexes(string provider)
     {
         await using var fixture = new BatchFixture(provider);
@@ -85,6 +88,7 @@ public class TransactionTests
     [Arguments("memory")]
     [Arguments("filesystem")]
     [Arguments("redis")]
+    [Arguments("postgres")]
     public async Task Only_one_competing_claim_commits(string provider)
     {
         await using var fixture = new BatchFixture(provider);
@@ -99,6 +103,7 @@ public class TransactionTests
     [Arguments("memory")]
     [Arguments("filesystem")]
     [Arguments("redis")]
+    [Arguments("postgres")]
     public async Task Ordinary_reads_never_observe_half_a_batch(string provider)
     {
         await using var fixture = new BatchFixture(provider);
@@ -107,9 +112,9 @@ public class TransactionTests
         await db.Execute(new([new("items", "a", "0"), new("items", "b", "0")]));
         Task writer = Task.Run(async () =>
         {
-            for (int i = 1; i <= 20; i++) await db.Execute(new([new("items", "a", i.ToString()), new("items", "b", i.ToString())]));
+            for (var i = 1; i <= 20; i++) await db.Execute(new([new("items", "a", i.ToString()), new("items", "b", i.ToString())]));
         });
-        for (int i = 0; i < 30; i++)
+        for (var i = 0; i < 30; i++)
         {
             List<string> values = await items.GetAllItems();
             Check(values.Count == 2 && values[0] == values[1], "Observed a partially published batch.");

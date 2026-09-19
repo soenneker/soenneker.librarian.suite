@@ -16,6 +16,7 @@
         <ProjectReference Include="../../src/Soenneker.Librarian.Memory/Soenneker.Librarian.Memory.csproj" />
         <ProjectReference Include="../../src/Soenneker.Librarian.FileSystem/Soenneker.Librarian.FileSystem.csproj" />
         <ProjectReference Include="../../src/Soenneker.Librarian.Redis/Soenneker.Librarian.Redis.csproj" />
+        <ProjectReference Include="..\..\src\Soenneker.Librarian.Postgres\Soenneker.Librarian.Postgres.csproj" />
     </ItemGroup>
 
 </Project>

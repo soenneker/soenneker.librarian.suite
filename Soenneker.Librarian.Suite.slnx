@@ -12,6 +12,7 @@
     <Project Path="src/Soenneker.Librarian.Core/Soenneker.Librarian.Core.csproj" />
     <Project Path="src/Soenneker.Librarian.FileSystem/Soenneker.Librarian.FileSystem.csproj" />
     <Project Path="src/Soenneker.Librarian.Memory/Soenneker.Librarian.Memory.csproj" />
+    <Project Path="src/Soenneker.Librarian.Postgres/Soenneker.Librarian.Postgres.csproj" />
     <Project Path="src/Soenneker.Librarian.Redis/Soenneker.Librarian.Redis.csproj" />
   </Folder>
   <Folder Name="/test/">

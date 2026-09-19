@@ -4,6 +4,7 @@ using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
 using System.Threading.Tasks;
+using System.Threading;
 using Microsoft.Extensions.Logging;
 using Soenneker.Extensions.ValueTask;
 using Soenneker.Librarian.Core.Indexes;
@@ -18,41 +19,43 @@ public sealed partial class LibrarianContainer
     private KeyValuePair<string, string>[]? _queryScanSnapshot;
     internal void CheckQueryLifetime() => ThrowIfDisposed();
 
-    internal async ValueTask<IEnumerable<T>> QuerySource<T>(QueryPlan? plan)
+    internal async ValueTask<IEnumerable<T>> QuerySource<T>(QueryPlan? plan, CancellationToken cancellationToken = default)
     {
         if (plan is not null)
         {
-            using IndexPage page = await QueryPage<T>(plan).NoSync();
+            using IndexPage page = await QueryPage<T>(plan, cancellationToken).NoSync();
             if (page.Count == 0) return Array.Empty<T>();
             // An owned raw snapshot preserves consistency and can be enumerated repeatedly without retaining a pool lease.
             var json = new string[page.Count];
             Array.Copy(page.Documents, json, page.Count);
-            IEnumerable<T> values = ScanValues<T>(json);
+            IEnumerable<T> values = ScanValues<T>(json, cancellationToken);
             return plan.ResidualPredicate is Expression<Func<T, bool>> predicate
                 ? values.Where(QueryFunction<T, bool>.Get(predicate)) : values;
         }
         KeyValuePair<string, string>[] snapshot;
-        using (await _mutationGate.Lock().NoSync())
+        using (await _mutationGate.Lock(cancellationToken).NoSync())
         {
             ThrowIfDisposed();
             snapshot = _queryScanSnapshot ??= _items.ToArray();
         }
-        return Scan<T>(snapshot);
+        return Scan<T>(snapshot, cancellationToken);
     }
 
-    private static IEnumerable<T> ScanValues<T>(string[] json)
+    private static IEnumerable<T> ScanValues<T>(string[] json, CancellationToken cancellationToken)
     {
         foreach (string document in json)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var value = JsonUtil.Deserialize<T>(document);
             if (value is not null) yield return value;
         }
     }
 
-    private IEnumerable<T> Scan<T>(KeyValuePair<string, string>[] snapshot)
+    private IEnumerable<T> Scan<T>(KeyValuePair<string, string>[] snapshot, CancellationToken cancellationToken)
     {
         foreach ((string id, string json) in snapshot)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             T? value;
             try { value = JsonUtil.Deserialize<T>(json); }
             catch (Exception ex)
@@ -64,26 +67,26 @@ public sealed partial class LibrarianContainer
         }
     }
 
-    internal async ValueTask<IReadOnlyList<T>> QuerySnapshot<T>(QueryPlan plan)
+    internal async ValueTask<IReadOnlyList<T>> QuerySnapshot<T>(QueryPlan plan, CancellationToken cancellationToken = default)
     {
-        using IndexPage page = await QueryPage<T>(plan).NoSync();
-        return DeserializePage<T>(page, default);
+        using IndexPage page = await QueryPage<T>(plan, cancellationToken).NoSync();
+        return DeserializePage<T>(page, cancellationToken);
     }
 
-    private async ValueTask<IndexPage> QueryPage<T>(QueryPlan plan)
+    private async ValueTask<IndexPage> QueryPage<T>(QueryPlan plan, CancellationToken cancellationToken = default)
     {
         IndexPage page;
-        using (await _mutationGate.Lock().NoSync())
+        using (await _mutationGate.Lock(cancellationToken).NoSync())
         {
             ThrowIfDisposed();
             if (plan.Empty || plan.Take == 0) return IndexPage.Empty;
             if (plan.AdditionalFilters is not null || plan.OrderProperty is { } order && order != plan.Property)
             {
-                page = QueryMultipleIndexes<T>(plan);
+                page = QueryMultipleIndexes<T>(plan, cancellationToken);
             }
             else
             {
-                AutomaticIndex automatic = GetAutomaticIndex<T>(plan.Property);
+                AutomaticIndex automatic = GetAutomaticIndex<T>(plan.Property, cancellationToken);
                 bool equality = plan.Minimum is { } && plan.Minimum == plan.Maximum && plan.IncludeMinimum && plan.IncludeMaximum;
                 if (plan.CountOnly)
                 {
@@ -100,7 +103,7 @@ public sealed partial class LibrarianContainer
         return page;
     }
 
-    private AutomaticIndex GetAutomaticIndex<T>(PropertyInfo property)
+    private AutomaticIndex GetAutomaticIndex<T>(PropertyInfo property, CancellationToken cancellationToken = default)
     {
         (Type, PropertyInfo property) key = (typeof(T), property);
         if (_automaticIndexes.TryGetValue(key, out AutomaticIndex? automatic)) return automatic;
@@ -110,7 +113,11 @@ public sealed partial class LibrarianContainer
             _automaticIndexGroups.Add(typeof(T), group);
         }
         automatic = CreateAutomaticIndex<T>(property);
-        foreach ((string id, string json) in _items) automatic.Set(id, group.Deserialize(json));
+        foreach ((string id, string json) in _items)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            automatic.Set(id, group.Deserialize(json));
+        }
         _automaticIndexes.Add(key, automatic);
         group.Indexes.Add(automatic);
         return automatic;
@@ -135,7 +142,7 @@ public sealed partial class LibrarianContainer
         return new AutomaticIndex(getter);
     }
 
-    private void PrepareAutomaticIndexes<T>(ReadOnlySpan<IndexFilter> filters, PropertyInfo? order)
+    private void PrepareAutomaticIndexes<T>(ReadOnlySpan<IndexFilter> filters, PropertyInfo? order, CancellationToken cancellationToken = default)
     {
         List<(PropertyInfo Property, AutomaticIndex Index)>? pending = null;
         for (var i = 0; i < filters.Length + (order is null ? 0 : 1); i++)
@@ -157,6 +164,7 @@ public sealed partial class LibrarianContainer
         // All indexes needed by this cold plan share a single document-deserialization pass.
         foreach ((string id, string json) in _items)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             object? value = group.Deserialize(json);
             foreach ((PropertyInfo Property, AutomaticIndex Index) entry in pending) entry.Index.Set(id, value);
         }

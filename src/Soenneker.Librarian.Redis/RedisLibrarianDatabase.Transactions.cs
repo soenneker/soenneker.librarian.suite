@@ -23,7 +23,7 @@ public sealed partial class RedisLibrarianDatabase
             foreach (string name in names)
                 if (!_containers.ContainsKey(name)) _containers.Add(name, new RedisLibrarianContainer(name, this));
             if (names.Length == 0) return true;
-            for (int attempt = 0; ; attempt++)
+            for (var attempt = 0; ; attempt++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 var actions = new List<Action<ITransaction, List<Task>>>();

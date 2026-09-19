@@ -23,6 +23,9 @@ internal sealed class BatchFixture : IAsyncDisposable
             case "redis":
                 var redis = new RedisPersistenceFixture();
                 Database = redis.Database; _owner = redis; break;
+            case "postgres":
+                var postgres = new PostgresPersistenceFixture();
+                Database = postgres.Database; _owner = postgres; break;
             default: throw new ArgumentException("Unknown provider.", nameof(provider));
         }
     }

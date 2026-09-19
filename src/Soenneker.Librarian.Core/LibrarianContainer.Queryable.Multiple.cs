@@ -1,6 +1,7 @@
 using System;
 using System.Buffers;
 using System.Collections.Generic;
+using System.Threading;
 using Soenneker.Librarian.Core.Indexes;
 
 namespace Soenneker.Librarian.Core;
@@ -8,7 +9,7 @@ namespace Soenneker.Librarian.Core;
 public sealed partial class LibrarianContainer
 {
     // Called under _mutationGate. Intersect index keys before accessing document JSON.
-    private IndexPage QueryMultipleIndexes<T>(QueryPlan plan)
+    private IndexPage QueryMultipleIndexes<T>(QueryPlan plan, CancellationToken cancellationToken)
     {
         int length = 1 + (plan.AdditionalFilters?.Count ?? 0);
         InlineBuffer<IndexFilter> filterBuffer = default;
@@ -21,18 +22,18 @@ public sealed partial class LibrarianContainer
         foreach (IndexFilter filter in filters)
             if (_automaticIndexes.TryGetValue((typeof(T), filter.Property), out AutomaticIndex? existing)
                 && existing.Index.Count(filter) == 0) return IndexPage.Empty;
-        PrepareAutomaticIndexes<T>(filters, plan.CountOnly ? null : plan.OrderProperty);
+        PrepareAutomaticIndexes<T>(filters, plan.CountOnly ? null : plan.OrderProperty, cancellationToken);
         int driver = 0, smallest = int.MaxValue;
         for (var i = 0; i < length; i++)
         {
-            indexes[i] = GetAutomaticIndex<T>(filters[i].Property).Index;
+            indexes[i] = GetAutomaticIndex<T>(filters[i].Property, cancellationToken).Index;
             int count = indexes[i].Count(filters[i]);
             if (count < smallest) { driver = i; smallest = count; }
         }
         if (smallest <= plan.Skip) return IndexPage.Empty;
 
         bool needsSort = !plan.CountOnly && plan.OrderProperty is { } order && order != filters[driver].Property;
-        DocumentIndex? orderIndex = needsSort ? GetAutomaticIndex<T>(plan.OrderProperty!).Index : null;
+        DocumentIndex? orderIndex = needsSort ? GetAutomaticIndex<T>(plan.OrderProperty!, cancellationToken).Index : null;
         DocumentIndex driverIndex = indexes[driver];
         IndexFilter driverFilter = filters[driver];
         if (needsSort)
@@ -52,13 +53,17 @@ public sealed partial class LibrarianContainer
                 needsSort = false;
             }
         }
-        if (!needsSort) return CaptureMatches(plan, indexes[..length], filters, driver, driverIndex, driverFilter, smallest);
+        if (!needsSort) return CaptureMatches(plan, indexes[..length], filters, driver, driverIndex, driverFilter, smallest, cancellationToken);
         var matches = new List<string>(Math.Min(smallest, 256));
         foreach (string id in driverIndex.Candidates(driverFilter, false))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
             if (Matches(id, indexes[..length], filters, driver)) matches.Add(id);
+        }
         int take = Math.Min(plan.Take, Math.Max(0, matches.Count - plan.Skip));
         if (take == 0) return IndexPage.Empty;
         SortMatches(matches, orderIndex!, plan.Descending);
+        cancellationToken.ThrowIfCancellationRequested();
         string[] documents = ArrayPool<string>.Shared.Rent(take);
         for (var i = 0; i < take; i++) documents[i] = _items[matches[plan.Skip + i]];
         return new IndexPage(documents, take);
@@ -75,7 +80,7 @@ public sealed partial class LibrarianContainer
     }
 
     private IndexPage CaptureMatches(QueryPlan plan, ReadOnlySpan<DocumentIndex> indexes, ReadOnlySpan<IndexFilter> filters,
-        int driver, DocumentIndex driverIndex, IndexFilter driverFilter, int smallest)
+        int driver, DocumentIndex driverIndex, IndexFilter driverFilter, int smallest, CancellationToken cancellationToken)
     {
         string[]? documents = plan.CountOnly ? null : ArrayPool<string>.Shared.Rent(Math.Min(smallest - plan.Skip, plan.Take));
         var countMatches = 0;
@@ -84,6 +89,7 @@ public sealed partial class LibrarianContainer
         {
             foreach (string id in driverIndex.Candidates(driverFilter, plan.OrderProperty is not null && plan.Descending))
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 if (!Matches(id, indexes, filters, driver)) continue;
                 countMatches++;
                 if (countMatches > plan.Skip && documents is not null) documents[written++] = _items[id];

@@ -12,7 +12,7 @@ public sealed class LibrarianQueryResult<T>
     /// <summary>The JSON field path of the index used. Indexed queries never fall back to a document scan.</summary>
     public required string Index { get; init; }
 
-    /// <summary>The number of matching index entries fetched. Paging seeks past skipped entries without visiting them.</summary>
+    /// <summary>The number of matching index entries fetched. PostgreSQL reports entries returned to the client; SQL OFFSET may visit skipped entries on the server.</summary>
     public required int IndexEntriesExamined { get; init; }
 
     /// <summary>The number of documents deserialized to produce this page.</summary>

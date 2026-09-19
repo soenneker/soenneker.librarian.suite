@@ -3,7 +3,7 @@
 
 # Soenneker.Librarian
 
-Document storage for .NET 10 with interchangeable memory, JSON file, and Redis providers.
+Document storage for .NET 10 with interchangeable memory, JSON file, Redis, and PostgreSQL providers.
 
 - **Async document operations** — store, retrieve, update, and delete JSON by ID.
 - **Atomic batches** — update related documents together, with conditions to prevent conflicting writes.
@@ -20,6 +20,7 @@ Install the provider you need. Shared dependencies are included automatically.
 dotnet add package Soenneker.Librarian.Memory
 # Or: dotnet add package Soenneker.Librarian.FileSystem
 # Or: dotnet add package Soenneker.Librarian.Redis
+# Or: dotnet add package Soenneker.Librarian.Postgres
 ```
 
 | Package | Purpose |
@@ -27,6 +28,7 @@ dotnet add package Soenneker.Librarian.Memory
 | `Soenneker.Librarian.Memory` | In-process document storage |
 | `Soenneker.Librarian.FileSystem` | In-memory documents backed by a JSON file |
 | `Soenneker.Librarian.Redis` | Shared document storage and indexes in Redis |
+| `Soenneker.Librarian.Postgres` | PostgreSQL persistence, SQL queries, and atomic transactions |
 | `Soenneker.Librarian.Core` | Typed repository and local container implementation |
 | `Soenneker.Librarian.Abstractions` | Database, container, and repository contracts |
 
@@ -55,15 +57,27 @@ In a hosted application, register the provider on `builder.Services` and inject 
 
 ## Choose a provider
 
-| | Memory | FileSystem | Redis |
-| --- | --- | --- | --- |
-| Use when | Data can be temporary | One process needs local persistence | Multiple instances share documents |
-| Documents live in | Process memory | Process memory, backed by JSON | Redis |
-| Writes persist | Never | Periodic save, about every 5 seconds; atomic batches save immediately | Before the mutation returns |
-| Explicit flush | No-op | `await database.Save()` | No-op |
-| Index lifetime | Until unload or disposal | Rebuilt after unload or restart | Persisted in Redis |
+| | Memory | FileSystem | Redis | PostgreSQL |
+| --- | --- | --- | --- | --- |
+| Use when | Data can be temporary | One process needs local persistence | Multiple instances share documents | Shared persistent documents with SQL queries |
+| Documents live in | Process memory | Process memory, backed by JSON | Redis | PostgreSQL |
+| Writes persist | Never | Periodic save, about every 5 seconds; atomic batches save immediately | Before the mutation returns | Before the mutation returns |
+| Explicit flush | No-op | `await database.Save()` | No-op | No-op |
+| Index lifetime | Until unload or disposal | Rebuilt after unload or restart | Persisted in Redis | Persisted in PostgreSQL |
 
 Register one provider for `ILibrarianDatabase`. Each registrar also offers an `AsScoped()` variant; a scoped memory database has its own data.
+
+### PostgreSQL
+
+Use `Soenneker.Librarian.Postgres` for shared persistent documents with SQL-backed filtering, sorting, paging, and aggregates. Writes and cross-container conditional batches commit immediately; indexes persist across restarts. It requires PostgreSQL 16 or later.
+
+```csharp
+using Soenneker.Librarian.Postgres.Registrars;
+
+builder.Services.AddPostgresLibrarianDatabaseAsSingleton();
+```
+
+Configure `Librarian:Postgres:ConnectionString` and `Librarian:Postgres:Key`. See [PostgreSQL setup, queries, and transaction semantics](docs/POSTGRES.md).
 
 ### FileSystem
 
@@ -136,14 +150,24 @@ var adults = users.BuildQueryable<User>()
 
 Indexes are created automatically for supported filters and ordering, then maintained on writes. The first indexed query pays the index creation cost.
 
-| Behavior | Memory / FileSystem | Redis |
-| --- | --- | --- |
-| Query execution | Synchronous | Synchronous server calls |
-| Unsupported expressions | Can fall back to local evaluation | Throw `NotSupportedException` |
-| Filtering and ordering | Indexed where supported | Must precede `Skip` / `Take` |
-| Projection | Supported through LINQ | Materialize the page, then project locally |
+| Behavior | Memory / FileSystem | Redis | PostgreSQL |
+| --- | --- | --- | --- |
+| Query execution | Local, with async terminal helpers | Sync or awaited server calls | Sync or cancellable SQL calls |
+| Unsupported expressions | Can fall back to local evaluation | Throw `NotSupportedException` | Throw `NotSupportedException` |
+| Filtering and ordering | Indexed where supported | Must precede paging/projection | Nested paging/projection composition supported |
+| Projection | Supported through LINQ | Direct fields from a bounded page | Selected fields and supported SQL computations |
 
-For async query execution, use the explicit index methods below.
+Use the async terminal extensions or the explicit index methods below:
+
+```csharp
+using Soenneker.Librarian.Abstractions.Queries;
+
+var adults = await users.BuildQueryable<User>()
+    .Where(user => user.Age >= 18).OrderBy(user => user.Age)
+    .Take(25).ToListAsync(cancellationToken);
+```
+
+See [query capabilities, async execution, and provider differences](docs/QUERY-CAPABILITIES.md).
 
 ### Async index queries
 

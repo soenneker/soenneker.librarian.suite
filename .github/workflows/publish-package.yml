@@ -26,6 +26,19 @@ jobs:
     runs-on: ubuntu-latest
 
     services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: librarian
+          POSTGRES_PASSWORD: librarian
+          POSTGRES_DB: librarian
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U librarian"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
       redis:
         image: redis:8
         ports:
@@ -37,6 +50,7 @@ jobs:
           --health-retries 10
 
     env:
+      LIBRARIAN_TEST_POSTGRES: 'Host=localhost;Port=5432;Database=librarian;Username=librarian;Password=librarian'
       LIBRARIAN_TEST_REDIS: localhost:6379
 
     steps:
@@ -85,6 +99,7 @@ jobs:
             Soenneker.Librarian.Memory
             Soenneker.Librarian.FileSystem
             Soenneker.Librarian.Redis
+            Soenneker.Librarian.Postgres
           )
 
           for package in "${packages[@]}"; do

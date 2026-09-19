@@ -4,7 +4,7 @@
 
 ## Example
 
-All three providers implement `ILibrarianDatabase.Execute` for atomic writes across documents and containers:
+All built-in providers implement `ILibrarianDatabase.Execute` for atomic writes across documents and containers:
 
 ```csharp
 using Soenneker.Librarian.Abstractions.Transactions;
@@ -36,6 +36,7 @@ Conditions compare exact raw text, including JSON whitespace and property order.
 - **Memory:** conditions and publication share a database-wide gate with ordinary operations. Guarantees apply within one database instance.
 - **FileSystem:** stages changes and atomically replaces the database file before publishing them to readers. Successful batches persist immediately, independent of periodic saves, and include pending changes in loaded containers. The database file requires a single owner. File data is flushed; power-loss durability still depends on filesystem and OS behavior.
 - **Redis:** commits documents and indexes together using native conditional transactions, including across independent instances. Reads and queries continue to execute directly against Redis through `Soenneker.Redis.Client`; no Lua or periodic save is used. Conflicts retry up to 128 attempts before a timeout.
+- **PostgreSQL:** checks conditions and commits documents, JSONB, and scalar indexes in one server transaction. A row lock serializes writes within a logical database key across instances; ordinary reads and SQL queries use statement snapshots without that lock. Failed validation or SQL operations roll back the transaction. See [PostgreSQL details](POSTGRES.md).
 
 ## Reads, cancellation, and retries
 
