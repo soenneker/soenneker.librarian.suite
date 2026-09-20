@@ -12,7 +12,7 @@ using Soenneker.Extensions.Task;
 using Soenneker.Extensions.ValueTask;
 using Soenneker.Librarian.Abstractions;
 using Soenneker.Librarian.Abstractions.Queries;
-using Soenneker.Utils.Json;
+using Soenneker.Librarian.Abstractions.Serialization;
 using Soenneker.Utils.PooledStringBuilders;
 using StackExchange.Redis;
 
@@ -299,7 +299,7 @@ public sealed partial class RedisLibrarianContainer : ILibrarianContainer
             }
             RedisValue[] documents = await Task.WhenAll(reads).NoSync();
             if (version != await store.StringGetAsync(Version).NoSync()) continue;
-            List<T> items = documents.Select(document => JsonUtil.Deserialize<T>(document.ToString())!).ToList();
+            List<T> items = documents.Select(document => LibrarianJson.Deserialize<T>(document.ToString())!).ToList();
             return new LibrarianQueryResult<T> { Items = items, Index = path, IndexEntriesExamined = members.Length, DocumentsDeserialized = documents.Length };
         }
     }
@@ -332,6 +332,7 @@ public sealed partial class RedisLibrarianContainer : ILibrarianContainer
 
     public IQueryable<T> BuildQueryable<T>()
     {
+        _ = LibrarianJson.Contract(typeof(T));
         ObjectDisposedException.ThrowIf(_disposed.Value, this);
         return (IQueryable<T>)_queryRoots.GetOrAdd(typeof(T), static (_, container) =>
             new RedisQueryable<T>(new RedisQueryProvider<T>(container)), this);

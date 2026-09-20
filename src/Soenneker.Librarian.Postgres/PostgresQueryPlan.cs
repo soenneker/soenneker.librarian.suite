@@ -4,7 +4,8 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
-using Soenneker.Json.OptionsCollection;
+using Soenneker.Librarian.Abstractions.Queries;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace Soenneker.Librarian.Postgres;
@@ -61,7 +62,7 @@ internal sealed class PostgresQueryPlan
                 BeginStageAfterPage();
                 if (secondary && Orders.Count == 0) throw Unsupported();
                 if (!secondary) Orders.Clear();
-                LambdaExpression order = Resolve(Lambda(call.Arguments[1]));
+                PostgresLambda order = Resolve(Lambda(call.Arguments[1]));
                 Orders.Add((Register(Path(order.Body, order.Parameters[0]) ?? throw Unsupported()),
                     method is nameof(Queryable.OrderByDescending) or nameof(Queryable.ThenByDescending)));
                 break;
@@ -98,7 +99,7 @@ internal sealed class PostgresQueryPlan
                 if (call.Arguments.Count == 2)
                 {
                     BeginStageAfterPage();
-                    LambdaExpression predicate = Resolve(Lambda(call.Arguments[1]));
+                    PostgresLambda predicate = Resolve(Lambda(call.Arguments[1]));
                     PostgresQueryFilter next = Predicate(predicate.Body, predicate.Parameters[0]);
                     if (method == nameof(Queryable.All)) next = new("not", Left: next);
                     _filter = _filter is null ? next : new("and", Left: _filter, Right: next);
@@ -114,7 +115,7 @@ internal sealed class PostgresQueryPlan
             case nameof(Queryable.Max):
                 if (call.Arguments.Count == 2)
                 {
-                    LambdaExpression selector = Resolve(Lambda(call.Arguments[1]));
+                    PostgresLambda selector = Resolve(Lambda(call.Arguments[1]));
                     AggregateExpression = PostgresScalar.Create(selector.Body, selector.Parameters[0]);
                     AggregatePath = AggregateExpression.Path;
                     AggregateType = selector.ReturnType;
@@ -136,10 +137,10 @@ internal sealed class PostgresQueryPlan
         }
     }
 
-    private static LambdaExpression Lambda(Expression expression) => expression is UnaryExpression { NodeType: ExpressionType.Quote, Operand: LambdaExpression lambda }
-        && lambda.Parameters.Count == 1 ? lambda : throw Unsupported();
+    private static PostgresLambda Lambda(Expression expression) => expression is UnaryExpression { NodeType: ExpressionType.Quote, Operand: LambdaExpression lambda }
+        && lambda.Parameters.Count == 1 ? new PostgresLambda(lambda.Body, [lambda.Parameters[0]]) : throw Unsupported();
 
-    private LambdaExpression Resolve(LambdaExpression expression) => Projection?.Rewrite(expression) ?? expression;
+    private PostgresLambda Resolve(PostgresLambda expression) => Projection?.Rewrite(expression) ?? expression;
 
     private void BeginStageAfterPage()
     {
@@ -157,7 +158,7 @@ internal sealed class PostgresQueryPlan
         _paged = false;
     }
 
-    private void AddPredicate(LambdaExpression predicate)
+    private void AddPredicate(PostgresLambda predicate)
     {
         PostgresQueryFilter next = Predicate(predicate.Body, predicate.Parameters[0]);
         _filter = _filter is null ? next : new("and", Left: _filter, Right: next);
@@ -283,7 +284,7 @@ internal sealed class PostgresQueryPlan
                 parent == typeof(DateOnly) || parent == typeof(TimeOnly) || parent == typeof(TimeSpan) || Nullable.GetUnderlyingType(parent) is not null))
                 return null;
             string segment = member.Member.GetCustomAttribute<JsonPropertyNameAttribute>()?.Name ??
-                (JsonOptionsCollection.WebOptions.PropertyNamingPolicy?.ConvertName(member.Member.Name) ?? member.Member.Name);
+                (JsonNamingPolicy.CamelCase.ConvertName(member.Member.Name) ?? member.Member.Name);
             if (segment.Contains('.', StringComparison.Ordinal)) throw Unsupported();
             segments.Push(segment);
             expression = member.Expression!;
@@ -296,21 +297,14 @@ internal sealed class PostgresQueryPlan
         ConstantExpression constant => constant.Value,
         MemberExpression { Member: FieldInfo field } member => field.GetValue(member.Expression is null ? null : Value(member.Expression)),
         MemberExpression { Member: PropertyInfo property } member => property.GetValue(member.Expression is null ? null : Value(member.Expression)),
-        UnaryExpression { NodeType: ExpressionType.Convert } unary when unary.Operand is ConstantExpression => Expression.Lambda(unary).Compile().DynamicInvoke(),
+        UnaryExpression { NodeType: ExpressionType.Convert } unary when unary.Operand is ConstantExpression => Expression.Lambda<Func<object?>>(Expression.Convert(unary, typeof(object))).Compile(preferInterpretation: true)(),
         NewArrayExpression { NodeType: ExpressionType.NewArrayInit } array => array.Expressions.Select(Value).ToArray(),
         _ => throw Unsupported()
     };
 
     private static bool IsMembershipCollection(object source)
     {
-        Type type = source.GetType();
-        if (type.IsArray) return true;
-        if (!type.IsGenericType) return false;
-        if (type.GetGenericTypeDefinition() == typeof(List<>)) return true;
-        if (type.GetGenericTypeDefinition() != typeof(HashSet<>)) return false;
-        object? comparer = type.GetProperty("Comparer")!.GetValue(source);
-        object? defaultComparer = typeof(EqualityComparer<>).MakeGenericType(type.GetGenericArguments()).GetProperty("Default")!.GetValue(null);
-        return Equals(comparer, defaultComparer) || ReferenceEquals(comparer, StringComparer.Ordinal);
+        return QueryTypes.IsMembershipCollection(source);
     }
 
     private static object? CollectionValue(Expression expression)

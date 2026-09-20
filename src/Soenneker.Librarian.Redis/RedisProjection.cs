@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Text.Json;
-using Soenneker.Json.OptionsCollection;
+using Soenneker.Librarian.Abstractions.Serialization;
 
 namespace Soenneker.Librarian.Redis;
 
@@ -31,8 +31,12 @@ internal sealed class RedisProjection
                 throw RedisQueryPlan.Unsupported();
             int index = projection.Columns.Count;
             projection.Columns.Add((path, value.Type));
-            return Expression.Convert(Expression.Call(typeof(RedisProjection), nameof(Read), null,
-                Expression.ArrayIndex(row, Expression.Constant(index)), Expression.Constant(value.Type)), value.Type);
+            Expression column = Expression.ArrayIndex(row, Expression.Constant(index));
+            Expression<Func<string, Type, object?>> read = (json, resultType) => Read(json, resultType);
+            var call = (MethodCallExpression)read.Body;
+            return Expression.Condition(Expression.Equal(column, Expression.Constant(null, typeof(string))),
+                Expression.Default(value.Type),
+                Expression.Convert(call.Update(null, [column, Expression.Constant(value.Type)]), value.Type));
         }
 
         Expression body;
@@ -55,15 +59,12 @@ internal sealed class RedisProjection
         }
         if (projection.Columns.Count == 0) throw RedisQueryPlan.Unsupported();
         // Construction is materialization only: each leaf is fetched as a SQL column, never a full document.
-        projection.Materialize = Expression.Lambda<Func<string?[], object?>>(Expression.Convert(body, typeof(object)), row).Compile();
+        projection.Materialize = Expression.Lambda<Func<string?[], object?>>(Expression.Convert(body, typeof(object)), row).Compile(preferInterpretation: true);
         return projection;
     }
 
-    private static object? Read(string? json, Type type)
-    {
-        if (json is null) return type.IsValueType ? Activator.CreateInstance(type) : null;
-        return JsonSerializer.Deserialize(json, type, JsonOptionsCollection.WebOptions);
-    }
+    private static object? Read(string json, Type type) =>
+        LibrarianJson.Deserialize(json, type);
 
     internal object? FromDocument(string document)
     {

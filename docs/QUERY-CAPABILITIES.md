@@ -1,6 +1,6 @@
 # Query capabilities and asynchronous execution
 
-Memory and FileSystem share the Core query engine. They use indexes for recognized query prefixes and evaluate remaining expressions with local LINQ. Redis and PostgreSQL execute supported filters/paging on their servers and reject unsupported expressions. A shared interface does not make every LINQ expression portable.
+Memory and FileSystem share the Core query engine. They use indexes for recognized query prefixes and evaluate supported remaining operators with an AOT-safe local executor. Typed operations require [generated JSON contracts](native-aot.md). Redis and PostgreSQL execute supported filters/paging on their servers and reject unsupported expressions. A shared interface does not make every LINQ expression portable.
 
 | Capability | Memory / FileSystem | Redis | PostgreSQL |
 | --- | --- | --- | --- |
@@ -16,7 +16,8 @@ Memory and FileSystem share the Core query engine. They use indexes for recogniz
 | Filtering/ordering after projection | Local LINQ | No | Scalar, anonymous-type, and direct DTO member mappings |
 | Scalar `Distinct` | Local LINQ | No | Strings, booleans, supported numeric types and nullable variants |
 | Arithmetic, numeric field-to-field comparisons, string length | Local LINQ | No | Supported scalar expressions in SQL |
-| Joins, grouping, arbitrary method calls | Local LINQ fallback | No | No |
+| Joins and grouping | Use `AsEnumerable()` explicitly | No | No |
+| Method calls inside local predicates/projections | Interpreted expressions (no ref structs) | Only supported server operations | Only supported server operations |
 | Async terminal helpers | Cancellable local work | Awaited Redis operations | Cancellable Npgsql operations |
 
 See [PostgreSQL details](POSTGRES.md) and [Redis details](REDIS.md) for exact overloads, costs, and restrictions. Explicit-default terminal overloads and custom comparer overloads are not generally portable to remote providers.

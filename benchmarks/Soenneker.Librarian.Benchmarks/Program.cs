@@ -6,6 +6,7 @@ using LiteDB;
 using Microsoft.Extensions.Logging.Abstractions;
 using Soenneker.Librarian.Memory;
 
+Soenneker.Librarian.Abstractions.Serialization.LibrarianJson.Register(BenchmarkJsonContext.Default.Row);
 CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;
 if (args.Contains("--hotpaths")) { await HotPathBenchmarks.Run(); return; }
 if (args.Contains("--encoding")) { RedisBenchmarks.Encoding(); return; }

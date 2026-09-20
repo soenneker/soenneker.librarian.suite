@@ -4,7 +4,8 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
-using Soenneker.Json.OptionsCollection;
+using Soenneker.Librarian.Abstractions.Queries;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace Soenneker.Librarian.Redis;
@@ -202,7 +203,7 @@ internal sealed class RedisQueryPlan
                 parent == typeof(DateOnly) || parent == typeof(TimeOnly) || parent == typeof(TimeSpan) || Nullable.GetUnderlyingType(parent) is not null))
                 return null;
             string segment = member.Member.GetCustomAttribute<JsonPropertyNameAttribute>()?.Name ??
-                (JsonOptionsCollection.WebOptions.PropertyNamingPolicy?.ConvertName(member.Member.Name) ?? member.Member.Name);
+                (JsonNamingPolicy.CamelCase.ConvertName(member.Member.Name) ?? member.Member.Name);
             if (segment.Contains('.', StringComparison.Ordinal)) throw Unsupported();
             segments.Push(segment);
             expression = member.Expression!;
@@ -215,21 +216,14 @@ internal sealed class RedisQueryPlan
         ConstantExpression constant => constant.Value,
         MemberExpression { Member: FieldInfo field } member => field.GetValue(member.Expression is null ? null : Value(member.Expression)),
         MemberExpression { Member: PropertyInfo property } member => property.GetValue(member.Expression is null ? null : Value(member.Expression)),
-        UnaryExpression { NodeType: ExpressionType.Convert } unary when unary.Operand is ConstantExpression => Expression.Lambda(unary).Compile().DynamicInvoke(),
+        UnaryExpression { NodeType: ExpressionType.Convert } unary when unary.Operand is ConstantExpression => Expression.Lambda<Func<object?>>(Expression.Convert(unary, typeof(object))).Compile(preferInterpretation: true)(),
         NewArrayExpression { NodeType: ExpressionType.NewArrayInit } array => array.Expressions.Select(Value).ToArray(),
         _ => throw Unsupported()
     };
 
     private static bool IsMembershipCollection(object source)
     {
-        Type type = source.GetType();
-        if (type.IsArray) return true;
-        if (!type.IsGenericType) return false;
-        if (type.GetGenericTypeDefinition() == typeof(List<>)) return true;
-        if (type.GetGenericTypeDefinition() != typeof(HashSet<>)) return false;
-        object? comparer = type.GetProperty("Comparer")!.GetValue(source);
-        object? defaultComparer = typeof(EqualityComparer<>).MakeGenericType(type.GetGenericArguments()).GetProperty("Default")!.GetValue(null);
-        return Equals(comparer, defaultComparer) || ReferenceEquals(comparer, StringComparer.Ordinal);
+        return QueryTypes.IsMembershipCollection(source);
     }
 
     private static object? CollectionValue(Expression expression)

@@ -225,8 +225,7 @@ internal sealed class QueryPlan
         Type type = property.PropertyType;
         if (type != typeof(int) && type != typeof(long) && type != typeof(decimal) && type != typeof(string) && type != typeof(bool)) return false;
         // Computed getters may have side effects or depend on mutable external state.
-        return property.GetMethod is { IsVirtual: false } getter && getter.IsDefined(typeof(CompilerGeneratedAttribute), false)
-            && property.DeclaringType!.GetField($"<{property.Name}>k__BackingField", BindingFlags.Instance | BindingFlags.NonPublic) is not null;
+        return property.GetMethod is { IsVirtual: false } getter && getter.IsDefined(typeof(CompilerGeneratedAttribute), false);
     }
 
     private static bool TryValue(Expression expression, out object? value)

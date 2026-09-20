@@ -4,8 +4,7 @@ using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
 using System.Runtime.CompilerServices;
-using System.Text.Json;
-using Soenneker.Json.OptionsCollection;
+using Soenneker.Librarian.Abstractions.Serialization;
 
 namespace Soenneker.Librarian.Postgres;
 
@@ -16,9 +15,9 @@ internal sealed class PostgresProjection
     internal bool Scalar { get; private set; }
     internal Type ResultType { get; private set; } = null!;
     internal Func<string?[], object?> Materialize { get; private set; } = null!;
-    private LambdaExpression _selector = null!;
+    private PostgresLambda _selector = null!;
 
-    internal static PostgresProjection Create(LambdaExpression selector)
+    internal static PostgresProjection Create(PostgresLambda selector)
     {
         var projection = new PostgresProjection { ResultType = selector.ReturnType, _selector = selector };
         var row = Expression.Parameter(typeof(string[]), "row");
@@ -37,8 +36,12 @@ internal sealed class PostgresProjection
             int index = projection.Columns.Count;
             projection.Columns.Add((path, value.Type));
             projection.Expressions.Add(scalar);
-            return Expression.Convert(Expression.Call(typeof(PostgresProjection), nameof(Read), null,
-                Expression.ArrayIndex(row, Expression.Constant(index)), Expression.Constant(value.Type)), value.Type);
+            Expression column = Expression.ArrayIndex(row, Expression.Constant(index));
+            Expression<Func<string, Type, object?>> read = (json, resultType) => Read(json, resultType);
+            var call = (MethodCallExpression)read.Body;
+            return Expression.Condition(Expression.Equal(column, Expression.Constant(null, typeof(string))),
+                Expression.Default(value.Type),
+                Expression.Convert(call.Update(null, [column, Expression.Constant(value.Type)]), value.Type));
         }
 
         Expression body;
@@ -61,20 +64,17 @@ internal sealed class PostgresProjection
         }
         if (projection.Columns.Count == 0) throw PostgresQueryPlan.Unsupported();
         // Construction is materialization only: each leaf is fetched as a SQL column, never a full document.
-        projection.Materialize = Expression.Lambda<Func<string?[], object?>>(Expression.Convert(body, typeof(object)), row).Compile();
+        projection.Materialize = Expression.Lambda<Func<string?[], object?>>(Expression.Convert(body, typeof(object)), row).Compile(preferInterpretation: true);
         return projection;
     }
 
-    private static object? Read(string? json, Type type)
-    {
-        if (json is null) return type.IsValueType ? Activator.CreateInstance(type) : null;
-        return JsonSerializer.Deserialize(json, type, JsonOptionsCollection.WebOptions);
-    }
+    private static object? Read(string json, Type type) =>
+        LibrarianJson.Deserialize(json, type);
 
-    internal LambdaExpression Rewrite(LambdaExpression expression)
+    internal PostgresLambda Rewrite(PostgresLambda expression)
     {
         Expression body = new RewriteProjection(expression.Parameters[0], _selector.Body).Visit(expression.Body)!;
-        return Expression.Lambda(body, _selector.Parameters);
+        return new PostgresLambda(body, _selector.Parameters);
     }
 
     private sealed class RewriteProjection(ParameterExpression parameter, Expression selected) : ExpressionVisitor

@@ -1,16 +1,13 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Configuration;
-using Soenneker.Extensions.Configuration;
 using Soenneker.Asyncs.Locks;
 using Soenneker.Atomics.ValueBools;
 using Soenneker.Dictionaries.Singletons;
 using Soenneker.Dtos.IdValuePair;
 using Soenneker.Extensions.Task;
 using Soenneker.Extensions.ValueTask;
-using Soenneker.Json.OptionsCollection;
 using Soenneker.Utils.AsyncInitializers;
 using Soenneker.Utils.File.Abstract;
-using Soenneker.Utils.Json;
 using Soenneker.Utils.MemoryStream.Abstract;
 using Soenneker.Librarian.Abstractions;
 using Soenneker.Librarian.Core;
@@ -44,7 +41,7 @@ public sealed class FileSystemLibrarianDatabase : ILibrarianDatabase
 
     public FileSystemLibrarianDatabase(IConfiguration configuration, IFileUtil fileUtil,
         IMemoryStreamUtil memoryStreamUtil, ILogger<FileSystemLibrarianDatabase> logger) : this(
-        configuration.GetValueStrict<string>("Librarian:FileSystem:FilePath"), fileUtil, memoryStreamUtil, logger)
+        (configuration["Librarian:FileSystem:FilePath"] ?? throw new InvalidOperationException("Missing configuration: Librarian:FileSystem:FilePath")), fileUtil, memoryStreamUtil, logger)
     {
     }
 
@@ -148,7 +145,7 @@ public sealed class FileSystemLibrarianDatabase : ILibrarianDatabase
             using (await _fileGate.Lock(cancellationToken).NoSync())
             {
                 await _fileUtil.WriteAtomically(_filePath,
-                    (stream, token) => new ValueTask(JsonUtil.SerializeToStream(stream, data, null, null, token)),
+                    (stream, token) => new ValueTask(JsonSerializer.SerializeAsync(stream, data, FileSystemJsonContext.Default.Database, token)),
                     log: false, cancellationToken).NoSync();
             }
         }
@@ -188,12 +185,12 @@ public sealed class FileSystemLibrarianDatabase : ILibrarianDatabase
             // Preserve legacy BOM-detected UTF-16/32 files; normal UTF-8 files stay on the streaming path.
             using var reader = new StreamReader(stream);
             string json = await reader.ReadToEndAsync(cancellationToken).NoSync();
-            return JsonUtil.Deserialize<Dictionary<string, List<IdValuePair>>>(json) ??
+            return JsonSerializer.Deserialize(json, FileSystemJsonContext.Default.Database) ??
                    throw new InvalidDataException($"Librarian database '{_filePath}' must contain a JSON object.");
         }
 
         return await JsonSerializer.DeserializeAsync<Dictionary<string, List<IdValuePair>>>(stream,
-                   JsonOptionsCollection.WebOptions, cancellationToken).NoSync() ??
+                   FileSystemJsonContext.Default.Database, cancellationToken).NoSync() ??
                throw new InvalidDataException($"Librarian database '{_filePath}' must contain a JSON object.");
     }
 
@@ -238,7 +235,7 @@ public sealed class FileSystemLibrarianDatabase : ILibrarianDatabase
             await _fileUtil.WriteAtomically(_filePath,
                 async (stream, cancellationToken) =>
                 {
-                    await JsonUtil.SerializeToStream(stream, data, null, null, cancellationToken).NoSync();
+                    await JsonSerializer.SerializeAsync(stream, data, FileSystemJsonContext.Default.Database, cancellationToken).NoSync();
                     await stream.FlushAsync(cancellationToken).NoSync();
                     if (stream is FileStream file) file.Flush(flushToDisk: true);
                 },

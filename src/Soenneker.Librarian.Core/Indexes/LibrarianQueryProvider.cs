@@ -107,12 +107,7 @@ internal sealed class LibrarianQueryProvider<T>(LibrarianContainer container) : 
 
     public IQueryable CreateQuery(Expression expression)
     {
-        ArgumentNullException.ThrowIfNull(expression);
-        Type? queryType = expression.Type.GetInterfaces().Append(expression.Type)
-            .FirstOrDefault(type => type.IsGenericType && type.GetGenericTypeDefinition() == typeof(IQueryable<>));
-        if (queryType is null) throw new ArgumentException("Expression must represent a queryable sequence.", nameof(expression));
-        Type element = queryType.GetGenericArguments()[0];
-        return (IQueryable)Activator.CreateInstance(typeof(LibrarianQueryable<>).MakeGenericType(element), this, expression)!;
+        return QueryTypes.CreateQuery(this, expression);
     }
 
     public IQueryable<TElement> CreateQuery<TElement>(Expression expression)
@@ -128,8 +123,7 @@ internal sealed class LibrarianQueryProvider<T>(LibrarianContainer container) : 
         if (TryElement(expression, out object? element)) return element;
         expression = NormalizeTerminal(NormalizeProjectedCount(expression));
         if (TryCount(expression, out object? count)) return count;
-        (IQueryable<T> source, Expression rewritten) = Prepare(expression);
-        return source.Provider.Execute(rewritten);
+        return ExecuteLocal(expression);
     }
 
     public TResult Execute<TResult>(Expression expression)
@@ -146,9 +140,7 @@ internal sealed class LibrarianQueryProvider<T>(LibrarianContainer container) : 
                     ? (TResult)container.QuerySource<T>(plan).GetAwaiter().GetResult()
                     : (TResult)container.QuerySnapshot<T>(plan).GetAwaiter().GetResult();
         }
-        (IQueryable<T> source, Expression rewritten) = Prepare(expression);
-        if (rewritten == source.Expression && source is TResult direct) return direct;
-        return source.Provider.Execute<TResult>(rewritten);
+        return (TResult)ExecuteLocal(expression)!;
     }
 
     public async ValueTask<TResult> ExecuteAsync<TResult>(Expression expression, CancellationToken cancellationToken = default)
@@ -163,11 +155,9 @@ internal sealed class LibrarianQueryProvider<T>(LibrarianContainer container) : 
             return (TResult)count;
         }
         var plan = QueryPlan.Create(expression, this);
-        IQueryable<T> source = (await container.QuerySource<T>(plan, cancellationToken).NoSync()).AsQueryable();
-        Expression rewritten = new ReplaceSource(this, plan?.Prefix, source.Expression).Visit(expression)!;
+        IEnumerable<T> source = await container.QuerySource<T>(plan, cancellationToken).NoSync();
         cancellationToken.ThrowIfCancellationRequested();
-        if (rewritten == source.Expression && source is TResult direct) return direct;
-        return source.Provider.Execute<TResult>(rewritten);
+        return (TResult)LocalExecutor(plan, source, cancellationToken).Execute(expression)!;
     }
 
     private static Expression NormalizeProjectedPaging(Expression expression)
@@ -186,8 +176,8 @@ internal sealed class LibrarianQueryProvider<T>(LibrarianContainer container) : 
             QueryPlan.GetProperty(selector.Body, selector.Parameters[0]) is null) return expression;
         source = projection.Arguments[0];
         for (int i = pages.Count - 1; i >= 0; i--)
-            source = Expression.Call(typeof(Queryable), pages[i].Method.Name, [typeof(T)], source, pages[i].Arguments[1]);
-        return Expression.Call(typeof(Queryable), nameof(Queryable.Select), [typeof(T), selector.ReturnType], source, projection.Arguments[1]);
+            source = Call(pages[i].Method.Name, source, pages[i].Arguments[1]);
+        return projection.Update(null, [source, projection.Arguments[1]]);
     }
 
     // Count and Any do not need a selected scalar. Push their paging to the indexed source,
@@ -212,9 +202,29 @@ internal sealed class LibrarianQueryProvider<T>(LibrarianContainer container) : 
             return expression;
         source = projection.Arguments[0];
         for (int i = pages.Count - 1; i >= 0; i--)
-            source = Expression.Call(typeof(Queryable), pages[i].Method.Name, [typeof(T)], source, pages[i].Arguments[1]);
-        return Expression.Call(typeof(Queryable), terminal.Method.Name, [typeof(T)], source);
+            source = Call(pages[i].Method.Name, source, pages[i].Arguments[1]);
+        return Call(terminal.Method.Name, source);
     }
+    private static MethodCallExpression Call(string name, params Expression[] arguments)
+    {
+        Expression<Func<IQueryable<T>, object?>> template = name switch
+        {
+            nameof(Queryable.Skip) => query => query.Skip(0),
+            nameof(Queryable.Take) => query => query.Take(0),
+            nameof(Queryable.Where) => query => query.Where(item => true),
+            nameof(Queryable.Count) => query => query.Count(),
+            nameof(Queryable.LongCount) => query => query.LongCount(),
+            nameof(Queryable.Any) => query => query.Any(),
+            nameof(Queryable.First) => query => query.First(),
+            nameof(Queryable.FirstOrDefault) => query => query.FirstOrDefault(),
+            nameof(Queryable.Single) => query => query.Single(),
+            nameof(Queryable.SingleOrDefault) => query => query.SingleOrDefault(),
+            _ => throw new NotSupportedException(name)
+        };
+        Expression body = template.Body is UnaryExpression conversion ? conversion.Operand : template.Body;
+        return ((MethodCallExpression)body).Update(null, arguments);
+    }
+
     private static Expression NormalizeTerminal(Expression expression)
     {
         if (expression is not MethodCallExpression call || call.Method.DeclaringType != typeof(Queryable)
@@ -224,11 +234,11 @@ internal sealed class LibrarianQueryProvider<T>(LibrarianContainer container) : 
         if (call.Arguments.Count == 2)
         {
             if (call.Arguments[1] is not UnaryExpression { Operand: LambdaExpression }) return expression;
-            source = Expression.Call(typeof(Queryable), nameof(Queryable.Where), [typeof(T)], source, call.Arguments[1]);
+            source = Call(nameof(Queryable.Where), source, call.Arguments[1]);
         }
         int limit = call.Method.Name is nameof(Queryable.Single) or nameof(Queryable.SingleOrDefault) ? 2 : 1;
-        source = Expression.Call(typeof(Queryable), nameof(Queryable.Take), [typeof(T)], source, Expression.Constant(limit));
-        return Expression.Call(typeof(Queryable), call.Method.Name, [typeof(T)], source);
+        source = Call(nameof(Queryable.Take), source, Expression.Constant(limit));
+        return Call(call.Method.Name, source);
     }
 
     private bool TryElement(Expression expression, out object? result)
@@ -284,11 +294,19 @@ internal sealed class LibrarianQueryProvider<T>(LibrarianContainer container) : 
         };
         return true;
     }
-    private (IQueryable<T>, Expression) Prepare(Expression expression)
+    private object? ExecuteLocal(Expression expression)
     {
         var plan = QueryPlan.Create(expression, this);
-        IQueryable<T> source = container.QuerySource<T>(plan).GetAwaiter().GetResult().AsQueryable();
-        return (source, new ReplaceSource(this, plan?.Prefix, source.Expression).Visit(expression)!);
+        IEnumerable<T> source = container.QuerySource<T>(plan).GetAwaiter().GetResult();
+        return LocalExecutor(plan, source).Execute(expression);
     }
+
+    private LocalQueryExecutor LocalExecutor(QueryPlan? plan, IEnumerable<T> source, CancellationToken token = default) => new(node =>
+    {
+        if (node == plan?.Prefix) return source.Cast<object?>();
+        if (node is ConstantExpression { Value: IQueryable query } && query.Provider == this)
+            return (plan is null ? source : container.QuerySource<T>(null, token).GetAwaiter().GetResult()).Cast<object?>();
+        return null;
+    });
 
 }

@@ -213,14 +213,14 @@ public class RedisPersistenceTests
         Check(page.Items.Select(item => item.GetProperty("value").GetRawText()).SequenceEqual(new[] { "null", "false", "true", "-1", "\"\"", "\"a\"", "\"aa\"" }), "Scalar ordering changed.");
     }
     [Test]
-    public async Task Query_values_use_the_same_JsonUtil_options_as_documents()
+    public async Task Query_values_use_the_same_generated_contracts_as_documents()
     {
         await using var fixture = new RedisPersistenceFixture();
         ILibrarianContainer container = await fixture.Database.GetContainer("items");
-        string json = Soenneker.Utils.Json.JsonUtil.Serialize(new RedisRow { Status = RedisStatus.Active, DisplayName = "Visible" })!;
+        string json = JsonSerializer.Serialize(new RedisRow { Status = RedisStatus.Active, DisplayName = "Visible" }, TestJsonContext.Default.RedisRow);
         await container.AddItem("one", json);
         await container.EnsureIndex("status");
-        Check(await container.CountByIndex("status", RedisStatus.Active) == 1, "Enum query value did not match JsonUtil's string-enum encoding.");
+        Check(await container.CountByIndex("status", RedisStatus.Active) == 1, "Enum query value did not match the generated string-enum encoding.");
         Check(container.BuildQueryable<RedisRow>().Single(row => row.DisplayName == "Visible").Status == RedisStatus.Active,
             "JSON property name or deserialization options differed.");
     }

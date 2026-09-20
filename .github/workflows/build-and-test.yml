@@ -68,6 +68,12 @@ jobs:
       - name: Test
         run: dotnet test --project test/Soenneker.Librarian.Suite.Tests/Soenneker.Librarian.Suite.Tests.csproj --configuration Release --no-build --no-restore --verbosity minimal
 
+      - name: Publish Native AOT smoke
+        run: dotnet publish test/Soenneker.Librarian.NativeAot.Smoke --configuration Release --runtime linux-x64 --output ./artifacts/native-aot -p:TreatWarningsAsErrors=true -p:IlcTreatWarningsAsErrors=true
+
+      - name: Run Native AOT smoke
+        run: ./artifacts/native-aot/Soenneker.Librarian.NativeAot.Smoke
+
       - name: Pack
         shell: bash
         run: |

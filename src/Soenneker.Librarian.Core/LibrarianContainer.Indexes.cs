@@ -8,7 +8,7 @@ using Soenneker.Asyncs.Locks;
 using Soenneker.Extensions.ValueTask;
 using Soenneker.Librarian.Abstractions.Queries;
 using Soenneker.Librarian.Core.Indexes;
-using Soenneker.Utils.Json;
+using Soenneker.Librarian.Abstractions.Serialization;
 
 namespace Soenneker.Librarian.Core;
 
@@ -115,7 +115,7 @@ public sealed partial class LibrarianContainer
         for (var i = 0; i < result.Length; i++)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var document = JsonUtil.Deserialize<T>(page.Documents[i]);
+            var document = LibrarianJson.Deserialize<T>(page.Documents[i]);
             if (document is null)
                 throw new InvalidDataException("An indexed document deserialized to null.");
             result[i] = document;

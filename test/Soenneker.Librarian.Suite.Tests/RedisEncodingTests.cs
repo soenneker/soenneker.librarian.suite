@@ -1,7 +1,6 @@
 using System;
 using System.Globalization;
 using System.Numerics;
-using System.Reflection;
 using System.Text.Json;
 using Soenneker.Librarian.Redis;
 
@@ -9,9 +8,7 @@ namespace Soenneker.Librarian.Suite.Tests;
 
 public class RedisEncodingTests
 {
-    private static readonly Type EncodingType = typeof(RedisLibrarianDatabase).Assembly.GetType("Soenneker.Librarian.Redis.RedisIndexValue")!;
-    private static readonly Func<object?, string> Encode = EncodingType.GetMethod("Encode", BindingFlags.Static | BindingFlags.NonPublic, [typeof(object)])!
-        .CreateDelegate<Func<object?, string>>();
+    private static string Encode(object? value) => RedisIndexValue.Encode(value);
 
     [Test]
     public void Decimal_encoding_matches_the_persisted_format_for_every_scale_and_extreme_values()
@@ -42,14 +39,11 @@ public class RedisEncodingTests
     [Test]
     public void Primitive_fast_paths_match_JSON_keys_and_safe_segments_are_reused()
     {
-        var encodeJson = EncodingType.GetMethod("Encode", BindingFlags.Static | BindingFlags.NonPublic, [typeof(JsonElement)])!
-            .CreateDelegate<Func<JsonElement, string>>();
         object?[] values = [null, "", "a!*é😀", false, true, int.MinValue, long.MinValue, ulong.MaxValue,
             uint.MaxValue, short.MinValue, ushort.MaxValue, byte.MaxValue, sbyte.MinValue, 1.25m, 1.5d];
         foreach (object? value in values)
-            if (Encode(value) != encodeJson(JsonSerializer.SerializeToElement(value))) throw new Exception($"Scalar key mismatch: {value}");
-        var segment = EncodingType.GetMethod("KeySegment", BindingFlags.Static | BindingFlags.NonPublic)!.CreateDelegate<Func<string, string>>();
+            if (Encode(value) != RedisIndexValue.Encode(JsonSerializer.SerializeToElement(value))) throw new Exception($"Scalar key mismatch: {value}");
         const string safe = "jobs.state-123_A";
-        if (!ReferenceEquals(safe, segment(safe)) || segment(":%*") != "%003A%0025%002A") throw new Exception("Key escaping changed.");
+        if (!ReferenceEquals(safe, RedisIndexValue.KeySegment(safe)) || RedisIndexValue.KeySegment(":%*") != "%003A%0025%002A") throw new Exception("Key escaping changed.");
     }
 }

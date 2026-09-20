@@ -12,6 +12,8 @@ namespace Soenneker.Librarian.Abstractions;
 /// Defines the contract for a generic container storing documents in the Librarian database.
 /// </summary>
 /// <remarks>
+/// Typed operations require source-generated contracts registered through LibrarianJson.Register&lt;T&gt; before use.
+/// Raw JSON operations do not require document metadata.
 /// Mutation methods check cancellation before changing data. After a change commits in memory, dirty tracking is completed
 /// without cancellation for memory/filesystem providers. Redis mutations commit directly to the server, atomically updating persistent indexes.
 /// Redis reads and supported queries execute against current server data; Save and MarkDirty are no-ops. The database owns container
@@ -71,7 +73,7 @@ public interface ILibrarianContainer : IDisposable
     /// </summary>
     /// <typeparam name="T">Type of value handled by the Librarian Container.</typeparam>
     /// <returns>The resulting queryable.</returns>
-    /// <remarks>For memory/filesystem providers, the first indexed query builds a lookup; writes maintain it. Supported leading filters, ordering and paging deserialize only the selected page. Other expressions use ordinary LINQ over a raw JSON snapshot, deserializing documents as consumed and skipping invalid or null documents. Writes invalidate the cached raw snapshot. Enumeration executes synchronously.</remarks>
+    /// <remarks>For memory/filesystem providers, the first indexed query builds a lookup; writes maintain it. Supported leading filters, ordering and paging deserialize only the selected page. Other supported operators use an AOT-safe local executor over a raw JSON snapshot, deserializing documents as consumed and skipping invalid or null documents. Unsupported operators throw; call AsEnumerable() for additional client-side LINQ. Writes invalidate the cached raw snapshot. Enumeration executes synchronously.</remarks>
     /// <remarks>Redis supports scalar comparisons, boolean AND/OR/NOT, ordinal StartsWith, captured membership, one ordering,
     /// paging, Count/LongCount/Any/All and First/Single variants. Direct scalar/constructor/DTO projections require a bounded page.
     /// Filtering and ordering must precede paging and projection. Unsupported Redis expressions throw NotSupportedException.</remarks>

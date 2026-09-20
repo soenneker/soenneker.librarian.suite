@@ -37,7 +37,7 @@ public static class LibrarianQueryableExtensions
     public static ValueTask<bool> AnyAsync<T>(this IQueryable<T> query, Expression<Func<T, bool>> predicate, CancellationToken cancellationToken = default) => query.Where(predicate).AnyAsync(cancellationToken);
     /// <summary>Checks whether every query result matches a predicate asynchronously.</summary>
     public static ValueTask<bool> AllAsync<T>(this IQueryable<T> query, Expression<Func<T, bool>> predicate, CancellationToken cancellationToken = default) =>
-        Terminal<T, bool>(query, nameof(Queryable.All), predicate, cancellationToken);
+        All(query, predicate, cancellationToken);
     /// <summary>Returns the first query result asynchronously, throwing if empty.</summary>
     public static ValueTask<T> FirstAsync<T>(this IQueryable<T> query, CancellationToken cancellationToken = default) => query.ExecuteAsync(q => q.First(), cancellationToken);
     /// <summary>Returns the first matching result asynchronously, throwing if empty.</summary>
@@ -61,10 +61,12 @@ public static class LibrarianQueryableExtensions
         return provider.ExecuteAsync<TResult>(expression, cancellationToken);
     }
 
-    private static ValueTask<TResult> Terminal<T, TResult>(IQueryable<T> query, string name, Expression<Func<T, bool>> predicate, CancellationToken token)
+    private static ValueTask<bool> All<T>(IQueryable<T> query, Expression<Func<T, bool>> predicate, CancellationToken token)
     {
         ArgumentNullException.ThrowIfNull(predicate);
-        return Provider(query).ExecuteAsync<TResult>(Expression.Call(typeof(Queryable), name, [typeof(T)], query.Expression, Expression.Quote(predicate)), token);
+        Expression<Func<IQueryable<T>, bool>> operation = source => source.All(item => true);
+        var call = (MethodCallExpression)operation.Body;
+        return Provider(query).ExecuteAsync<bool>(call.Update(null, [query.Expression, Expression.Quote(predicate)]), token);
     }
 
     private static ILibrarianAsyncQueryProvider Provider<T>(IQueryable<T> query)

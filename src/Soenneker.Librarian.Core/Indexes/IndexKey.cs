@@ -1,5 +1,6 @@
 using System;
 using System.Text.Json;
+using Soenneker.Librarian.Abstractions.Serialization;
 
 namespace Soenneker.Librarian.Core.Indexes;
 
@@ -29,7 +30,7 @@ internal readonly record struct IndexKey(int Kind, decimal Number = 0, string? T
         ushort number => new IndexKey(2, number),
         byte number => new IndexKey(2, number),
         sbyte number => new IndexKey(2, number),
-        _ => FromJson(JsonSerializer.SerializeToElement(value))
+        _ => FromJson(LibrarianJson.Element(value))
     };
 
     public int CompareTo(IndexKey other)

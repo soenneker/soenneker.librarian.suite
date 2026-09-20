@@ -16,6 +16,7 @@
     <Project Path="src/Soenneker.Librarian.Redis/Soenneker.Librarian.Redis.csproj" />
   </Folder>
   <Folder Name="/test/">
+    <Project Path="test/Soenneker.Librarian.NativeAot.Smoke/Soenneker.Librarian.NativeAot.Smoke.csproj" />
     <Project Path="test/Soenneker.Librarian.Suite.Tests/Soenneker.Librarian.Suite.Tests.csproj" />
   </Folder>
 </Solution>

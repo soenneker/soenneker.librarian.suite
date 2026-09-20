@@ -1,7 +1,7 @@
 using System;
 using System.Globalization;
 using System.Text.Json;
-using Soenneker.Utils.Json;
+using Soenneker.Librarian.Abstractions.Serialization;
 using Soenneker.Utils.PooledStringBuilders;
 
 namespace Soenneker.Librarian.Postgres;
@@ -53,7 +53,7 @@ internal static class PostgresIndexValue
             case byte number: return Number(number);
             case sbyte number: return Number(number);
         }
-        JsonElement? element = JsonUtil.SerializeToElement(value);
+        JsonElement? element = LibrarianJson.Element(value);
         return element is { } scalar ? Encode(scalar) : "0";
     }
 

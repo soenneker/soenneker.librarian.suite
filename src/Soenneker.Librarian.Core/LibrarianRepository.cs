@@ -7,10 +7,8 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Soenneker.Documents.Document;
 using Soenneker.Dtos.IdNamePair;
-using Soenneker.Enums.JsonOptions;
 using Soenneker.Extensions.ValueTask;
-using Soenneker.Utils.Json;
-using Soenneker.Utils.Method;
+using Soenneker.Librarian.Abstractions.Serialization;
 using Soenneker.Librarian.Abstractions;
 using Soenneker.Librarian.Abstractions.Queries;
 
@@ -33,7 +31,7 @@ public class LibrarianRepository<TDocument> : ILibrarianRepository<TDocument> wh
         ContainerName = containerName;
         Logger = logger;
 
-        _log = config.GetValue<bool>("Librarian:Log");
+        _log = bool.Parse(config["Librarian:Log"] ?? "false");
     }
 
     public async ValueTask EnsureIndex(string fieldPath, CancellationToken cancellationToken = default)
@@ -78,7 +76,7 @@ public class LibrarianRepository<TDocument> : ILibrarianRepository<TDocument> wh
     public List<T> GetItems<T>(IQueryable<T> queryable)
     {
         if (_log && Logger.IsEnabled(LogLevel.Debug))
-            Logger.LogDebug("-- LIBRARIAN: {method} ({type})", MethodUtil.Get(), typeof(T).Name);
+            Logger.LogDebug("-- LIBRARIAN: {method} ({type})", nameof(GetItems), typeof(T).Name);
 
         // We're just materializing it here because the IQueryable has already been built via the container
         return [.. queryable];
@@ -87,7 +85,7 @@ public class LibrarianRepository<TDocument> : ILibrarianRepository<TDocument> wh
     public async ValueTask<TDocument?> GetItem(string id, CancellationToken cancellationToken = default)
     {
         if (_log && Logger.IsEnabled(LogLevel.Debug))
-            Logger.LogDebug("-- LIBRARIAN: {method} ({type}): {id}", MethodUtil.Get(), typeof(TDocument).Name, id);
+            Logger.LogDebug("-- LIBRARIAN: {method} ({type}): {id}", nameof(GetItem), typeof(TDocument).Name, id);
 
         ILibrarianContainer container = await _database.GetContainer(ContainerName, cancellationToken).NoSync();
 
@@ -96,7 +94,7 @@ public class LibrarianRepository<TDocument> : ILibrarianRepository<TDocument> wh
         if (item == null)
             return null;
 
-        return JsonUtil.Deserialize<TDocument>(item);
+        return LibrarianJson.Deserialize<TDocument>(item);
     }
 
     public async ValueTask<List<TDocument>?> GetAll(CancellationToken cancellationToken = default)
@@ -114,7 +112,7 @@ public class LibrarianRepository<TDocument> : ILibrarianRepository<TDocument> wh
         {
             cancellationToken.ThrowIfCancellationRequested();
             string item = items[i];
-            var document = JsonUtil.Deserialize<TDocument>(item);
+            var document = LibrarianJson.Deserialize<TDocument>(item);
 
             if (document != null)
                 list.Add(document);
@@ -132,14 +130,14 @@ public class LibrarianRepository<TDocument> : ILibrarianRepository<TDocument> wh
     {
         if (_log && Logger.IsEnabled(LogLevel.Debug))
         {
-            string? serialized = JsonUtil.Serialize(document, JsonOptionType.Pretty);
-            Logger.LogDebug("-- LIBRARIAN: {method} ({type}): {document}", MethodUtil.Get(), typeof(TDocument).Name, serialized);
+            string? serialized = LibrarianJson.Serialize(document);
+            Logger.LogDebug("-- LIBRARIAN: {method} ({type}): {document}", nameof(AddItem), typeof(TDocument).Name, serialized);
         }
 
         ILibrarianContainer container = await _database.GetContainer(ContainerName, cancellationToken).NoSync();
 
         ArgumentException.ThrowIfNullOrEmpty(document.Id);
-        string? docSerialized = JsonUtil.Serialize(document);
+        string? docSerialized = LibrarianJson.Serialize(document);
 
         if (docSerialized == null)
             throw new Exception("Failed to serialize document");
@@ -153,7 +151,7 @@ public class LibrarianRepository<TDocument> : ILibrarianRepository<TDocument> wh
     {
         if (_log && Logger.IsEnabled(LogLevel.Debug))
         {
-            Logger.LogDebug("-- LIBRARIAN: {method} ({type})", MethodUtil.Get(), typeof(TDocument).Name);
+            Logger.LogDebug("-- LIBRARIAN: {method} ({type})", nameof(AddItems), typeof(TDocument).Name);
         }
 
         ILibrarianContainer container = await _database.GetContainer(ContainerName, cancellationToken).NoSync();
@@ -162,7 +160,7 @@ public class LibrarianRepository<TDocument> : ILibrarianRepository<TDocument> wh
         {
             cancellationToken.ThrowIfCancellationRequested();
             ArgumentException.ThrowIfNullOrEmpty(document.Id);
-            string? docSerialized = JsonUtil.Serialize(document);
+            string? docSerialized = LibrarianJson.Serialize(document);
 
             if (docSerialized == null)
                 throw new Exception("Failed to serialize document");
@@ -177,14 +175,14 @@ public class LibrarianRepository<TDocument> : ILibrarianRepository<TDocument> wh
     {
         if (_log && Logger.IsEnabled(LogLevel.Debug))
         {
-            string? serialized = JsonUtil.Serialize(document, JsonOptionType.Pretty);
-            Logger.LogDebug("-- LIBRARIAN: {method} ({type}): {document}", MethodUtil.Get(), typeof(TDocument).Name, serialized);
+            string? serialized = LibrarianJson.Serialize(document);
+            Logger.LogDebug("-- LIBRARIAN: {method} ({type}): {document}", nameof(UpdateItem), typeof(TDocument).Name, serialized);
         }
 
         ILibrarianContainer container = await _database.GetContainer(ContainerName, cancellationToken).NoSync();
 
         ArgumentException.ThrowIfNullOrEmpty(document.Id);
-        string? docSerialized = JsonUtil.Serialize(document);
+        string? docSerialized = LibrarianJson.Serialize(document);
 
         if (docSerialized == null)
             throw new Exception("Failed to serialize document");
@@ -198,7 +196,7 @@ public class LibrarianRepository<TDocument> : ILibrarianRepository<TDocument> wh
     {
         if (_log && Logger.IsEnabled(LogLevel.Debug))
         {
-            Logger.LogDebug("-- LIBRARIAN: {method} ({type})", MethodUtil.Get(), typeof(TDocument).Name);
+            Logger.LogDebug("-- LIBRARIAN: {method} ({type})", nameof(UpdateItems), typeof(TDocument).Name);
         }
 
         ILibrarianContainer container = await _database.GetContainer(ContainerName, cancellationToken).NoSync();
@@ -208,7 +206,7 @@ public class LibrarianRepository<TDocument> : ILibrarianRepository<TDocument> wh
             cancellationToken.ThrowIfCancellationRequested();
             TDocument document = documents[i];
             ArgumentException.ThrowIfNullOrEmpty(document.Id);
-            string? docSerialized = JsonUtil.Serialize(document);
+            string? docSerialized = LibrarianJson.Serialize(document);
 
             if (docSerialized == null)
                 throw new Exception("Failed to serialize document");
@@ -228,7 +226,7 @@ public class LibrarianRepository<TDocument> : ILibrarianRepository<TDocument> wh
 
     public virtual async ValueTask DeleteAll(CancellationToken cancellationToken = default)
     {
-        Logger.LogWarning("-- LIBRARIAN: {method} ({type}) ", MethodUtil.Get(), typeof(TDocument).Name);
+        Logger.LogWarning("-- LIBRARIAN: {method} ({type}) ", nameof(DeleteAll), typeof(TDocument).Name);
 
         ILibrarianContainer container = await _database.GetContainer(ContainerName, cancellationToken).NoSync();
 

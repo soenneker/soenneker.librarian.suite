@@ -8,7 +8,7 @@ using System.Threading;
 using Microsoft.Extensions.Logging;
 using Soenneker.Extensions.ValueTask;
 using Soenneker.Librarian.Core.Indexes;
-using Soenneker.Utils.Json;
+using Soenneker.Librarian.Abstractions.Serialization;
 
 namespace Soenneker.Librarian.Core;
 
@@ -46,7 +46,7 @@ public sealed partial class LibrarianContainer
         foreach (string document in json)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var value = JsonUtil.Deserialize<T>(document);
+            var value = LibrarianJson.Deserialize<T>(document);
             if (value is not null) yield return value;
         }
     }
@@ -57,7 +57,7 @@ public sealed partial class LibrarianContainer
         {
             cancellationToken.ThrowIfCancellationRequested();
             T? value;
-            try { value = JsonUtil.Deserialize<T>(json); }
+            try { value = LibrarianJson.Deserialize<T>(json); }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Failed to deserialize item ({id})", id);
@@ -109,7 +109,7 @@ public sealed partial class LibrarianContainer
         if (_automaticIndexes.TryGetValue(key, out AutomaticIndex? automatic)) return automatic;
         if (!_automaticIndexGroups.TryGetValue(typeof(T), out AutomaticIndexGroup? group))
         {
-            group = new AutomaticIndexGroup(static json => JsonUtil.Deserialize<T>(json));
+            group = new AutomaticIndexGroup(static json => LibrarianJson.Deserialize<T>(json));
             _automaticIndexGroups.Add(typeof(T), group);
         }
         automatic = CreateAutomaticIndex<T>(property);
@@ -135,11 +135,21 @@ public sealed partial class LibrarianContainer
             : Expression.Constant(boolean ? 1 : 2);
         Expression number = text ? Expression.Constant(0m)
             : boolean ? Expression.Condition(value, Expression.Constant(1m), Expression.Constant(0m))
-            : Expression.Convert(value, typeof(decimal));
-        NewExpression key = Expression.New(typeof(IndexKey).GetConstructor([typeof(int), typeof(decimal), typeof(string)])!,
-            kind, number, text ? value : Expression.Constant(null, typeof(string)));
-        var getter = Expression.Lambda<Func<object, IndexKey?>>(Expression.Convert(key, typeof(IndexKey?)), parameter).Compile();
+            : DecimalValue(value);
+        Expression<Func<int, decimal, string?, IndexKey>> construct = (keyKind, keyNumber, keyText) => new IndexKey(keyKind, keyNumber, keyText);
+        NewExpression key = ((NewExpression)construct.Body).Update([kind, number, text ? value : Expression.Constant(null, typeof(string))]);
+        var getter = Expression.Lambda<Func<object, IndexKey?>>(Expression.Convert(key, typeof(IndexKey?)), parameter).Compile(preferInterpretation: true);
         return new AutomaticIndex(getter);
+    }
+
+    private static Expression DecimalValue(Expression value)
+    {
+        if (value.Type == typeof(decimal)) return value;
+        // Bind conversion operators at compile time; trimming can remove operators discovered by Expression.Convert.
+        Expression<Func<int, decimal>> fromInt = number => number;
+        Expression<Func<long, decimal>> fromLong = number => number;
+        var conversion = (UnaryExpression)(value.Type == typeof(int) ? fromInt.Body : fromLong.Body);
+        return Expression.Convert(value, typeof(decimal), conversion.Method);
     }
 
     private void PrepareAutomaticIndexes<T>(ReadOnlySpan<IndexFilter> filters, PropertyInfo? order, CancellationToken cancellationToken = default)
@@ -158,7 +168,7 @@ public sealed partial class LibrarianContainer
         if (pending is null) return;
         if (!_automaticIndexGroups.TryGetValue(typeof(T), out AutomaticIndexGroup? group))
         {
-            group = new AutomaticIndexGroup(static json => JsonUtil.Deserialize<T>(json));
+            group = new AutomaticIndexGroup(static json => LibrarianJson.Deserialize<T>(json));
             _automaticIndexGroups.Add(typeof(T), group);
         }
         // All indexes needed by this cold plan share a single document-deserialization pass.

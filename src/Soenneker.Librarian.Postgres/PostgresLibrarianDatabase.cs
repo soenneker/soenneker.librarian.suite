@@ -5,7 +5,6 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
 using Npgsql;
 using Soenneker.Atomics.ValueBools;
-using Soenneker.Extensions.Configuration;
 using Soenneker.Extensions.Task;
 using Soenneker.Extensions.ValueTask;
 using Soenneker.Librarian.Abstractions;
@@ -24,8 +23,8 @@ public sealed class PostgresLibrarianDatabase : ILibrarianDatabase
     internal string Key { get; }
 
     public PostgresLibrarianDatabase(IConfiguration configuration)
-        : this(configuration.GetValueStrict<string>("Librarian:Postgres:ConnectionString"),
-            configuration.GetValueStrict<string>("Librarian:Postgres:Key")) { }
+        : this((configuration["Librarian:Postgres:ConnectionString"] ?? throw new InvalidOperationException("Missing configuration: Librarian:Postgres:ConnectionString")),
+            (configuration["Librarian:Postgres:Key"] ?? throw new InvalidOperationException("Missing configuration: Librarian:Postgres:Key"))) { }
 
     /// <summary>Creates a provider owning its connection pool. The key isolates a logical Librarian database.</summary>
     public PostgresLibrarianDatabase(string connectionString, string key)

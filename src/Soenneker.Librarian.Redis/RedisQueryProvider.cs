@@ -7,7 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Soenneker.Extensions.ValueTask;
 using Soenneker.Librarian.Abstractions.Queries;
-using Soenneker.Utils.Json;
+using Soenneker.Librarian.Abstractions.Serialization;
 using StackExchange.Redis;
 
 namespace Soenneker.Librarian.Redis;
@@ -16,11 +16,7 @@ internal sealed class RedisQueryProvider<T>(RedisLibrarianContainer container) :
 {
     public IQueryable CreateQuery(Expression expression)
     {
-        ArgumentNullException.ThrowIfNull(expression);
-        Type? queryType = expression.Type.GetInterfaces().Append(expression.Type)
-            .FirstOrDefault(type => type.IsGenericType && type.GetGenericTypeDefinition() == typeof(IQueryable<>));
-        if (queryType is null) throw new ArgumentException("Expression must represent a queryable sequence.", nameof(expression));
-        return (IQueryable)Activator.CreateInstance(typeof(RedisQueryable<>).MakeGenericType(queryType.GetGenericArguments()[0]), this, expression)!;
+        return QueryTypes.CreateQuery(this, expression);
     }
     public IQueryable<TElement> CreateQuery<TElement>(Expression expression)
     {
@@ -43,17 +39,18 @@ internal sealed class RedisQueryProvider<T>(RedisLibrarianContainer container) :
         if (plan.Terminal == nameof(Queryable.All)) return (TResult)(object)((long)result == 0);
         RedisResult[] documents = (RedisResult[]?)result ?? [];
         Type elementType = plan.Projection?.ResultType ?? typeof(T);
-        var items = (IList)Activator.CreateInstance(typeof(List<>).MakeGenericType(elementType))!;
+        QueryType resultType = QueryTypes.Get(elementType);
+        IList items = resultType.CreateList();
         foreach (RedisResult document in documents)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            items.Add(plan.Projection is null ? JsonUtil.Deserialize<T>(document.ToString()) : plan.Projection.FromDocument(document.ToString()));
+            items.Add(plan.Projection is null ? LibrarianJson.Deserialize<T>(document.ToString()) : plan.Projection.FromDocument(document.ToString()));
         }
         if (plan.Terminal is null) return (TResult)items;
         if (plan.Terminal is nameof(Queryable.Single) or nameof(Queryable.SingleOrDefault) && items.Count > 1)
             throw new InvalidOperationException("Sequence contains more than one element");
         if (items.Count > 0) return (TResult)items[0]!;
         if (plan.Terminal is nameof(Queryable.First) or nameof(Queryable.Single)) throw new InvalidOperationException("Sequence contains no elements");
-        return (TResult)(elementType.IsValueType ? Activator.CreateInstance(elementType) : null)!;
+        return (TResult)resultType.Default!;
     }
 }

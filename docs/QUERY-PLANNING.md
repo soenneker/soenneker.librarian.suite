@@ -26,7 +26,7 @@ The planner compares index cardinalities. For sparse filters it starts with the 
 - Unsupported residual predicates retain supported leading AND conditions. For example, `Active && Name.StartsWith("A")` can narrow by the active index, then evaluate the name check lazily. Paging is applied after that residual check.
 - Multiple indexes first requested together are built using one document-deserialization pass. Existing empty indexes can short-circuit a query without building additional indexes.
 
-The planner does not move filters across an existing page, narrow an OR expression to one branch, reorder potentially throwing residual expressions, or drop secondary ordering. These cases retain ordinary LINQ behavior.
+The planner does not move filters across an existing page, narrow an OR expression to one branch, reorder potentially throwing residual expressions, or drop secondary ordering. Supported operators retain their LINQ ordering and evaluation behavior through the AOT-safe local executor. Unsupported operators require an explicit `AsEnumerable()` call; see [Native AOT migration](native-aot.md).
 
 ## Verified document reads
 

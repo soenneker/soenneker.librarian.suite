@@ -55,6 +55,26 @@ string? json = await users.GetItem("user-1");
 
 In a hosted application, register the provider on `builder.Services` and inject `ILibrarianDatabase` into your service.
 
+## Native AOT and generated JSON contracts
+
+Typed operations now require source-generated JSON metadata. Register document types once at startup, before building queries or using repositories and typed index reads. Raw JSON CRUD needs no registration.
+
+```csharp
+using System.Text.Json.Serialization;
+using Soenneker.Librarian.Abstractions.Serialization;
+
+LibrarianJson.Register(AppJsonContext.Default.User);
+
+[JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
+    PropertyNameCaseInsensitive = true, UseStringEnumConverter = true)]
+[JsonSerializable(typeof(User))]
+internal partial class AppJsonContext : JsonSerializerContext;
+```
+
+Use the same generated contract when serializing documents. Register enums (and nullable enums) separately when used as index values or remote projection columns. Primitive scalars already have generated contracts. Registrations are process-wide and immutable; registering a different contract for an already registered type throws. Custom converters must themselves support trimming and Native AOT. See [migration and query restrictions](docs/native-aot.md).
+
+All production projects enable AOT/trimming analyzers. CI publishes and runs a native executable with reflection-based JSON serialization disabled, including Redis and PostgreSQL integration checks.
+
 ## Choose a provider
 
 | | Memory | FileSystem | Redis | PostgreSQL |

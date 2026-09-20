@@ -4,6 +4,7 @@
     <PropertyGroup>
         <TargetFramework>net10.0</TargetFramework>
         <Nullable>enable</Nullable>
+        <IsAotCompatible>true</IsAotCompatible>
         <Platforms>AnyCPU</Platforms>
         <NoWarn>$(NoWarn);1591</NoWarn>
     </PropertyGroup>
@@ -43,10 +44,10 @@
     </ItemGroup>
 
     <ItemGroup>
-        <PackageReference Include="Soenneker.Utils.Json" Version="4.0.2713" />
+        <PackageReference Include="Soenneker.Asyncs.Locks" Version="4.0.89" />
+        <PackageReference Include="Soenneker.Atomics.ValueBools" Version="4.0.44" />
         <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.12" />
         <PackageReference Include="Soenneker.Extensions.Configuration" Version="4.0.895" />
-        <PackageReference Include="Soenneker.Utils.Method" Version="4.0.463" />
         <ProjectReference Include="../Soenneker.Librarian.Abstractions/Soenneker.Librarian.Abstractions.csproj" />
     </ItemGroup>
 </Project>

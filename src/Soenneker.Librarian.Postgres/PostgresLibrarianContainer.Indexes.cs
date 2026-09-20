@@ -7,7 +7,7 @@ using Npgsql;
 using Soenneker.Extensions.Task;
 using Soenneker.Extensions.ValueTask;
 using Soenneker.Librarian.Abstractions.Queries;
-using Soenneker.Utils.Json;
+using Soenneker.Librarian.Abstractions.Serialization;
 
 namespace Soenneker.Librarian.Postgres;
 
@@ -93,7 +93,7 @@ public sealed partial class PostgresLibrarianContainer
         await using NpgsqlCommand command = Command(connection, sql, values.ToArray());
         await using NpgsqlDataReader reader = await command.ExecuteReaderAsync(token).NoSync();
         var items = new List<T>();
-        while (await reader.ReadAsync(token).NoSync()) items.Add(JsonUtil.Deserialize<T>(reader.GetString(0))!);
+        while (await reader.ReadAsync(token).NoSync()) items.Add(LibrarianJson.Deserialize<T>(reader.GetString(0))!);
         return new LibrarianQueryResult<T> { Items = items, Index = path, IndexEntriesExamined = items.Count, DocumentsDeserialized = items.Count };
     }
 

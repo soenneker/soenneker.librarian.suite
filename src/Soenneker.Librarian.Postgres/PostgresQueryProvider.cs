@@ -8,7 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Soenneker.Extensions.ValueTask;
 using Soenneker.Librarian.Abstractions.Queries;
-using Soenneker.Utils.Json;
+using Soenneker.Librarian.Abstractions.Serialization;
 
 namespace Soenneker.Librarian.Postgres;
 
@@ -16,11 +16,7 @@ internal sealed class PostgresQueryProvider<T>(PostgresLibrarianContainer contai
 {
     public IQueryable CreateQuery(Expression expression)
     {
-        ArgumentNullException.ThrowIfNull(expression);
-        Type? queryType = expression.Type.GetInterfaces().Append(expression.Type)
-            .FirstOrDefault(type => type.IsGenericType && type.GetGenericTypeDefinition() == typeof(IQueryable<>));
-        if (queryType is null) throw new ArgumentException("Expression must represent a queryable sequence.", nameof(expression));
-        return (IQueryable)Activator.CreateInstance(typeof(PostgresQueryable<>).MakeGenericType(queryType.GetGenericArguments()[0]), this, expression)!;
+        return QueryTypes.CreateQuery(this, expression);
     }
 
     public IQueryable<TElement> CreateQuery<TElement>(Expression expression)
@@ -51,7 +47,7 @@ internal sealed class PostgresQueryProvider<T>(PostgresLibrarianContainer contai
             Type type = Nullable.GetUnderlyingType(returnType) ?? returnType;
             if (result is null)
             {
-                if (plan.Terminal == nameof(Queryable.Sum)) result = Activator.CreateInstance(type);
+                if (plan.Terminal == nameof(Queryable.Sum)) result = QueryTypes.Get(type).Default;
                 else if (Nullable.GetUnderlyingType(returnType) is null) throw new InvalidOperationException("Sequence contains no elements");
                 else return default!;
             }
@@ -59,17 +55,18 @@ internal sealed class PostgresQueryProvider<T>(PostgresLibrarianContainer contai
         }
 
         Type elementType = plan.Projection?.ResultType ?? typeof(T);
-        var items = (IList)Activator.CreateInstance(typeof(List<>).MakeGenericType(elementType))!;
+        QueryType resultType = QueryTypes.Get(elementType);
+        IList items = resultType.CreateList();
         if (plan.Projection is not null)
             foreach (string?[] row in (List<string?[]>)result!) { cancellationToken.ThrowIfCancellationRequested(); items.Add(plan.Projection.Materialize(row)); }
         else
-            foreach (string document in (List<string>)result!) { cancellationToken.ThrowIfCancellationRequested(); items.Add(JsonUtil.Deserialize<T>(document)!); }
+            foreach (string document in (List<string>)result!) { cancellationToken.ThrowIfCancellationRequested(); items.Add(LibrarianJson.Deserialize<T>(document)!); }
 
         if (plan.Terminal is null) return (TResult)items;
         if (plan.Terminal is nameof(Queryable.Single) or nameof(Queryable.SingleOrDefault) && items.Count > 1)
             throw new InvalidOperationException("Sequence contains more than one element");
         if (items.Count > 0) return (TResult)items[0]!;
         if (plan.Terminal is nameof(Queryable.First) or nameof(Queryable.Single)) throw new InvalidOperationException("Sequence contains no elements");
-        return (TResult)(elementType.IsValueType ? Activator.CreateInstance(elementType) : null)!;
+        return (TResult)resultType.Default!;
     }
 }

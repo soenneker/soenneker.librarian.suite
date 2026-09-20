@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Reflection;
 using Soenneker.Librarian.Redis;
 using StackExchange.Redis;
 
@@ -7,14 +6,11 @@ internal static class RedisBenchmarks
 {
     internal static void Encoding()
     {
-        Type type = typeof(RedisLibrarianDatabase).Assembly.GetType("Soenneker.Librarian.Redis.RedisIndexValue")!;
-        var encode = type.GetMethod("Encode", BindingFlags.Static | BindingFlags.NonPublic, [typeof(object)])!.CreateDelegate<Func<object?, string>>();
-        var segment = type.GetMethod("KeySegment", BindingFlags.Static | BindingFlags.NonPublic)!.CreateDelegate<Func<string, string>>();
         // Prebox keys so this measures encoding, excluding the public object-parameter call site's boxing.
         object[] values = [decimal.MinValue, -1.2345678901234567890123456789m, 0m, 1m, decimal.MaxValue];
         Console.WriteLine("Operation,MedianMicroseconds,BytesPerOperation");
-        AuditBenchmarks.Measure("Redis-decimal-key", i => encode(values[i % values.Length]).Length, 100000);
-        AuditBenchmarks.Measure("Redis-safe-key-segment", _ => segment("flywheel.jobs").Length, 100000);
+        AuditBenchmarks.Measure("Redis-decimal-key", i => RedisIndexValue.Encode(values[i % values.Length]).Length, 100000);
+        AuditBenchmarks.Measure("Redis-safe-key-segment", _ => RedisIndexValue.KeySegment("flywheel.jobs").Length, 100000);
     }
 
     internal static async Task Run()

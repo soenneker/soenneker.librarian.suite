@@ -6,7 +6,6 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Soenneker.Asyncs.Locks;
 using Soenneker.Atomics.ValueBools;
-using Soenneker.Extensions.Configuration;
 using Soenneker.Extensions.ValueTask;
 using Soenneker.Librarian.Abstractions;
 using Soenneker.Redis.Client.Abstract;
@@ -25,9 +24,9 @@ public sealed partial class RedisLibrarianDatabase : ILibrarianDatabase
     private ValueAtomicBool _disposed = new(false);
 
     public RedisLibrarianDatabase(IConfiguration configuration, IRedisClient redisClient, ILogger<RedisLibrarianDatabase> logger)
-        : this(configuration.GetValueStrict<string>("Librarian:Redis:Key"), redisClient, logger,
-            configuration.GetValue<int?>("Librarian:Redis:Database") ?? -1,
-            configuration.GetValue<string>("Librarian:Redis:KeyPrefix") ?? "librarian") { }
+        : this((configuration["Librarian:Redis:Key"] ?? throw new InvalidOperationException("Missing configuration: Librarian:Redis:Key")), redisClient, logger,
+            int.Parse(configuration["Librarian:Redis:Database"] ?? "-1", System.Globalization.CultureInfo.InvariantCulture),
+            configuration["Librarian:Redis:KeyPrefix"] ?? "librarian") { }
 
     public RedisLibrarianDatabase(string key, IRedisClient redisClient, ILogger logger, int database = -1,
         string keyPrefix = "librarian")

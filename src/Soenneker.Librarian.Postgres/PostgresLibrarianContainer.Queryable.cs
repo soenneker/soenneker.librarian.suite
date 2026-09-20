@@ -1,3 +1,4 @@
+using Soenneker.Librarian.Abstractions.Serialization;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -16,6 +17,7 @@ public sealed partial class PostgresLibrarianContainer
 
     public IQueryable<T> BuildQueryable<T>()
     {
+        _ = LibrarianJson.Contract(typeof(T));
         Check();
         return (IQueryable<T>)_queryRoots.GetOrAdd(typeof(T), _ => new PostgresQueryable<T>(new PostgresQueryProvider<T>(this)));
     }

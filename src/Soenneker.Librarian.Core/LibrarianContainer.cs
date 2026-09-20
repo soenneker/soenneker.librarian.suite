@@ -1,3 +1,4 @@
+using Soenneker.Librarian.Abstractions.Serialization;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -87,6 +88,7 @@ public sealed partial class LibrarianContainer : ILibrarianContainer
 
     public IQueryable<T> BuildQueryable<T>()
     {
+        _ = LibrarianJson.Contract(typeof(T));
         ThrowIfDisposed();
         return (IQueryable<T>)_queryRoots.GetOrAdd(typeof(T), static (_, container) =>
             new Indexes.LibrarianQueryable<T>(new Indexes.LibrarianQueryProvider<T>(container)), this);

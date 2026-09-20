@@ -1,3 +1,4 @@
+using Soenneker.Librarian.Abstractions.Queries;
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -10,6 +11,7 @@ internal sealed class PostgresQueryable<T> : IOrderedQueryable<T>
 {
     public PostgresQueryable(IQueryProvider provider, Expression? expression = null)
     {
+        QueryTypes.Register<T>();
         Provider = provider;
         Expression = expression ?? Expression.Constant(this);
     }
