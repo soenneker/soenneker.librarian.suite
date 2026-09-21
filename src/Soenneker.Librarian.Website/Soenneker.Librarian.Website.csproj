@@ -7,6 +7,6 @@
     <DefaultItemExcludes>$(DefaultItemExcludes);artifacts/**;out/**;node_modules/**</DefaultItemExcludes>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="Soenneker.Quark.Suite" Version="4.0.1429" />
+    <PackageReference Include="Soenneker.Quark.Suite" Version="4.0.1430" />
   </ItemGroup>
 </Project>
