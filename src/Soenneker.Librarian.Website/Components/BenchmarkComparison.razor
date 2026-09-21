@@ -41,10 +41,6 @@
             </Div>
             <Paragraph Class="benchmark-note">Managed allocations on the executing thread only. SQLite native allocations are excluded. sqlite-net allocates fewer managed bytes for the existence check.</Paragraph>
         </details>
-        <Div Class="benchmark-methodology">
-            <Paragraph Class="benchmark-note">Medians over seven rounds on an AMD Ryzen Threadripper PRO 9995WX, Windows 10.0.26200, .NET 10.0.12 x64. Single-threaded execution, tiered compilation disabled. Includes query construction, execution, and materialization.</Paragraph>
-            <Paragraph Class="benchmark-note">Warm reads only; excludes index construction, writes, persistence, and concurrency. LiteDB uses native expression queries; sqlite-net uses its synchronous expression API and SQL SELECT EXISTS for existence checks. Deep paging includes each engine’s offset traversal strategy. Results vary by workload and hardware.</Paragraph>
-        </Div>
         <Anchor Href="https://github.com/soenneker/soenneker.librarian.suite/blob/main/benchmarks/Soenneker.Librarian.Benchmarks/sqlite-net-results.csv" Class="text-link">Inspect the raw results ↗</Anchor>
     </Div>
 </Section>
