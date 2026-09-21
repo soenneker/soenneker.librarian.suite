@@ -6,6 +6,7 @@
     <File Path=".github/workflows/build-and-test.yml" />
     <File Path=".github/workflows/codeql.yml" />
     <File Path=".github/workflows/publish-package.yml" />
+    <File Path=".github/workflows/website.yml" />
   </Folder>
   <Folder Name="/src/">
     <Project Path="src/Soenneker.Librarian.Abstractions/Soenneker.Librarian.Abstractions.csproj" />
@@ -14,6 +15,7 @@
     <Project Path="src/Soenneker.Librarian.Memory/Soenneker.Librarian.Memory.csproj" />
     <Project Path="src/Soenneker.Librarian.Postgres/Soenneker.Librarian.Postgres.csproj" />
     <Project Path="src/Soenneker.Librarian.Redis/Soenneker.Librarian.Redis.csproj" />
+    <Project Path="src/Soenneker.Librarian.Website/Soenneker.Librarian.Website.csproj" />
   </Folder>
   <Folder Name="/test/">
     <Project Path="test/Soenneker.Librarian.NativeAot.Smoke/Soenneker.Librarian.NativeAot.Smoke.csproj" />

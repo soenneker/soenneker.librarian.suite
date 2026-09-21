@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://librarian.soenneker.com/sitemap.xml

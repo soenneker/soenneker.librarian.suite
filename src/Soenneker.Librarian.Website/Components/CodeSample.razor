@@ -1,0 +1,9 @@
+<Div Class="code-sample">
+    <Div Class="code-toolbar"><Span>@Label</Span><Button Class="copy-button" data-copy="true" aria-label="Copy code">Copy <span aria-hidden="true">⧉</span></Button></Div>
+    <pre tabindex="0" aria-label="@Label"><code>@Text</code></pre>
+    <Span Class="copy-status" role="status" aria-live="polite"></Span>
+</Div>
+@code {
+    [Parameter, EditorRequired] public string Text { get; set; } = "";
+    [Parameter] public string Label { get; set; } = "C#";
+}

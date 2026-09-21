@@ -78,5 +78,6 @@ jobs:
         shell: bash
         run: |
           for project in src/*/*.csproj; do
+            [[ "$project" == *Soenneker.Librarian.Website* ]] && continue
             dotnet pack "$project" --configuration Release --no-build --no-restore --output ./artifacts --verbosity minimal
           done

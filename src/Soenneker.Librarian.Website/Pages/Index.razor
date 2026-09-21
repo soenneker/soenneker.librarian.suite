@@ -1,0 +1,78 @@
+@page "/"
+<LibrarianSeoHead Title="Librarian — Your documents. Your choice of storage." Description="Open-source document storage for .NET 10. One familiar API for Memory, FileSystem, Redis, and PostgreSQL, with indexed queries and atomic batches." />
+<Section Class="hero shell">
+    <Div Class="hero-copy">
+        <Span Class="eyebrow"><span class="status-dot"></span> DOCUMENT STORAGE FOR .NET 10</Span>
+        <H1>Your documents.<br />Your choice of<br /><em>storage.</em></H1>
+        <Paragraph Class="hero-description">Start in memory. Persist to a file. Scale with Redis or PostgreSQL. Keep the document API you already know.</Paragraph>
+        <Div Class="hero-actions"><Anchor Href="/getting-started/" Class="button">Get started <span aria-hidden="true">↗</span></Anchor><Anchor Href="https://github.com/soenneker/soenneker.librarian.suite" Class="text-link">Explore the source <span aria-hidden="true">↗</span></Anchor></Div>
+        <Div Class="hero-note"><Span>Open source</Span><span aria-hidden="true">/</span><Span>MIT licensed</Span><span aria-hidden="true">/</span><Span>Made for .NET</Span></Div>
+    </Div>
+    <Div Class="catalog" aria-label="One document API with four storage providers">
+        <Div Class="catalog-top"><Span>THE DOCUMENT COLLECTION</Span><Span>№ 001—004</Span></Div>
+        <Div Class="catalog-body">
+            <Div Class="document-card"><Div Class="document-heading"><Span Class="document-icon">{ }</Span><Span>customers / alex.json</Span><span class="document-status">STORED</span></Div><pre><code><span class="muted">{</span>
+  <span class="code-key">"id"</span>: <span class="code-value">"customer-1"</span>,
+  <span class="code-key">"name"</span>: <span class="code-value">"Alex"</span>,
+  <span class="code-key">"active"</span>: <span class="code-bool">true</span>
+<span class="muted">}</span></code></pre></Div>
+            <Div Class="connector"><Span>ONE FAMILIAR API</Span></Div>
+            <Div Class="file-stack">
+                <Div Class="file-row file-memory"><Span Class="file-number">01</Span><Span>Memory</Span><Span Class="file-tag">IN PROCESS</Span><span aria-hidden="true">↗</span></Div>
+                <Div Class="file-row file-system"><Span Class="file-number">02</Span><Span>FileSystem</Span><Span Class="file-tag">LOCAL JSON</Span><span aria-hidden="true">↗</span></Div>
+                <Div Class="file-row file-redis"><Span Class="file-number">03</Span><Span>Redis</Span><Span Class="file-tag">SHARED STORAGE</Span><span aria-hidden="true">↗</span></Div>
+                <Div Class="file-row file-postgres"><Span Class="file-number">04</Span><Span>PostgreSQL</Span><Span Class="file-tag">PERSISTENT SQL</Span><span aria-hidden="true">↗</span></Div>
+            </Div>
+        </Div>
+        <Div Class="catalog-bottom"><span aria-hidden="true">✳</span><Span>A PLACE FOR EVERY DOCUMENT.</Span><Span>LIBRARIAN</Span></Div>
+    </Div>
+</Section>
+<Div Class="capabilities-strip"><Div Class="shell"><Span>Async document operations</Span><span aria-hidden="true">✳</span><Span>Typed repositories</Span><span aria-hidden="true">✳</span><Span>Indexed queries</Span><span aria-hidden="true">✳</span><Span>Atomic batches</Span></Div></Div>
+<Section Class="section shell" Id="providers">
+    <Div Class="section-heading"><Div><Span Class="eyebrow">01 / STORAGE, ON YOUR TERMS</Span><H2>Four providers.<br /><em>One way to work.</em></H2></Div><Paragraph>Choose the home your data needs today.<br />Keep a shared API as your application grows.</Paragraph></Div>
+    <Div Class="provider-grid">
+        @foreach (var provider in Providers)
+        {
+            <Anchor Href="@($"/providers/#{provider.Id}")" Class="provider-card">
+                <Div Class="provider-card-top"><Span Class="provider-symbol">@provider.Symbol</Span><Span Class="eyebrow">@provider.Number / 04</Span></Div>
+                <H3>@provider.Name</H3><Paragraph>@provider.Description</Paragraph><Div Class="provider-card-bottom"><Span>@provider.Tag</Span><span aria-hidden="true">↗</span></Div>
+            </Anchor>
+        }
+    </Div>
+    <Anchor Href="/providers/" Class="text-link section-link">Compare persistence and query behavior <span aria-hidden="true">→</span></Anchor>
+</Section>
+<Section Class="code-section">
+    <Div Class="shell code-grid"><Div><Span Class="eyebrow">02 / LESS PLUMBING. MORE BUILDING.</Span><H2>A little code.<br /><em>A lot in place.</em></H2><Paragraph>Get a container, add a document, read it back. Async operations and dependency injection fit naturally into your .NET application.</Paragraph><Anchor Href="/getting-started/" Class="text-link">Your first document, step by step <span aria-hidden="true">→</span></Anchor><Div Class="code-footnote"><Span>01</Span><Paragraph>Install a provider.<br /><strong>Shared dependencies come with it.</strong></Paragraph></Div></Div><Div><CodeSample Label="TERMINAL" Text="dotnet add package Soenneker.Librarian.Memory" /><CodeSample Label="PROGRAM.CS / C#" Text="@Example" /></Div></Div>
+</Section>
+<Section Class="section shell features">
+    <Div Class="section-heading"><Div><Span Class="eyebrow">03 / A THOUGHTFUL FOUNDATION</Span><H2>Small surface.<br /><em>Serious capabilities.</em></H2></Div></Div>
+    <Div Class="feature-grid">
+        <Div><Span Class="feature-number">{ T }</Span><H3>Work with your types.</H3><Paragraph>Typed repositories handle serialization and document operations. Register source-generated JSON contracts for trim-safe, Native AOT compatible models.</Paragraph><Anchor Href="https://github.com/soenneker/soenneker.librarian.suite/blob/main/docs/native-aot.md" Class="text-link">Native AOT guide ↗</Anchor></Div>
+        <Div><Span Class="feature-number">[ → ]</Span><H3>Find more. Scan less.</H3><Paragraph>Filter, order, count, and page with LINQ or explicit async index methods. Supported LINQ queries create indexes automatically and maintain them on writes.</Paragraph><Anchor Href="https://github.com/soenneker/soenneker.librarian.suite/blob/main/docs/QUERY-CAPABILITIES.md" Class="text-link">Query capabilities ↗</Anchor></Div>
+        <Div><Span Class="feature-number">( ✓ )</Span><H3>Keep changes together.</H3><Paragraph>Apply related writes across containers in one atomic batch. Add conditions to detect conflicting changes before any writes are applied.</Paragraph><Anchor Href="https://github.com/soenneker/soenneker.librarian.suite/blob/main/docs/TRANSACTIONS.md" Class="text-link">Atomic batch guide ↗</Anchor></Div>
+    </Div>
+</Section>
+<Section Class="performance-section" Id="performance"><Div Class="shell performance-grid">
+    <Div><Span Class="eyebrow">04 / MEASURED, NOT JUST PROMISED</Span><H2>Keep your queries<br /><em>moving.</em></H2><Paragraph>100,000 documents. Warm indexes. In-memory storage. A few results from the published benchmark suite.</Paragraph><Anchor Href="https://github.com/soenneker/soenneker.librarian.suite/tree/main/benchmarks/Soenneker.Librarian.Benchmarks" Class="text-link">Read the methodology &amp; run it yourself ↗</Anchor></Div>
+    <Div><Div Class="benchmark"><Div><Span>EQUALITY · 10 DOCUMENTS</Span><strong>8.983 <small>µs</small></strong></Div><Div><Span>COUNT · 10 MATCHES</Span><strong>2.013 <small>µs</small></strong></Div><Div><Span>SKIP 90,000 · TAKE 10</Span><strong>8.644 <small>µs</small></strong></Div></Div><Paragraph Class="benchmark-note">Medians over seven rounds, .NET 10.0.12 Release. Includes query construction and execution. Warm reads only; excludes index creation, writes, persistence, and concurrency. Results vary by workload and hardware.</Paragraph></Div>
+</Div></Section>
+<Section Class="closing shell"><Span Class="eyebrow">YOUR NEXT DOCUMENT STARTS HERE</Span><H2>Give your data<br /><em>a good home.</em></H2><Div Class="hero-actions"><Anchor Href="/getting-started/" Class="button">Start building <span aria-hidden="true">↗</span></Anchor><Anchor Href="https://www.nuget.org/packages/Soenneker.Librarian.Memory" Class="text-link">Find it on NuGet ↗</Anchor></Div></Section>
+@code {
+    private static readonly (string Id, string Number, string Name, string Symbol, string Description, string Tag)[] Providers = [
+        ("memory", "01", "Memory", "◈", "Fast, in-process storage for temporary data, tests, and getting started.", "START SIMPLE"),
+        ("filesystem", "02", "FileSystem", "▤", "In-memory documents backed by a JSON file. Local persistence for a single process.", "KEEP IT LOCAL"),
+        ("redis", "03", "Redis", "≋", "Share documents and indexes across instances. No Redis modules or Lua required.", "WORK TOGETHER"),
+        ("postgres", "04", "PostgreSQL", "▥", "Persistent documents, SQL-backed queries, and atomic transactions.", "BUILD TO LAST")
+    ];
+    private const string Example = """"
+        // Register your storage provider.
+        builder.Services.AddMemoryLibrarianDatabaseAsSingleton();
+
+        // Inject ILibrarianDatabase into your service.
+        var users = await database.GetContainer("users");
+
+        await users.AddItem("user-1", """{"name":"Alex"}""");
+
+        var json = await users.GetItem("user-1");
+        """";
+}

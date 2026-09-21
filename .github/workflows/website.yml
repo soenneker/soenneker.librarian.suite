@@ -1,0 +1,92 @@
+name: website
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/Soenneker.Librarian.Website/**'
+      - 'Directory.Build.props'
+      - 'global.json'
+      - '.github/workflows/website.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/Soenneker.Librarian.Website/**'
+      - 'Directory.Build.props'
+      - 'global.json'
+      - '.github/workflows/website.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: website-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: 10.0.401
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+      - name: Build and export all pages
+        shell: pwsh
+        run: ./src/Soenneker.Librarian.Website/scripts/Export-Site.ps1
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: website
+          path: src/Soenneker.Librarian.Website/out/
+          if-no-files-found: error
+          retention-days: 7
+
+  deploy:
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: production
+      url: https://librarian.soenneker.com
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: website
+          path: src/Soenneker.Librarian.Website/out/
+      - name: Check deployment credentials
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo '::error::Add the repository secret CLOUDFLARE_API_TOKEN to enable deployments.'
+            exit 1
+          fi
+      - name: Deploy Cloudflare Worker
+        uses: cloudflare/wrangler-action@ebbaa1584979971c8614a24965b4405ff95890e0 # v4.0.0
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: '08469810296dac20f6efdab76fc98637'
+          wranglerVersion: '4.135.0'
+          workingDirectory: src/Soenneker.Librarian.Website
+          command: deploy
+      - name: Verify published pages
+        run: |
+          for path in / /getting-started/ /providers/; do
+            curl --fail --silent --show-error --retry 5 --retry-all-errors --retry-delay 5 "https://librarian.soenneker.com$path" -o page.html
+            grep -q '<h1' page.html
+            grep -q 'Librarian' page.html
+          done
+          status=$(curl --silent --show-error -o missing.html -w '%{http_code}' https://librarian.soenneker.com/nonexistent-deployment-check)
+          test "$status" = '404'
+          grep -q 'gone missing' missing.html

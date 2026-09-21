@@ -1,0 +1,16 @@
+<PageTitle>@Title</PageTitle>
+<HeadContent>
+    <meta name="description" content="@Description" />
+    <link rel="canonical" href="@($"https://librarian.soenneker.com{Path}")" />
+    <meta property="og:title" content="@Title" />
+    <meta property="og:description" content="@Description" />
+    <meta property="og:url" content="@($"https://librarian.soenneker.com{Path}")" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Librarian" />
+    <meta name="twitter:card" content="summary" />
+</HeadContent>
+@code {
+    [Parameter, EditorRequired] public string Title { get; set; } = "";
+    [Parameter, EditorRequired] public string Description { get; set; } = "";
+    [Parameter] public string Path { get; set; } = "/";
+}

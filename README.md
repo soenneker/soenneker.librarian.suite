@@ -10,7 +10,7 @@ Document storage for .NET 10 with interchangeable memory, JSON file, Redis, and 
 - **Typed repositories** — work with document classes through `ILibrarianRepository<TDocument>`.
 - **Indexed queries** — filter, sort, count, and page with LINQ or explicit async index methods.
 
-[Quick start](#quick-start) · [Providers](#choose-a-provider) · [Queries](#query-documents) · [Typed repositories](#typed-repositories) · [Performance](#performance)
+[Website](https://librarian.soenneker.com) · [Quick start](#quick-start) · [Providers](#choose-a-provider) · [Queries](#query-documents) · [Typed repositories](#typed-repositories) · [Performance](#performance)
 
 ## Installation
 
