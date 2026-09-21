@@ -18,4 +18,4 @@ Google Analytics uses the `librarian.soenneker.com` property and `Librarian webs
 
 Worker: `soenneker-librarian-website`. Custom domain: `librarian.soenneker.com`. Wrangler configuration is the source of truth for asset handling and routes. Workers.dev and preview URLs are disabled.
 
-Add new page routes to `scripts/Export-Site.ps1` and `wwwroot/sitemap.xml`. Keep product claims and examples aligned with the suite README and `docs/`. Benchmark numbers describe warm in-memory reads only.
+Add new page routes to `scripts/Export-Site.ps1`. `Soenneker.Gen.Razor.Sitemaps` generates `wwwroot/sitemap.xml` from Razor routes during builds; the not-found page is explicitly excluded. Keep product claims and examples aligned with the suite README and `docs/`. Benchmark numbers describe warm in-memory reads only.
