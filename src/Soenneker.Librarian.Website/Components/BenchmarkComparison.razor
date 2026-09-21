@@ -1,0 +1,86 @@
+@using System.Globalization
+
+<Section Class="performance-section" Id="performance">
+    <Div Class="shell">
+        <Div Class="benchmark-heading">
+            <Div>
+                <Span Class="eyebrow">PERFORMANCE / ENGINE COMPARISON</Span>
+                <H2>See how Librarian<br /><em>compares.</em></H2>
+            </Div>
+            <Div>
+                <Paragraph>Librarian, LiteDB, and sqlite-net running the same queries against 100,000 documents. All use in-memory storage with warm indexes.</Paragraph>
+                <Anchor Href="https://github.com/soenneker/soenneker.librarian.suite/tree/main/benchmarks/Soenneker.Librarian.Benchmarks" Class="text-link">Methodology &amp; benchmark source ↗</Anchor>
+            </Div>
+        </Div>
+        <Div Class="benchmark-context"><Span>MEDIAN QUERY TIME</Span><Span>Microseconds (µs) · Lower is better</Span></Div>
+        <Div Class="table-scroll benchmark-table" tabindex="0" aria-label="Query time comparison in microseconds">
+            <table>
+                <caption class="sr-only">Median query time in microseconds. Lower is better.</caption>
+                <thead><tr><th scope="col">Query</th><th scope="col" class="librarian-result">Librarian</th><th scope="col">LiteDB <small>5.0.21</small></th><th scope="col">sqlite-net <small>1.11.285</small></th></tr></thead>
+                <tbody>
+                    @foreach (var result in Results)
+                    {
+                        <tr><th scope="row">@result.Label</th><td class="librarian-result" data-engine="Librarian">@FormatTime(result.Librarian.Time)</td><td data-engine="LiteDB">@FormatTime(result.LiteDb.Time)</td><td data-engine="sqlite-net">@FormatTime(result.Sqlite.Time)</td></tr>
+                    }
+                </tbody>
+            </table>
+        </Div>
+        <details class="allocation-details">
+            <summary>Compare managed allocations <span>Bytes per operation</span></summary>
+            <Div Class="table-scroll benchmark-table" tabindex="0" aria-label="Managed allocation comparison in bytes per operation">
+                <table>
+                    <caption class="sr-only">Managed bytes allocated per operation. Lower is better. SQLite native allocations are excluded.</caption>
+                    <thead><tr><th scope="col">Query</th><th scope="col" class="librarian-result">Librarian</th><th scope="col">LiteDB</th><th scope="col">sqlite-net</th></tr></thead>
+                    <tbody>
+                        @foreach (var result in Results)
+                        {
+                            <tr><th scope="row">@result.Label</th><td class="librarian-result" data-engine="Librarian">@FormatBytes(result.Librarian.Bytes)</td><td data-engine="LiteDB">@FormatBytes(result.LiteDb.Bytes)</td><td data-engine="sqlite-net">@FormatBytes(result.Sqlite.Bytes)</td></tr>
+                        }
+                    </tbody>
+                </table>
+            </Div>
+            <Paragraph Class="benchmark-note">Managed allocations on the executing thread only. SQLite native allocations are excluded. sqlite-net allocates fewer managed bytes for the existence check.</Paragraph>
+        </details>
+        <Div Class="benchmark-methodology">
+            <Paragraph Class="benchmark-note">Medians over seven rounds on an AMD Ryzen Threadripper PRO 9995WX, Windows 10.0.26200, .NET 10.0.12 x64. Single-threaded execution, tiered compilation disabled. Includes query construction, execution, and materialization.</Paragraph>
+            <Paragraph Class="benchmark-note">Warm reads only; excludes index construction, writes, persistence, and concurrency. LiteDB uses native expression queries; sqlite-net uses its synchronous expression API and SQL SELECT EXISTS for existence checks. Deep paging includes each engine’s offset traversal strategy. Results vary by workload and hardware.</Paragraph>
+        </Div>
+        <Anchor Href="https://github.com/soenneker/soenneker.librarian.suite/blob/main/benchmarks/Soenneker.Librarian.Benchmarks/sqlite-net-results.csv" Class="text-link">Inspect the raw results ↗</Anchor>
+    </Div>
+</Section>
+
+@code {
+    private sealed record Measurement(decimal Time, long Bytes);
+    private sealed record Comparison(string Label, Measurement Librarian, Measurement LiteDb, Measurement Sqlite);
+    private static readonly Comparison[] Results = LoadResults();
+
+    private static string FormatTime(decimal value) => value.ToString("N3", CultureInfo.InvariantCulture);
+    private static string FormatBytes(long value) => value.ToString("N0", CultureInfo.InvariantCulture);
+
+    private static Comparison[] LoadResults()
+    {
+        using var stream = typeof(BenchmarkComparison).Assembly.GetManifestResourceStream("Librarian.BenchmarkComparison.csv")
+            ?? throw new InvalidOperationException("The benchmark comparison data is missing.");
+        using var reader = new StreamReader(stream);
+        var measurements = new Dictionary<(string Query, string Engine), Measurement>();
+        while (reader.ReadLine() is { } line)
+        {
+            if (line.StartsWith('#') || line.StartsWith("Query,") || string.IsNullOrWhiteSpace(line))
+                continue;
+            var columns = line.Split(',');
+            measurements.Add((columns[0], columns[1]), new Measurement(
+                decimal.Parse(columns[2], CultureInfo.InvariantCulture), long.Parse(columns[3], CultureInfo.InvariantCulture)));
+        }
+        (string Query, string Label)[] queries = [
+            ("Equality-10", "Equality · 10 documents"),
+            ("Range-page-10", "Range page · 10 documents"),
+            ("Count-10", "Count · 10 matches"),
+            ("Exists-50%-hits", "Exists · 50% hits"),
+            ("First-equality", "First match"),
+            ("Deep-page-90000-10", "Skip 90,000 · take 10")
+        ];
+        return queries.Select(query => new Comparison(query.Label,
+            measurements[(query.Query, "Librarian")], measurements[(query.Query, "LiteDB-5.0.21")],
+            measurements[(query.Query, "sqlite-net-1.11.285")])).ToArray();
+    }
+}

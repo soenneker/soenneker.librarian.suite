@@ -8,5 +8,6 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Soenneker.Quark.Suite" Version="4.0.1429" />
+    <EmbeddedResource Include="../../benchmarks/Soenneker.Librarian.Benchmarks/sqlite-net-results.csv" LogicalName="Librarian.BenchmarkComparison.csv" />
   </ItemGroup>
 </Project>
