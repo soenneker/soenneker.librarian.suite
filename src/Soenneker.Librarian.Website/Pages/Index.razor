@@ -28,7 +28,6 @@
     </Div>
 </Section>
 <Div Class="capabilities-strip"><Div Class="shell"><Span>Async document operations</Span><span aria-hidden="true">✳</span><Span>Typed repositories</Span><span aria-hidden="true">✳</span><Span>Indexed queries</Span><span aria-hidden="true">✳</span><Span>Atomic batches</Span></Div></Div>
-<BenchmarkComparison />
 <Section Class="section shell" Id="providers">
     <Div Class="section-heading"><Div><Span Class="eyebrow">FLEXIBLE STORAGE</Span><H2>Storage that fits<br /><em>your application.</em></H2></Div><Paragraph>Use the storage your workload needs.<br />Keep a consistent API as your application grows.</Paragraph></Div>
     <Div Class="provider-grid">
@@ -53,6 +52,7 @@
         <Div><Span Class="feature-number">( ✓ )</Span><H3>Keep changes together.</H3><Paragraph>Apply related writes across containers in one atomic batch. Add conditions to detect conflicting changes before any writes are applied.</Paragraph><Anchor Href="https://github.com/soenneker/soenneker.librarian.suite/blob/main/docs/TRANSACTIONS.md" Class="text-link">Atomic batch guide ↗</Anchor></Div>
     </Div>
 </Section>
+<BenchmarkComparison />
 <Section Class="closing shell"><Span Class="eyebrow">OPEN SOURCE. READY TO BUILD.</Span><H2>Build your next<br /><em>data layer.</em></H2><Div Class="hero-actions"><Anchor Href="/getting-started/" Class="button">Start building <span aria-hidden="true">↗</span></Anchor><Anchor Href="https://www.nuget.org/packages/Soenneker.Librarian.Memory" Class="text-link">Find it on NuGet ↗</Anchor></Div></Section>
 @code {
     private static readonly (string Id, string Name, string Symbol, string Description, string Tag)[] Providers = [
