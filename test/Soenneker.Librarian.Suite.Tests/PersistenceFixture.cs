@@ -1,3 +1,4 @@
+using System.IO;
 using System;
 using System.Reflection;
 using System.Threading.Tasks;
@@ -19,7 +20,8 @@ internal sealed class PersistenceFixture : IAsyncDisposable
 
     public PersistenceFixture(string initial = "{}")
     {
-        System.IO.File.WriteAllText(Path, initial);
+        using (var writer = new StreamWriter(_services.GetRequiredService<IFileUtil>().OpenWrite(Path)))
+            writer.Write(initial);
         IFileUtil proxy = DispatchProxy.Create<IFileUtil, FileProxy>();
         Files = (FileProxy)proxy;
         Files.Inner = _services.GetRequiredService<IFileUtil>();
@@ -31,8 +33,8 @@ internal sealed class PersistenceFixture : IAsyncDisposable
         try { await Database.DisposeAsync(); }
         finally
         {
-            await _services.DisposeAsync();
-            System.IO.File.Delete(Path);
+            try { await Files.Inner.Delete(Path); }
+            finally { await _services.DisposeAsync(); }
         }
     }
 }

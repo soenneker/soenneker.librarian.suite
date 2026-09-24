@@ -1,3 +1,4 @@
+using Soenneker.Utils.File.Abstract;
 using System;
 using System.IO;
 using System.Threading;
@@ -16,7 +17,7 @@ public class PersistenceTests
         ILibrarianContainer container = await fixture.Database.GetContainer("items");
         await container.AddItem("one", "payload");
         await fixture.Database.DisposeAsync();
-        Check(System.IO.File.ReadAllText(fixture.Path).Contains("payload"), "Disposal lost the pending write.");
+        Check((await fixture.Files.Inner.Read(fixture.Path)).Contains("payload"), "Disposal lost the pending write.");
     }
 
     [Test]
@@ -44,9 +45,9 @@ public class PersistenceTests
         try { await fixture.Database.Save(); throw new Exception("Expected save failure."); }
         catch (IOException) { }
         finally { fixture.Files.BeforeWrite = null; }
-        Check(System.IO.File.ReadAllText(fixture.Path) == "{}", "Failed save damaged the original file.");
+        Check((await fixture.Files.Inner.Read(fixture.Path)) == "{}", "Failed save damaged the original file.");
         await fixture.Database.Save();
-        Check(System.IO.File.ReadAllText(fixture.Path).Contains("payload"), "Failed save lost dirty tracking.");
+        Check((await fixture.Files.Inner.Read(fixture.Path)).Contains("payload"), "Failed save lost dirty tracking.");
     }
 
     [Test]
@@ -66,7 +67,7 @@ public class PersistenceTests
         catch (OperationCanceledException) { }
         finally { fixture.Files.BeforeWrite = null; }
         await fixture.Database.Save();
-        Check(System.IO.File.ReadAllText(fixture.Path).Contains("payload"), "Cancellation lost dirty tracking.");
+        Check((await fixture.Files.Inner.Read(fixture.Path)).Contains("payload"), "Cancellation lost dirty tracking.");
     }
 
     [Test]
@@ -75,16 +76,16 @@ public class PersistenceTests
         await using var fixture = new PersistenceFixture();
         ILibrarianContainer container = await fixture.Database.GetContainer("items");
         await container.AddItem("one", "payload");
-        System.IO.File.WriteAllText(fixture.Path, "invalid JSON");
+        await fixture.Files.Inner.Write(fixture.Path, "invalid JSON");
         try { await fixture.Database.Save(); throw new Exception("Expected invalid JSON failure."); }
         catch (System.Text.Json.JsonException) { }
         finally
         {
-            Check(System.IO.File.ReadAllText(fixture.Path) == "invalid JSON", "Corrupt input was overwritten.");
-            System.IO.File.WriteAllText(fixture.Path, "{}");
+            Check((await fixture.Files.Inner.Read(fixture.Path)) == "invalid JSON", "Corrupt input was overwritten.");
+            await fixture.Files.Inner.Write(fixture.Path, "{}");
         }
         await fixture.Database.Save();
-        Check(System.IO.File.ReadAllText(fixture.Path).Contains("payload"), "Load failure lost dirty tracking.");
+        Check((await fixture.Files.Inner.Read(fixture.Path)).Contains("payload"), "Load failure lost dirty tracking.");
     }
 
     [Test]
@@ -98,7 +99,7 @@ public class PersistenceTests
         await using var empty = new PersistenceFixture("");
         await (await empty.Database.GetContainer("items")).AddItem("one", "payload");
         await empty.Database.Save();
-        Check(System.IO.File.ReadAllText(empty.Path).Contains("payload"), "Legacy empty database failed.");
+        Check((await fixture.Files.Inner.Read(empty.Path)).Contains("payload"), "Legacy empty database failed.");
     }
 
     [Test]
@@ -111,7 +112,7 @@ public class PersistenceTests
         await fixture.Database.Save();
         fixture.Files.BeforeWrite = null;
         await fixture.Database.Save();
-        Check(System.IO.File.ReadAllText(fixture.Path).Contains("after"), "Concurrent mutation was lost.");
+        Check((await fixture.Files.Inner.Read(fixture.Path)).Contains("after"), "Concurrent mutation was lost.");
     }
 
     [Test]
@@ -140,6 +141,7 @@ public class PersistenceTests
                  { new System.Text.UTF8Encoding(true), System.Text.Encoding.Unicode, System.Text.Encoding.BigEndianUnicode, System.Text.Encoding.UTF32 })
         {
             await using var fixture = new PersistenceFixture();
+            // FileUtil writes UTF-8 without a BOM; this test requires explicit legacy encodings.
             System.IO.File.WriteAllText(fixture.Path, "{\"items\":[{\"id\":\"one\",\"value\":\"payload\"}]}", encoding);
             ILibrarianContainer container = await fixture.Database.GetContainer("items");
             Check((await container.GetItem("one")) == "payload", "Legacy encoding was not preserved.");

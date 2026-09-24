@@ -1,3 +1,5 @@
+using Soenneker.Utils.MemoryStream;
+using Soenneker.Utils.File.Abstract;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -18,6 +20,8 @@ namespace Soenneker.Librarian.Suite.Tests;
 
 public class IndexTests
 {
+    private static readonly IFileUtil _fileUtil = new Soenneker.Utils.File.FileUtil(NullLogger<Soenneker.Utils.File.FileUtil>.Instance, new MemoryStreamUtil());
+
     [Test]
     public async Task Randomized_mutations_and_rank_paging_match_a_reference_model()
     {
@@ -265,6 +269,6 @@ public class IndexTests
                 Check(await repository.CountByIndex("score", 10) == 1, "Reloaded index lost persisted data.");
             }
         }
-        finally { System.IO.File.Delete(path); }
+        finally { await _fileUtil.Delete(path); }
     }
 }

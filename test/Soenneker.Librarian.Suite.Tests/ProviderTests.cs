@@ -1,3 +1,5 @@
+using Soenneker.Utils.MemoryStream;
+using Soenneker.Utils.File.Abstract;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -15,6 +17,8 @@ namespace Soenneker.Librarian.Suite.Tests;
 
 public class ProviderTests
 {
+    private static readonly IFileUtil _fileUtil = new Soenneker.Utils.File.FileUtil(NullLogger<Soenneker.Utils.File.FileUtil>.Instance, new MemoryStreamUtil());
+
     [Test]
     public async Task Providers_agree_on_names_and_cancelled_cached_lookups()
     {
@@ -41,7 +45,7 @@ public class ProviderTests
                 catch (OperationCanceledException) { }
             }
         }
-        finally { System.IO.File.Delete(path); }
+        finally { await _fileUtil.Delete(path); }
     }
 
     [Test]
@@ -80,7 +84,7 @@ public class ProviderTests
                 }
             }
         }
-        finally { System.IO.File.Delete(path); }
+        finally { await _fileUtil.Delete(path); }
     }
 
     [Test]
@@ -131,6 +135,6 @@ public class ProviderTests
                 if (await repository.GetAll() != null) throw new Exception("Delete failed.");
             }
         }
-        finally { System.IO.File.Delete(path); }
+        finally { await _fileUtil.Delete(path); }
     }
 }

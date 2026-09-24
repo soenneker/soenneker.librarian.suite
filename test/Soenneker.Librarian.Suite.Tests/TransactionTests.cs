@@ -1,3 +1,4 @@
+using Soenneker.Utils.File.Abstract;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -130,15 +131,15 @@ public class TransactionTests
         ILibrarianContainer items = await db.GetContainer("items");
         await items.AddItem("a", "original");
         await db.Save();
-        string before = File.ReadAllText(fixture.Path);
+        string before = (await fixture.Files.Inner.Read(fixture.Path));
         var batch = new LibrarianBatch([new("items", "a", "changed"), new("other", "b", "new")]);
         fixture.Files.BeforeWrite = (_, _) => throw new IOException("Injected batch failure");
         try { await db.Execute(batch); throw new Exception("Expected IO failure."); }
         catch (IOException) { }
         finally { fixture.Files.BeforeWrite = null; }
-        Check(File.ReadAllText(fixture.Path) == before && await items.GetItem("a") == "original", "Failed persistence leaked changes.");
+        Check((await fixture.Files.Inner.Read(fixture.Path)) == before && await items.GetItem("a") == "original", "Failed persistence leaked changes.");
         Check(await db.Execute(batch), "Retry failed.");
-        Check(File.ReadAllText(fixture.Path).Contains("changed") && File.ReadAllText(fixture.Path).Contains("new"), "Execute returned before persistence.");
+        Check((await fixture.Files.Inner.Read(fixture.Path)).Contains("changed") && (await fixture.Files.Inner.Read(fixture.Path)).Contains("new"), "Execute returned before persistence.");
     }
 
     [Test]
