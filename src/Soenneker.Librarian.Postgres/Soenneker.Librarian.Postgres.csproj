@@ -44,7 +44,6 @@
     </ItemGroup>
 
     <ItemGroup>
-        <PackageReference Include="Soenneker.Utils.PooledStringBuilders" Version="4.0.32" />
         <PackageReference Include="Soenneker.Atomics.ValueBools" Version="4.0.44" />
         <PackageReference Include="Soenneker.Extensions.Task" Version="4.0.130" />
         <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.12" />
