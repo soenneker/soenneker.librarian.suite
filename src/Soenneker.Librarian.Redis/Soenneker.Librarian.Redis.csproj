@@ -45,7 +45,7 @@
 
     <ItemGroup>
         <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.12" />
-        <PackageReference Include="Soenneker.Redis.Client" Version="4.0.2345" />
+        <PackageReference Include="Soenneker.Redis.Client" Version="4.0.2346" />
         <ProjectReference Include="../Soenneker.Librarian.Abstractions/Soenneker.Librarian.Abstractions.csproj" />
     </ItemGroup>
 </Project>
