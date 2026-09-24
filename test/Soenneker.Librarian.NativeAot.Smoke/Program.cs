@@ -31,9 +31,9 @@ await using (var memory = new MemoryLibrarianDatabase(NullLogger<MemoryLibrarian
 }
 
 string path = Path.Combine(Path.GetTempPath(), $"librarian-aot-{Guid.NewGuid():N}.json");
+await using var services = new ServiceCollection().AddLogging().AddFileUtilAsSingleton().BuildServiceProvider();
 try
 {
-    await using var services = new ServiceCollection().AddLogging().AddFileUtilAsSingleton().BuildServiceProvider();
     await using (var file = new FileSystemLibrarianDatabase(path, services.GetRequiredService<IFileUtil>(),
         services.GetRequiredService<IMemoryStreamUtil>(), NullLogger.Instance))
     {
@@ -44,7 +44,7 @@ try
         services.GetRequiredService<IMemoryStreamUtil>(), NullLogger.Instance))
         Check((await file.GetContainer("rows")).BuildQueryable<SmokeRow>().Count() == 6, "Persistence reload");
 }
-finally { File.Delete(path); }
+finally { await services.GetRequiredService<IFileUtil>().Delete(path); }
 
 // Exercise both remote translators and materializers without requiring live services.
 var redisProvider = new RedisQueryProvider<SmokeRow>(null!);

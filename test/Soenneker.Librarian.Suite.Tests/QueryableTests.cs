@@ -1,3 +1,5 @@
+using Soenneker.Utils.MemoryStream;
+using Soenneker.Utils.File.Abstract;
 using System;
 using System.Linq;
 using System.IO;
@@ -15,6 +17,8 @@ namespace Soenneker.Librarian.Suite.Tests;
 [NotInParallel]
 public class QueryableTests
 {
+    private static readonly IFileUtil _fileUtil = new Soenneker.Utils.File.FileUtil(NullLogger<Soenneker.Utils.File.FileUtil>.Instance, new MemoryStreamUtil());
+
 
     private static void Check(bool value) { if (!value) throw new Exception("Query assertion failed."); }
 
@@ -165,7 +169,7 @@ public class QueryableTests
                 await database.Save();
             }
         }
-        finally { File.Delete(path); }
+        finally { await _fileUtil.Delete(path); }
     }
 
     [Test]
