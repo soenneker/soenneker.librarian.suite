@@ -102,6 +102,8 @@ jobs:
             Soenneker.Librarian.FileSystem
             Soenneker.Librarian.Redis
             Soenneker.Librarian.Postgres
+            Soenneker.Librarian.D1
+            Soenneker.Librarian.R2
           )
 
           for package in "${packages[@]}"; do

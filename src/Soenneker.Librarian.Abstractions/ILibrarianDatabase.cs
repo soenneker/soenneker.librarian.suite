@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 namespace Soenneker.Librarian.Abstractions;
 
 /// <summary>
-/// A document database implemented by a memory, filesystem, Redis, or PostgreSQL provider.
+/// A document database implemented by a memory, filesystem, Redis, PostgreSQL, Cloudflare D1, or Cloudflare R2 provider.
 /// </summary>
 public interface ILibrarianDatabase : IAsyncDisposable
 {
@@ -21,6 +21,9 @@ public interface ILibrarianDatabase : IAsyncDisposable
     /// the Redis commit outcome unknown; callers must reconcile authoritative state before retrying non-idempotent work.</remarks>
     /// <remarks>PostgreSQL uses a server transaction and a logical database row lock shared by all writes across instances.
     /// Reads use statement snapshots. A cancelled or interrupted PostgreSQL commit can also have an unknown outcome.</remarks>
+    /// <remarks>D1 and R2 coordinate within a single owner of each stored snapshot. Batches replace the complete snapshot
+    /// before publication and include pending ordinary writes. Other instances must not share the same storage address.
+    /// A transport failure or cancellation after dispatch can leave the remote commit outcome unknown.</remarks>
     ValueTask<bool> Execute(LibrarianBatch batch, CancellationToken cancellationToken = default) =>
         throw new NotSupportedException("This provider does not support atomic batches.");
 
@@ -52,11 +55,15 @@ public interface ILibrarianDatabase : IAsyncDisposable
     /// Redis and PostgreSQL mutations commit immediately; Save is a no-op and failures propagate from the mutation itself.
     /// Redis commands already dispatched are awaited even when the token is cancelled.
     /// Await filesystem database disposal to flush pending changes; stop container operations before disposing the database.
+    /// D1 and R2 keep documents and indexes in memory and save complete snapshots explicitly, on unload, and on asynchronous
+    /// disposal; they do not run periodic saves. Failed saves retain pending changes for retry. Indexes are rebuilt after reload.
+    /// D1 stores one snapshot row in librarian_snapshots, limited to 1,900,000 UTF-8 bytes including the logical name.
+    /// R2 stores one JSON object. Both require an existing remote database or bucket and a single owner per snapshot.
     /// </remarks>
     ValueTask Save(CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Unloads and disposes the named container. Filesystem providers save first; memory providers discard data; Redis and PostgreSQL providers release only the local handle.
+    /// Unloads and disposes the named container. Filesystem, D1, and R2 providers save first; memory providers discard data; Redis and PostgreSQL providers release only the local handle.
     /// </summary>
     /// <param name="containerName">Name of the container to target.</param>
     /// <param name="cancellationToken">Token used to cancel the operation.</param>

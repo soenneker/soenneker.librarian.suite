@@ -3,7 +3,7 @@
 
 # Soenneker.Librarian
 
-Document storage for .NET 10 with interchangeable memory, JSON file, Redis, and PostgreSQL providers.
+Document storage for .NET 10 with interchangeable memory, JSON file, Redis, PostgreSQL, Cloudflare D1, and Cloudflare R2 providers.
 
 - **Async document operations** — store, retrieve, update, and delete JSON by ID.
 - **Atomic batches** — update related documents together, with conditions to prevent conflicting writes.
@@ -21,6 +21,8 @@ dotnet add package Soenneker.Librarian.Memory
 # Or: dotnet add package Soenneker.Librarian.FileSystem
 # Or: dotnet add package Soenneker.Librarian.Redis
 # Or: dotnet add package Soenneker.Librarian.Postgres
+# Or: dotnet add package Soenneker.Librarian.D1
+# Or: dotnet add package Soenneker.Librarian.R2
 ```
 
 | Package | Purpose |
@@ -29,6 +31,8 @@ dotnet add package Soenneker.Librarian.Memory
 | `Soenneker.Librarian.FileSystem` | In-memory documents backed by a JSON file |
 | `Soenneker.Librarian.Redis` | Shared document storage and indexes in Redis |
 | `Soenneker.Librarian.Postgres` | PostgreSQL persistence, SQL queries, and atomic transactions |
+| `Soenneker.Librarian.D1` | Single-owner in-memory documents persisted as a D1 snapshot |
+| `Soenneker.Librarian.R2` | Single-owner in-memory documents persisted as an R2 object |
 | `Soenneker.Librarian.Core` | Typed repository and local container implementation |
 | `Soenneker.Librarian.Abstractions` | Database, container, and repository contracts |
 
@@ -85,7 +89,32 @@ All production projects enable AOT/trimming analyzers. CI publishes and runs a n
 | Explicit flush | No-op | `await database.Save()` | No-op | No-op |
 | Index lifetime | Until unload or disposal | Rebuilt after unload or restart | Persisted in Redis | Persisted in PostgreSQL |
 
-Register one provider for `ILibrarianDatabase`. Each registrar also offers an `AsScoped()` variant; a scoped memory database has its own data.
+Register one provider for `ILibrarianDatabase`. Memory, FileSystem, Redis, and PostgreSQL registrars also offer an `AsScoped()` variant; a scoped memory database has its own data.
+
+### Cloudflare D1 and R2
+
+```csharp
+using Soenneker.Librarian.D1.Registrars;
+// Or: using Soenneker.Librarian.R2.Registrars;
+
+builder.Services.AddD1LibrarianDatabaseAsSingleton();
+// Or: builder.Services.AddR2LibrarianDatabaseAsSingleton();
+```
+
+D1 uses `Soenneker.Cloudflare.Utils.Client`; R2 uses `Soenneker.Cloudflare.R2`. Configure the selected provider:
+
+| Setting | D1 | R2 |
+| --- | --- | --- |
+| Configuration prefix | `Librarian:D1:` | `Librarian:R2:` |
+| Required | `AccountId`, `ApiKey`, `DatabaseId` | `AccountId`, `BucketName` |
+| Snapshot address | `Name` (default `librarian`) | `ObjectKey` (default `librarian.json`) |
+| API token | Required `ApiKey` | Optional `ApiKey`, falls back to `Cloudflare:ApiKey` |
+
+Provision the D1 database or R2 bucket first and provide a token with read/write access. D1 creates its `librarian_snapshots` table automatically, using parameterized queries. The D1 snapshot and logical name together are limited to 1,900,000 UTF-8 bytes to leave room below [D1's row-size limit](https://developers.cloudflare.com/d1/platform/limits/).
+
+Both providers load the complete snapshot into memory and use the same local queries and indexes as Memory and FileSystem. Use **one database owner per D1 logical name or R2 object key**. They do not coordinate multiple application instances or refresh external changes. Indexes are rebuilt after unloading or restarting.
+
+Ordinary mutations remain pending until `await database.Save()`, container unloading, or asynchronous disposal. There is no periodic background save. Atomic batches persist the complete snapshot before publishing changes, including other pending mutations. Failed saves retain changes for retry; failed disposal can be retried. A transport failure after dispatch can leave the remote commit outcome unknown, so reconcile persisted state before retrying non-idempotent work. The providers do not dispose injected Cloudflare clients.
 
 ### PostgreSQL
 
@@ -170,7 +199,7 @@ var adults = users.BuildQueryable<User>()
 
 Indexes are created automatically for supported filters and ordering, then maintained on writes. The first indexed query pays the index creation cost.
 
-| Behavior | Memory / FileSystem | Redis | PostgreSQL |
+| Behavior | Memory / FileSystem / D1 / R2 | Redis | PostgreSQL |
 | --- | --- | --- | --- |
 | Query execution | Local, with async terminal helpers | Sync or awaited server calls | Sync or cancellable SQL calls |
 | Unsupported expressions | Can fall back to local evaluation | Throw `NotSupportedException` | Throw `NotSupportedException` |
@@ -230,7 +259,7 @@ All methods above are awaitable and accept a cancellation token. Document IDs ar
 
 Update related documents across containers in one all-or-nothing operation with `ILibrarianDatabase.Execute`. Add conditions to prevent overwriting concurrent changes; if a condition fails, it returns `false` and applies no writes.
 
-Available with all four providers, including coordination across application instances with Redis and PostgreSQL. See the [atomic batch guide](docs/TRANSACTIONS.md) for an example, provider guarantees, and retry handling.
+Available with all six providers, including coordination across application instances with Redis and PostgreSQL. See the [atomic batch guide](docs/TRANSACTIONS.md) for an example, provider guarantees, and retry handling.
 
 ## Typed repositories
 

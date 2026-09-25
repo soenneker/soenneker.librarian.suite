@@ -11,6 +11,8 @@
     </ItemGroup>
 
     <ItemGroup>
+        <ProjectReference Include="../../src/Soenneker.Librarian.D1/Soenneker.Librarian.D1.csproj" />
+        <ProjectReference Include="../../src/Soenneker.Librarian.R2/Soenneker.Librarian.R2.csproj" />
         <ProjectReference Include="../../src/Soenneker.Librarian.Abstractions/Soenneker.Librarian.Abstractions.csproj" />
         <ProjectReference Include="../../src/Soenneker.Librarian.Core/Soenneker.Librarian.Core.csproj" />
         <ProjectReference Include="../../src/Soenneker.Librarian.Memory/Soenneker.Librarian.Memory.csproj" />
