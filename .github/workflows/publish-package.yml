@@ -10,6 +10,7 @@ on:
       - main
     paths-ignore:
       - 'test/**'
+      - 'benchmarks/**'
       - 'src/Soenneker.Librarian.Website/**'
       - '.github/workflows/website.yml'
   workflow_dispatch:
