@@ -47,7 +47,7 @@ public sealed partial class RedisLibrarianDatabase
                     values[i * 2 + 1] = condition.ExpectedValue ?? "";
                 }
                 cancellationToken.ThrowIfCancellationRequested();
-                return (long)await store.ScriptEvaluateAsync(CheckConditionsScript, keys, values).NoSync() == 1;
+                return (long)await store.ScriptEvaluateAsync(CheckConditionsScript, keys, values).WaitAsync(cancellationToken).NoSync() == 1;
             }
             for (var attempt = 0; ; attempt++)
             {

@@ -18,20 +18,20 @@ public sealed partial class RedisLibrarianContainer
         IEnumerable<LibrarianCondition> conditions, IEnumerable<LibrarianWrite> writes, CancellationToken token)
     {
         ObjectDisposedException.ThrowIf(_disposed.Value, this);
-        RedisValue version = await store.StringGetAsync(Version).NoSync();
+        RedisValue version = await store.StringGetAsync(Version).WaitAsync(token).NoSync();
         LibrarianCondition[] conditionArray = conditions.ToArray();
         if (conditionArray.Length > 0)
         {
             var keys = new RedisKey[conditionArray.Length];
             for (int i = 0; i < keys.Length; i++) keys[i] = BatchDocument(conditionArray[i].Id);
-            var values = (RedisResult[])(await store.ScriptEvaluateAsync(ReadItemsScript, keys).NoSync())!;
+            var values = (RedisResult[])(await store.ScriptEvaluateAsync(ReadItemsScript, keys).WaitAsync(token).NoSync())!;
             for (int i = 0; i < values.Length; i++)
                 if (!string.Equals(values[i].IsNull ? null : (string?)values[i], conditionArray[i].ExpectedValue, StringComparison.Ordinal)) return null;
         }
         var actions = new List<Action<ITransaction, List<Task>>>();
         var deltas = new Dictionary<(string Path, string Value), long>();
         LibrarianWrite[] writeArray = writes.ToArray();
-        RedisValue[] paths = writeArray.Length == 0 ? [] : await store.SetMembersAsync(Schema).NoSync();
+        RedisValue[] paths = writeArray.Length == 0 ? [] : await store.SetMembersAsync(Schema).WaitAsync(token).NoSync();
         var fields = new RedisValue[paths.Length];
         for (int i = 0; i < paths.Length; i++) fields[i] = Field(paths[i].ToString());
         foreach (LibrarianWrite write in writeArray)
@@ -39,7 +39,7 @@ public sealed partial class RedisLibrarianContainer
             token.ThrowIfCancellationRequested();
             string id = Id(write.Id);
             using JsonDocument? json = write.Value is not null && paths.Length > 0 ? JsonDocument.Parse(write.Value) : null;
-            RedisValue[] previousValues = paths.Length == 0 ? [] : await store.HashGetAsync(Document(id), fields).NoSync();
+            RedisValue[] previousValues = paths.Length == 0 ? [] : await store.HashGetAsync(Document(id), fields).WaitAsync(token).NoSync();
             for (int i = 0; i < paths.Length; i++)
             {
                 var path = paths[i].ToString();
@@ -96,7 +96,7 @@ public sealed partial class RedisLibrarianContainer
         foreach (KeyValuePair<(string Path, string Value), long> pair in deltas)
         {
             if (pair.Value == 0) continue;
-            long count = await store.SetLengthAsync(Bucket(pair.Key.Path, pair.Key.Value)).NoSync() + pair.Value;
+            long count = await store.SetLengthAsync(Bucket(pair.Key.Path, pair.Key.Value)).WaitAsync(token).NoSync() + pair.Value;
             actions.Add((transaction, commands) => commands.Add(count <= 0
                 ? transaction.SortedSetRemoveAsync(Distinct(pair.Key.Path), pair.Key.Value)
                 : transaction.SortedSetAddAsync(Distinct(pair.Key.Path), pair.Key.Value, 0)));

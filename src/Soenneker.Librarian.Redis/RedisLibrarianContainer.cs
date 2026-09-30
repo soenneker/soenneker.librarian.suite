@@ -180,7 +180,7 @@ public sealed partial class RedisLibrarianContainer : ILibrarianContainer
     public async ValueTask<string?> GetItem(string id, CancellationToken cancellationToken = default)
     {
         IDatabase store = await Store(cancellationToken).NoSync();
-        RedisValue value = await store.HashGetAsync(Document(Id(id)), "json").NoSync();
+        RedisValue value = await store.HashGetAsync(Document(Id(id)), "json").WaitAsync(cancellationToken).NoSync();
         return value.IsNull ? null : value.ToString();
     }
 
@@ -190,21 +190,21 @@ public sealed partial class RedisLibrarianContainer : ILibrarianContainer
     public async ValueTask<List<string>> GetAllItems(CancellationToken cancellationToken = default)
     {
         IDatabase store = await Store(cancellationToken).NoSync();
-        RedisValue[] values = await store.SortAsync(Ids, sortType: SortType.Alphabetic, get: [DocumentPattern("json")]).NoSync();
+        RedisValue[] values = await store.SortAsync(Ids, sortType: SortType.Alphabetic, get: [DocumentPattern("json")]).WaitAsync(cancellationToken).NoSync();
         return values.Select(value => value.ToString()).ToList();
     }
 
     public async ValueTask<List<string>> GetAllIds(CancellationToken cancellationToken = default)
     {
         IDatabase store = await Store(cancellationToken).NoSync();
-        RedisValue[] values = await store.SortAsync(Ids, sortType: SortType.Alphabetic, get: [DocumentPattern("id")]).NoSync();
+        RedisValue[] values = await store.SortAsync(Ids, sortType: SortType.Alphabetic, get: [DocumentPattern("id")]).WaitAsync(cancellationToken).NoSync();
         return values.Select(value => value.ToString()).ToList();
     }
 
     public async ValueTask<List<IdValuePair>> GetLibrarianItems(CancellationToken cancellationToken = default)
     {
         IDatabase store = await Store(cancellationToken).NoSync();
-        RedisValue[] values = await store.SortAsync(Ids, sortType: SortType.Alphabetic, get: [DocumentPattern("id"), DocumentPattern("json")]).NoSync();
+        RedisValue[] values = await store.SortAsync(Ids, sortType: SortType.Alphabetic, get: [DocumentPattern("id"), DocumentPattern("json")]).WaitAsync(cancellationToken).NoSync();
         var items = new List<IdValuePair>(values.Length / 2);
         for (var i = 0; i < values.Length; i += 2) items.Add(new IdValuePair { Id = values[i].ToString(), Value = values[i + 1].ToString() });
         return items;
@@ -237,12 +237,12 @@ public sealed partial class RedisLibrarianContainer : ILibrarianContainer
     {
         RedisIndexValue.ValidatePath(fieldPath);
         IDatabase store = await Store(cancellationToken).NoSync();
-        while (true)
+        for (int attempt = 0; ; attempt++)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (await store.SetContainsAsync(Schema, fieldPath).NoSync()) return;
-            RedisValue version = await store.StringGetAsync(Version).NoSync();
-            RedisValue[] documents = await store.SortAsync(Ids, sortType: SortType.Alphabetic, get: ["#", DocumentPattern("json")]).NoSync();
+            if (await store.SetContainsAsync(Schema, fieldPath).WaitAsync(cancellationToken).NoSync()) return;
+            RedisValue version = await store.StringGetAsync(Version).WaitAsync(cancellationToken).NoSync();
+            RedisValue[] documents = await store.SortAsync(Ids, sortType: SortType.Alphabetic, get: ["#", DocumentPattern("json")]).WaitAsync(cancellationToken).NoSync();
             var entries = new List<(string Id, string Value)>();
             for (var i = 0; i < documents.Length; i += 2)
             {
@@ -267,13 +267,21 @@ public sealed partial class RedisLibrarianContainer : ILibrarianContainer
             commands.Add(transaction.SetAddAsync(SortSchema, fieldPath));
             commands.Add(transaction.StringIncrementAsync(Version));
             if (await Commit(transaction, commands).NoSync()) return;
+            await RetryIndexConflict(attempt, cancellationToken).NoSync();
         }
     }
 
-    private async ValueTask RequireIndex(IDatabase store, string path)
+    private static async ValueTask RetryIndexConflict(int attempt, CancellationToken token)
+    {
+        token.ThrowIfCancellationRequested();
+        if (attempt >= 7) throw new TimeoutException("The Librarian index repeatedly changed during the operation.");
+        await Task.Delay(Random.Shared.Next(1, 10), token).NoSync();
+    }
+
+    private async ValueTask RequireIndex(IDatabase store, string path, CancellationToken token)
     {
         RedisIndexValue.ValidatePath(path);
-        if (!await store.SetContainsAsync(Schema, path).NoSync()) throw new InvalidOperationException($"Index '{path}' does not exist.");
+        if (!await store.SetContainsAsync(Schema, path).WaitAsync(token).NoSync()) throw new InvalidOperationException($"Index '{path}' does not exist.");
     }
 
     private static object[] RangeArguments(RedisKey key, string min, string max, bool descending, int skip, int take) =>
@@ -284,22 +292,37 @@ public sealed partial class RedisLibrarianContainer : ILibrarianContainer
         ArgumentOutOfRangeException.ThrowIfNegative(skip);
         ArgumentOutOfRangeException.ThrowIfLessThan(take, 1);
         IDatabase store = await Store(token).NoSync();
-        await RequireIndex(store, path).NoSync();
-        while (true)
+        await RequireIndex(store, path, token).NoSync();
+        for (int attempt = 0; ; attempt++)
         {
             token.ThrowIfCancellationRequested();
-            RedisValue version = await store.StringGetAsync(Version).NoSync();
+            RedisValue version = await store.StringGetAsync(Version).WaitAsync(token).NoSync();
             RedisResult[] members = (RedisResult[]?)await store.ExecuteAsync(descending ? "ZREVRANGEBYLEX" : "ZRANGEBYLEX",
-                RangeArguments(Index(path), min, max, descending, skip, take)).NoSync() ?? [];
-            var reads = new Task<RedisValue>[members.Length];
-            for (var i = 0; i < members.Length; i++)
+                RangeArguments(Index(path), min, max, descending, skip, take)).WaitAsync(token).NoSync() ?? [];
+            var documents = new RedisValue[members.Length];
+            // Bound in-flight commands and observe cancellation between windows, including large backlogs.
+            for (var start = 0; start < members.Length; start += 128)
             {
-                var member = members[i].ToString();
-                reads[i] = store.HashGetAsync(Document(member[(member.IndexOf('!') + 1)..]), "json");
+                token.ThrowIfCancellationRequested();
+                var reads = new Task<RedisValue>[Math.Min(128, members.Length - start)];
+                for (var i = 0; i < reads.Length; i++)
+                {
+                    var member = members[start + i].ToString();
+                    reads[i] = store.HashGetAsync(Document(member[(member.IndexOf('!') + 1)..]), "json");
+                }
+                (await Task.WhenAll(reads).WaitAsync(token).NoSync()).CopyTo(documents, start);
             }
-            RedisValue[] documents = await Task.WhenAll(reads).NoSync();
-            if (version != await store.StringGetAsync(Version).NoSync()) continue;
-            List<T> items = documents.Select(document => LibrarianJson.Deserialize<T>(document.ToString())!).ToList();
+            if (version != await store.StringGetAsync(Version).WaitAsync(token).NoSync())
+            {
+                await RetryIndexConflict(attempt, token).NoSync();
+                continue;
+            }
+            var items = new List<T>(documents.Length);
+            foreach (RedisValue document in documents)
+            {
+                token.ThrowIfCancellationRequested();
+                items.Add(LibrarianJson.Deserialize<T>(document.ToString())!);
+            }
             return new LibrarianQueryResult<T> { Items = items, Index = path, IndexEntriesExamined = members.Length, DocumentsDeserialized = documents.Length };
         }
     }
@@ -313,9 +336,9 @@ public sealed partial class RedisLibrarianContainer : ILibrarianContainer
     public async ValueTask<int> CountByIndex(string fieldPath, object? value, CancellationToken cancellationToken = default)
     {
         IDatabase store = await Store(cancellationToken).NoSync();
-        await RequireIndex(store, fieldPath).NoSync();
+        await RequireIndex(store, fieldPath, cancellationToken).NoSync();
         string encoded = RedisIndexValue.Encode(value);
-        return checked((int)(long)await store.ExecuteAsync("ZLEXCOUNT", Index(fieldPath), "[" + encoded + "!", "[" + encoded + "!~").NoSync());
+        return checked((int)(long)await store.ExecuteAsync("ZLEXCOUNT", Index(fieldPath), "[" + encoded + "!", "[" + encoded + "!~").WaitAsync(cancellationToken).NoSync());
     }
 
     public async ValueTask<bool> ExistsByIndex(string fieldPath, object? value, CancellationToken cancellationToken = default) =>

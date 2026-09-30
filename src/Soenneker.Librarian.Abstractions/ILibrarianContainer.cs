@@ -31,6 +31,7 @@ public interface ILibrarianContainer : IDisposable
     /// Malformed JSON and non-scalar indexed values reject index creation or subsequent writes before data changes.
     /// Indexes are maintained on writes. Memory/filesystem indexes must be recreated after unload or restart; Redis and PostgreSQL indexes persist.
     /// </remarks>
+    /// <exception cref="TimeoutException">Redis index creation exhausted its bounded conflict retries.</exception>
     ValueTask EnsureIndex(string fieldPath, CancellationToken cancellationToken = default);
 
     /// <summary>Uses an existing index to return an equality page ordered by case-insensitive document ID.</summary>
@@ -40,6 +41,7 @@ public interface ILibrarianContainer : IDisposable
     /// Deserialization failures propagate. The returned JSON is captured consistently with the index under an AsyncLock or, for Redis, by retrying reads when the container version changes.
     /// PostgreSQL reads the index and documents in one SQL statement snapshot.
     /// </remarks>
+    /// <exception cref="TimeoutException">Redis could not obtain a consistent index snapshot within its bounded conflict retries.</exception>
     ValueTask<LibrarianQueryResult<T>> FindByIndex<T>(string fieldPath, object? value, int skip = 0, int take = 100,
         CancellationToken cancellationToken = default);
 
@@ -57,6 +59,7 @@ public interface ILibrarianContainer : IDisposable
     /// Only the requested page is deserialized.
     /// This method requires an existing index and never falls back to a document scan.
     /// </remarks>
+    /// <exception cref="TimeoutException">Redis could not obtain a consistent index snapshot within its bounded conflict retries.</exception>
     ValueTask<LibrarianQueryResult<T>> FindRangeByIndex<T>(string fieldPath, object? minimum = null, object? maximum = null,
         bool descending = false, int skip = 0, int take = 100, CancellationToken cancellationToken = default);
 
