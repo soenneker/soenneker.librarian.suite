@@ -21,7 +21,7 @@ public class TransactionTests
     [Arguments("filesystem")]
     [Arguments("redis")]
     [Arguments("postgres")]
-    public async Task Cross_container_conditions_and_writes_commit_together(string provider)
+    public async ValueTask Cross_container_conditions_and_writes_commit_together(string provider)
     {
         await using var fixture = new BatchFixture(provider);
         ILibrarianDatabase db = fixture.Database;
@@ -45,7 +45,7 @@ public class TransactionTests
     [Arguments("filesystem")]
     [Arguments("redis")]
     [Arguments("postgres")]
-    public async Task Rejected_or_cancelled_batch_changes_nothing(string provider)
+    public async ValueTask Rejected_or_cancelled_batch_changes_nothing(string provider)
     {
         await using var fixture = new BatchFixture(provider);
         ILibrarianDatabase db = fixture.Database;
@@ -62,7 +62,7 @@ public class TransactionTests
     [Arguments("filesystem")]
     [Arguments("redis")]
     [Arguments("postgres")]
-    public async Task Index_validation_rolls_back_the_whole_batch_and_success_updates_indexes(string provider)
+    public async ValueTask Index_validation_rolls_back_the_whole_batch_and_success_updates_indexes(string provider)
     {
         await using var fixture = new BatchFixture(provider);
         ILibrarianDatabase db = fixture.Database;
@@ -90,7 +90,7 @@ public class TransactionTests
     [Arguments("filesystem")]
     [Arguments("redis")]
     [Arguments("postgres")]
-    public async Task Only_one_competing_claim_commits(string provider)
+    public async ValueTask Only_one_competing_claim_commits(string provider)
     {
         await using var fixture = new BatchFixture(provider);
         ILibrarianDatabase db = fixture.Database;
@@ -105,7 +105,7 @@ public class TransactionTests
     [Arguments("filesystem")]
     [Arguments("redis")]
     [Arguments("postgres")]
-    public async Task Ordinary_reads_never_observe_half_a_batch(string provider)
+    public async ValueTask Ordinary_reads_never_observe_half_a_batch(string provider)
     {
         await using var fixture = new BatchFixture(provider);
         ILibrarianDatabase db = fixture.Database;
@@ -124,7 +124,7 @@ public class TransactionTests
     }
 
     [Test]
-    public async Task Filesystem_failed_write_preserves_disk_and_memory_and_can_retry()
+    public async ValueTask Filesystem_failed_write_preserves_disk_and_memory_and_can_retry()
     {
         await using var fixture = new PersistenceFixture();
         FileSystemLibrarianDatabase db = fixture.Database;
@@ -143,7 +143,7 @@ public class TransactionTests
     }
 
     [Test]
-    public async Task Redis_independent_instances_compete_on_the_same_condition()
+    public async ValueTask Redis_independent_instances_compete_on_the_same_condition()
     {
         await using var fixture = new RedisPersistenceFixture();
         await using RedisLibrarianDatabase other = fixture.CreateDatabase();

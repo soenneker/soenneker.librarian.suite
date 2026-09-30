@@ -22,7 +22,7 @@ public class QueryPlannerTests
     }
 
     [Test]
-    public async Task Composite_indexes_build_in_one_pass_and_only_materialize_the_page()
+    public async ValueTask Composite_indexes_build_in_one_pass_and_only_materialize_the_page()
     {
         await using MemoryLibrarianDatabase database = Database();
         ILibrarianContainer container = await Populate(database);
@@ -44,7 +44,7 @@ public class QueryPlannerTests
     }
 
     [Test]
-    public async Task Ordering_on_another_property_and_projected_paging_use_index_keys()
+    public async ValueTask Ordering_on_another_property_and_projected_paging_use_index_keys()
     {
         await using MemoryLibrarianDatabase database = Database();
         ILibrarianContainer container = await Populate(database);
@@ -66,7 +66,7 @@ public class QueryPlannerTests
     }
 
     [Test]
-    public async Task Residual_predicates_reuse_indexed_prefixes_and_stop_at_take()
+    public async ValueTask Residual_predicates_reuse_indexed_prefixes_and_stop_at_take()
     {
         await using MemoryLibrarianDatabase database = Database();
         ILibrarianContainer container = await Populate(database);
@@ -84,7 +84,7 @@ public class QueryPlannerTests
     }
 
     [Test]
-    public async Task Multi_property_plans_match_reference_queries_across_bounds_and_pages()
+    public async ValueTask Multi_property_plans_match_reference_queries_across_bounds_and_pages()
     {
         await using MemoryLibrarianDatabase database = Database();
         ILibrarianContainer container = await Populate(database);
@@ -113,7 +113,7 @@ public class QueryPlannerTests
     }
 
     [Test]
-    public async Task Residual_short_circuiting_and_computed_projection_evaluation_are_preserved()
+    public async ValueTask Residual_short_circuiting_and_computed_projection_evaluation_are_preserved()
     {
         await using MemoryLibrarianDatabase database = Database();
         ILibrarianContainer container = await Populate(database);
@@ -133,7 +133,7 @@ public class QueryPlannerTests
     private static bool Fails(PlannerRow row) => throw new InvalidOperationException("Expected");
 
     [Test]
-    public async Task Composite_plans_remain_consistent_during_concurrent_creation_and_writes()
+    public async ValueTask Composite_plans_remain_consistent_during_concurrent_creation_and_writes()
     {
         await using MemoryLibrarianDatabase database = Database();
         ILibrarianContainer container = await database.GetContainer("concurrent");

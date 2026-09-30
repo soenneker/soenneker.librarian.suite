@@ -14,7 +14,7 @@ public class QueryConformanceTests
     [Arguments("filesystem")]
     [Arguments("redis")]
     [Arguments("postgres")]
-    public async Task Shared_filters_ordering_pages_and_async_terminals(string provider)
+    public async ValueTask Shared_filters_ordering_pages_and_async_terminals(string provider)
     {
         await using var fixture = new BatchFixture(provider);
         ILibrarianContainer container = await fixture.Database.GetContainer("conformance");
@@ -40,7 +40,7 @@ public class QueryConformanceTests
     [Arguments("filesystem")]
     [Arguments("redis")]
     [Arguments("postgres")]
-    public async Task Explicit_indexes_share_null_precision_and_ordinal_rules(string provider)
+    public async ValueTask Explicit_indexes_share_null_precision_and_ordinal_rules(string provider)
     {
         await using var fixture = new BatchFixture(provider);
         ILibrarianContainer container = await fixture.Database.GetContainer("scalars");
@@ -64,7 +64,7 @@ public class QueryConformanceTests
     [Arguments("filesystem")]
     [Arguments("redis")]
     [Arguments("postgres")]
-    public async Task Cancellation_and_lifetime_are_enforced_by_async_queries(string provider)
+    public async ValueTask Cancellation_and_lifetime_are_enforced_by_async_queries(string provider)
     {
         await using var fixture = new BatchFixture(provider);
         ILibrarianContainer container = await fixture.Database.GetContainer("lifetime");
@@ -82,7 +82,7 @@ public class QueryConformanceTests
     [Test]
     [Arguments("memory")]
     [Arguments("filesystem")]
-    public async Task Core_projected_count_and_async_pages_avoid_extra_deserialization(string provider)
+    public async ValueTask Core_projected_count_and_async_pages_avoid_extra_deserialization(string provider)
     {
         await using var fixture = new BatchFixture(provider);
         ILibrarianContainer container = await fixture.Database.GetContainer("cost");

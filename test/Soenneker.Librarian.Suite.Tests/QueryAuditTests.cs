@@ -16,7 +16,7 @@ public class QueryAuditTests
     private static void Check(bool condition, string message) { if (!condition) throw new Exception(message); }
 
     [Test]
-    public async Task Secondary_ordering_preserves_primary_order_and_paging()
+    public async ValueTask Secondary_ordering_preserves_primary_order_and_paging()
     {
         await using var db = new MemoryLibrarianDatabase(NullLogger<MemoryLibrarianDatabase>.Instance);
         ILibrarianContainer container = await db.GetContainer("audit");
@@ -30,7 +30,7 @@ public class QueryAuditTests
     }
 
     [Test]
-    public async Task Separate_filters_stay_indexed_and_projection_only_reads_the_page()
+    public async ValueTask Separate_filters_stay_indexed_and_projection_only_reads_the_page()
     {
         await using var db = new MemoryLibrarianDatabase(NullLogger<MemoryLibrarianDatabase>.Instance);
         ILibrarianContainer container = await db.GetContainer("audit");
@@ -47,7 +47,7 @@ public class QueryAuditTests
     }
 
     [Test]
-    public async Task Fallback_and_unindexed_paging_only_deserialize_consumed_documents()
+    public async ValueTask Fallback_and_unindexed_paging_only_deserialize_consumed_documents()
     {
         await using var db = new MemoryLibrarianDatabase(NullLogger<MemoryLibrarianDatabase>.Instance);
         ILibrarianContainer container = await db.GetContainer("audit");
@@ -60,7 +60,7 @@ public class QueryAuditTests
     }
 
     [Test]
-    public async Task Reusable_projections_observe_closures_writes_and_preserve_exceptions()
+    public async ValueTask Reusable_projections_observe_closures_writes_and_preserve_exceptions()
     {
         await using var db = new MemoryLibrarianDatabase(NullLogger<MemoryLibrarianDatabase>.Instance);
         ILibrarianContainer container = await db.GetContainer("audit");
@@ -81,7 +81,7 @@ public class QueryAuditTests
     private static int Fail(AuditRow row) => throw new InvalidOperationException("Expected");
 
     [Test]
-    public async Task Field_backed_custom_getters_are_not_treated_as_stable_index_keys()
+    public async ValueTask Field_backed_custom_getters_are_not_treated_as_stable_index_keys()
     {
         await using var db = new MemoryLibrarianDatabase(NullLogger<MemoryLibrarianDatabase>.Instance);
         ILibrarianContainer container = await db.GetContainer("audit");
@@ -94,7 +94,7 @@ public class QueryAuditTests
     }
 
     [Test]
-    public async Task Randomized_composed_queries_match_linq_to_objects()
+    public async ValueTask Randomized_composed_queries_match_linq_to_objects()
     {
         await using var db = new MemoryLibrarianDatabase(NullLogger<MemoryLibrarianDatabase>.Instance);
         ILibrarianContainer container = await db.GetContainer("audit");
@@ -124,7 +124,7 @@ public class QueryAuditTests
     }
 
     [Test]
-    public async Task Scan_snapshots_are_detached_invalidated_on_mutation_and_skip_invalid_json()
+    public async ValueTask Scan_snapshots_are_detached_invalidated_on_mutation_and_skip_invalid_json()
     {
         await using var db = new MemoryLibrarianDatabase(NullLogger<MemoryLibrarianDatabase>.Instance);
         ILibrarianContainer container = await db.GetContainer("audit");
@@ -145,7 +145,7 @@ public class QueryAuditTests
     }
 
     [Test]
-    public async Task Query_roots_are_cached_deferred_and_support_the_standard_provider_contract()
+    public async ValueTask Query_roots_are_cached_deferred_and_support_the_standard_provider_contract()
     {
         await using var db = new MemoryLibrarianDatabase(NullLogger<MemoryLibrarianDatabase>.Instance);
         ILibrarianContainer container = await db.GetContainer("audit");

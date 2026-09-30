@@ -20,7 +20,7 @@ public class ProviderTests
     private static readonly IFileUtil _fileUtil = new Soenneker.Utils.File.FileUtil(NullLogger<Soenneker.Utils.File.FileUtil>.Instance, new MemoryStreamUtil());
 
     [Test]
-    public async Task Providers_agree_on_names_and_cancelled_cached_lookups()
+    public async ValueTask Providers_agree_on_names_and_cancelled_cached_lookups()
     {
         string path = Path.Combine(Path.GetTempPath(), $"librarian-contract-{Guid.NewGuid():N}.json");
         try
@@ -49,7 +49,7 @@ public class ProviderTests
     }
 
     [Test]
-    public async Task Scoped_registrations_resolve_dependencies_and_isolate_database_lifetimes()
+    public async ValueTask Scoped_registrations_resolve_dependencies_and_isolate_database_lifetimes()
     {
         string path = Path.Combine(Path.GetTempPath(), $"librarian-scoped-{Guid.NewGuid():N}.json");
         try
@@ -88,7 +88,7 @@ public class ProviderTests
     }
 
     [Test]
-    public async Task Memory_database_owns_containers_and_discards_unloaded_data()
+    public async ValueTask Memory_database_owns_containers_and_discards_unloaded_data()
     {
         await using ServiceProvider services = new ServiceCollection().AddLogging().AddMemoryLibrarianDatabaseAsSingleton().BuildServiceProvider();
         var database = services.GetRequiredService<ILibrarianDatabase>();
@@ -107,7 +107,7 @@ public class ProviderTests
     }
 
     [Test]
-    public async Task Repository_contract_works_with_both_providers()
+    public async ValueTask Repository_contract_works_with_both_providers()
     {
         string path = Path.Combine(Path.GetTempPath(), $"librarian-provider-{Guid.NewGuid():N}.json");
         try

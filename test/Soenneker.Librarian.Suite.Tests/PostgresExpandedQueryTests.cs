@@ -11,7 +11,7 @@ namespace Soenneker.Librarian.Suite.Tests;
 public class PostgresExpandedQueryTests
 {
     [Test]
-    public async Task Multi_key_ordering_and_projections_fetch_only_selected_fields()
+    public async ValueTask Multi_key_ordering_and_projections_fetch_only_selected_fields()
     {
         await using var fixture = new PostgresPersistenceFixture();
         ILibrarianContainer container = await fixture.Database.GetContainer("projection");
@@ -41,7 +41,7 @@ public class PostgresExpandedQueryTests
     }
 
     [Test]
-    public async Task String_search_preserves_literals_and_utf16_boundaries()
+    public async ValueTask String_search_preserves_literals_and_utf16_boundaries()
     {
         await using var fixture = new PostgresPersistenceFixture();
         ILibrarianContainer container = await fixture.Database.GetContainer("strings");
@@ -62,7 +62,7 @@ public class PostgresExpandedQueryTests
     }
 
     [Test]
-    public async Task Collection_membership_all_and_boolean_constants_execute_on_server()
+    public async ValueTask Collection_membership_all_and_boolean_constants_execute_on_server()
     {
         await using var fixture = new PostgresPersistenceFixture();
         ILibrarianContainer container = await fixture.Database.GetContainer("membership");
@@ -91,7 +91,7 @@ public class PostgresExpandedQueryTests
     }
 
     [Test]
-    public async Task Numeric_aggregates_preserve_types_paging_and_empty_results()
+    public async ValueTask Numeric_aggregates_preserve_types_paging_and_empty_results()
     {
         await using var fixture = new PostgresPersistenceFixture();
         ILibrarianContainer container = await fixture.Database.GetContainer("aggregates");

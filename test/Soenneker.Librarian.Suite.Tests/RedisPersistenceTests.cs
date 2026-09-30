@@ -17,7 +17,7 @@ namespace Soenneker.Librarian.Suite.Tests;
 public class RedisPersistenceTests
 {
     [Test]
-    public async Task Readable_keys_support_custom_prefixes_and_escape_reserved_characters()
+    public async ValueTask Readable_keys_support_custom_prefixes_and_escape_reserved_characters()
     {
         await using var fixture = new RedisPersistenceFixture("flywheel");
         var store = await fixture.GetStore();
@@ -47,7 +47,7 @@ public class RedisPersistenceTests
     }
 
     [Test]
-    public async Task Mutations_are_visible_immediately_across_instances_without_save()
+    public async ValueTask Mutations_are_visible_immediately_across_instances_without_save()
     {
         await using var fixture = new RedisPersistenceFixture();
         await using RedisLibrarianDatabase other = fixture.CreateDatabase();
@@ -74,7 +74,7 @@ public class RedisPersistenceTests
     }
 
     [Test]
-    public async Task Concurrent_adds_are_atomic_and_concurrent_updates_do_not_lose_other_documents()
+    public async ValueTask Concurrent_adds_are_atomic_and_concurrent_updates_do_not_lose_other_documents()
     {
         await using var fixture = new RedisPersistenceFixture();
         await using RedisLibrarianDatabase other = fixture.CreateDatabase();
@@ -92,7 +92,7 @@ public class RedisPersistenceTests
     }
 
     [Test]
-    public async Task Redis_indexes_persist_and_track_other_instances_writes()
+    public async ValueTask Redis_indexes_persist_and_track_other_instances_writes()
     {
         await using var fixture = new RedisPersistenceFixture();
         await using RedisLibrarianDatabase other = fixture.CreateDatabase();
@@ -119,7 +119,7 @@ public class RedisPersistenceTests
     }
 
     [Test]
-    public async Task Queries_execute_against_current_Redis_data_and_reject_local_fallback()
+    public async ValueTask Queries_execute_against_current_Redis_data_and_reject_local_fallback()
     {
         await using var fixture = new RedisPersistenceFixture();
         await using RedisLibrarianDatabase other = fixture.CreateDatabase();
@@ -142,7 +142,7 @@ public class RedisPersistenceTests
     }
 
     [Test]
-    public async Task Invalid_indexed_writes_and_cancellation_leave_Redis_unchanged()
+    public async ValueTask Invalid_indexed_writes_and_cancellation_leave_Redis_unchanged()
     {
         await using var fixture = new RedisPersistenceFixture();
         ILibrarianContainer container = await fixture.Database.GetContainer("items");
@@ -159,7 +159,7 @@ public class RedisPersistenceTests
     }
 
     [Test]
-    public async Task Service_registrations_share_live_data_and_save_is_a_noop()
+    public async ValueTask Service_registrations_share_live_data_and_save_is_a_noop()
     {
         await using var fixture = new RedisPersistenceFixture();
         IServiceCollection services = new ServiceCollection().AddLogging().AddSingleton<IConfiguration>(fixture.Configuration).AddRedisLibrarianDatabaseAsScoped();
@@ -175,7 +175,7 @@ public class RedisPersistenceTests
     }
 
     [Test]
-    public async Task Concurrent_index_creation_and_writes_preserve_all_index_entries()
+    public async ValueTask Concurrent_index_creation_and_writes_preserve_all_index_entries()
     {
         await using var fixture = new RedisPersistenceFixture();
         await using RedisLibrarianDatabase other = fixture.CreateDatabase();
@@ -195,7 +195,7 @@ public class RedisPersistenceTests
     }
 
     [Test]
-    public async Task Null_missing_boolean_and_string_indexes_preserve_scalar_order()
+    public async ValueTask Null_missing_boolean_and_string_indexes_preserve_scalar_order()
     {
         await using var fixture = new RedisPersistenceFixture();
         ILibrarianContainer container = await fixture.Database.GetContainer("items");
@@ -213,7 +213,7 @@ public class RedisPersistenceTests
         Check(page.Items.Select(item => item.GetProperty("value").GetRawText()).SequenceEqual(new[] { "null", "false", "true", "-1", "\"\"", "\"a\"", "\"aa\"" }), "Scalar ordering changed.");
     }
     [Test]
-    public async Task Query_values_use_the_same_generated_contracts_as_documents()
+    public async ValueTask Query_values_use_the_same_generated_contracts_as_documents()
     {
         await using var fixture = new RedisPersistenceFixture();
         ILibrarianContainer container = await fixture.Database.GetContainer("items");

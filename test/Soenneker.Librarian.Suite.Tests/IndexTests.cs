@@ -23,7 +23,7 @@ public class IndexTests
     private static readonly IFileUtil _fileUtil = new Soenneker.Utils.File.FileUtil(NullLogger<Soenneker.Utils.File.FileUtil>.Instance, new MemoryStreamUtil());
 
     [Test]
-    public async Task Randomized_mutations_and_rank_paging_match_a_reference_model()
+    public async ValueTask Randomized_mutations_and_rank_paging_match_a_reference_model()
     {
         await using MemoryLibrarianDatabase database = CreateDatabase();
         ILibrarianContainer container = await database.GetContainer("random");
@@ -71,7 +71,7 @@ public class IndexTests
     }
 
     [Test]
-    public async Task Returned_pages_survive_pool_reuse_and_failed_deserialization()
+    public async ValueTask Returned_pages_survive_pool_reuse_and_failed_deserialization()
     {
         await using MemoryLibrarianDatabase database = CreateDatabase();
         ILibrarianContainer container = await database.GetContainer("pooled");
@@ -104,7 +104,7 @@ public class IndexTests
     }
 
     [Test]
-    public async Task Equality_materializes_only_the_requested_page_and_count_materializes_nothing()
+    public async ValueTask Equality_materializes_only_the_requested_page_and_count_materializes_nothing()
     {
         await using MemoryLibrarianDatabase database = CreateDatabase();
         ILibrarianContainer container = await database.GetContainer("items");
@@ -126,7 +126,7 @@ public class IndexTests
     }
 
     [Test]
-    public async Task Equality_handles_null_missing_nested_properties_and_scalar_types()
+    public async ValueTask Equality_handles_null_missing_nested_properties_and_scalar_types()
     {
         await using MemoryLibrarianDatabase database = CreateDatabase();
         ILibrarianContainer container = await database.GetContainer("items");
@@ -145,7 +145,7 @@ public class IndexTests
     }
 
     [Test]
-    public async Task Updates_deletes_and_clear_maintain_all_indexes()
+    public async ValueTask Updates_deletes_and_clear_maintain_all_indexes()
     {
         await using MemoryLibrarianDatabase database = CreateDatabase();
         ILibrarianContainer container = await database.GetContainer("items");
@@ -170,7 +170,7 @@ public class IndexTests
     }
 
     [Test]
-    public async Task Invalid_indexed_writes_and_cancelled_mutations_leave_data_and_indexes_unchanged()
+    public async ValueTask Invalid_indexed_writes_and_cancelled_mutations_leave_data_and_indexes_unchanged()
     {
         await using MemoryLibrarianDatabase database = CreateDatabase();
         ILibrarianContainer container = await database.GetContainer("items");
@@ -187,7 +187,7 @@ public class IndexTests
     }
 
     [Test]
-    public async Task Index_creation_is_atomic_idempotent_and_never_implicitly_scans_queries()
+    public async ValueTask Index_creation_is_atomic_idempotent_and_never_implicitly_scans_queries()
     {
         await using MemoryLibrarianDatabase database = CreateDatabase();
         ILibrarianContainer container = await database.GetContainer("items");
@@ -204,7 +204,7 @@ public class IndexTests
     }
 
     [Test]
-    public async Task Ranges_sort_and_page_before_materializing_with_deterministic_ties()
+    public async ValueTask Ranges_sort_and_page_before_materializing_with_deterministic_ties()
     {
         await using MemoryLibrarianDatabase database = CreateDatabase();
         ILibrarianContainer container = await database.GetContainer("items");
@@ -226,7 +226,7 @@ public class IndexTests
     }
 
     [Test]
-    public async Task Concurrent_index_creation_writes_and_queries_preserve_consistent_results()
+    public async ValueTask Concurrent_index_creation_writes_and_queries_preserve_consistent_results()
     {
         await using MemoryLibrarianDatabase database = CreateDatabase();
         ILibrarianContainer container = await database.GetContainer("items");
@@ -243,7 +243,7 @@ public class IndexTests
     }
 
     [Test]
-    public async Task Filesystem_reload_rebuilds_indexes_and_repository_uses_them()
+    public async ValueTask Filesystem_reload_rebuilds_indexes_and_repository_uses_them()
     {
         string path = Path.Combine(Path.GetTempPath(), $"librarian-index-{Guid.NewGuid():N}.json");
         try

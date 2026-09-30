@@ -11,7 +11,7 @@ namespace Soenneker.Librarian.Suite.Tests;
 public class RedisQueryExpansionTests
 {
     [Test]
-    public async Task Old_indexes_gain_stable_sort_keys_and_writes_keep_them_current()
+    public async ValueTask Old_indexes_gain_stable_sort_keys_and_writes_keep_them_current()
     {
         await using var fixture = new RedisPersistenceFixture();
         ILibrarianContainer container = await fixture.Database.GetContainer("items");
@@ -33,7 +33,7 @@ public class RedisQueryExpansionTests
     }
 
     [Test]
-    public async Task Membership_prefix_and_bounded_projection_do_not_enable_unbounded_fallback()
+    public async ValueTask Membership_prefix_and_bounded_projection_do_not_enable_unbounded_fallback()
     {
         await using var fixture = new RedisPersistenceFixture();
         ILibrarianContainer container = await fixture.Database.GetContainer("items");

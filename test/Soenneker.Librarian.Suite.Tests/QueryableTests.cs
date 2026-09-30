@@ -23,7 +23,7 @@ public class QueryableTests
     private static void Check(bool value) { if (!value) throw new Exception("Query assertion failed."); }
 
     [Test]
-    public async Task Deferred_queries_build_once_page_by_rank_and_count_without_deserializing()
+    public async ValueTask Deferred_queries_build_once_page_by_rank_and_count_without_deserializing()
     {
         await using var database = new MemoryLibrarianDatabase(NullLogger<MemoryLibrarianDatabase>.Instance);
         ILibrarianContainer container = await database.GetContainer("query");
@@ -59,7 +59,7 @@ public class QueryableTests
     }
 
     [Test]
-    public async Task Automatic_indexes_follow_mutations_defaults_aliases_and_document_types()
+    public async ValueTask Automatic_indexes_follow_mutations_defaults_aliases_and_document_types()
     {
         await using var database = new MemoryLibrarianDatabase(NullLogger<MemoryLibrarianDatabase>.Instance);
         ILibrarianContainer container = await database.GetContainer("query");
@@ -88,7 +88,7 @@ public class QueryableTests
     }
 
     [Test]
-    public async Task Direct_element_execution_preserves_defaults_errors_and_detached_results()
+    public async ValueTask Direct_element_execution_preserves_defaults_errors_and_detached_results()
     {
         await using var database = new MemoryLibrarianDatabase(NullLogger<MemoryLibrarianDatabase>.Instance);
         ILibrarianContainer container = await database.GetContainer("query");
@@ -115,7 +115,7 @@ public class QueryableTests
     }
 
     [Test]
-    public async Task Writes_deserialize_once_per_type_for_multiple_automatic_indexes()
+    public async ValueTask Writes_deserialize_once_per_type_for_multiple_automatic_indexes()
     {
         await using var database = new MemoryLibrarianDatabase(NullLogger<MemoryLibrarianDatabase>.Instance);
         ILibrarianContainer container = await database.GetContainer("query");
@@ -134,7 +134,7 @@ public class QueryableTests
     }
 
     [Test]
-    public async Task Concurrent_creation_writes_and_reads_keep_indexes_consistent()
+    public async ValueTask Concurrent_creation_writes_and_reads_keep_indexes_consistent()
     {
         await using var database = new MemoryLibrarianDatabase(NullLogger<MemoryLibrarianDatabase>.Instance);
         ILibrarianContainer container = await database.GetContainer("query");
@@ -149,7 +149,7 @@ public class QueryableTests
     }
 
     [Test]
-    public async Task Filesystem_queries_rebuild_automatically_after_restart()
+    public async ValueTask Filesystem_queries_rebuild_automatically_after_restart()
     {
         string path = Path.Combine(Path.GetTempPath(), $"librarian-linq-{Guid.NewGuid():N}.json");
         try
@@ -173,7 +173,7 @@ public class QueryableTests
     }
 
     [Test]
-    public async Task Unsupported_operations_preserve_their_position_and_normal_linq_semantics()
+    public async ValueTask Unsupported_operations_preserve_their_position_and_normal_linq_semantics()
     {
         await using var database = new MemoryLibrarianDatabase(NullLogger<MemoryLibrarianDatabase>.Instance);
         ILibrarianContainer container = await database.GetContainer("query");

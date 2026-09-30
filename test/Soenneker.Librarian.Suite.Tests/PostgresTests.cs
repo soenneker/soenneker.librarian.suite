@@ -12,7 +12,7 @@ namespace Soenneker.Librarian.Suite.Tests;
 public class PostgresTests
 {
     [Test]
-    public async Task Persistence_case_sensitive_names_and_handle_lifetimes()
+    public async ValueTask Persistence_case_sensitive_names_and_handle_lifetimes()
     {
         await using var fixture = new PostgresPersistenceFixture();
         ILibrarianContainer items = await fixture.Database.GetContainer("Items'); DROP TABLE documents;--");
@@ -38,7 +38,7 @@ public class PostgresTests
     }
 
     [Test]
-    public async Task Sql_queries_page_order_filter_and_aggregate_without_deserializing_other_rows()
+    public async ValueTask Sql_queries_page_order_filter_and_aggregate_without_deserializing_other_rows()
     {
         await using var fixture = new PostgresPersistenceFixture();
         ILibrarianContainer items = await fixture.Database.GetContainer("items");
@@ -65,7 +65,7 @@ public class PostgresTests
     }
 
     [Test]
-    public async Task Explicit_indexes_preserve_decimal_null_missing_and_ordinal_semantics()
+    public async ValueTask Explicit_indexes_preserve_decimal_null_missing_and_ordinal_semantics()
     {
         await using var fixture = new PostgresPersistenceFixture();
         ILibrarianContainer items = await fixture.Database.GetContainer("items");
@@ -85,7 +85,7 @@ public class PostgresTests
     }
 
     [Test]
-    public async Task Independent_instances_compete_and_rollback_validation_failures()
+    public async ValueTask Independent_instances_compete_and_rollback_validation_failures()
     {
         await using var fixture = new PostgresPersistenceFixture();
         await using PostgresLibrarianDatabase other = fixture.CreateDatabase();

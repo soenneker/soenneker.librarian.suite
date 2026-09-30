@@ -29,7 +29,7 @@ public class CloudflareProviderTests
     [Test]
     [Arguments("d1")]
     [Arguments("r2")]
-    public async Task Save_unload_and_dispose_round_trip_through_cloudflare_clients(string provider)
+    public async ValueTask Save_unload_and_dispose_round_trip_through_cloudflare_clients(string provider)
     {
         using var fixture = new CloudflareFixture(provider);
         await using (ILibrarianDatabase db = fixture.Create())
@@ -56,7 +56,7 @@ public class CloudflareProviderTests
     [Test]
     [Arguments("d1")]
     [Arguments("r2")]
-    public async Task Failed_save_and_batch_preserve_state_and_can_retry(string provider)
+    public async ValueTask Failed_save_and_batch_preserve_state_and_can_retry(string provider)
     {
         using var fixture = new CloudflareFixture(provider);
         await using ILibrarianDatabase db = fixture.Create();
@@ -83,7 +83,7 @@ public class CloudflareProviderTests
     [Test]
     [Arguments("d1")]
     [Arguments("r2")]
-    public async Task Corrupt_storage_is_not_overwritten_and_load_can_retry(string provider)
+    public async ValueTask Corrupt_storage_is_not_overwritten_and_load_can_retry(string provider)
     {
         using var fixture = new CloudflareFixture(provider);
         fixture.Handler.Snapshot = "null";
@@ -101,7 +101,7 @@ public class CloudflareProviderTests
     [Test]
     [Arguments("d1")]
     [Arguments("r2")]
-    public async Task Cancellation_and_failed_disposal_keep_pending_changes(string provider)
+    public async ValueTask Cancellation_and_failed_disposal_keep_pending_changes(string provider)
     {
         using var fixture = new CloudflareFixture(provider);
         ILibrarianDatabase db = fixture.Create();
@@ -121,7 +121,7 @@ public class CloudflareProviderTests
     }
 
     [Test]
-    public async Task D1_checks_statement_success_even_when_envelope_succeeds()
+    public async ValueTask D1_checks_statement_success_even_when_envelope_succeeds()
     {
         using var fixture = new CloudflareFixture("d1");
         await using ILibrarianDatabase db = fixture.Create();
@@ -136,7 +136,7 @@ public class CloudflareProviderTests
     [Test]
     [Arguments("d1")]
     [Arguments("r2")]
-    public async Task Authorization_errors_are_not_treated_as_missing_storage(string provider)
+    public async ValueTask Authorization_errors_are_not_treated_as_missing_storage(string provider)
     {
         using var fixture = new CloudflareFixture(provider);
         fixture.Handler.DenyReads = true;
@@ -151,7 +151,7 @@ public class CloudflareProviderTests
     }
 
     [Test]
-    public async Task D1_rejects_oversized_snapshots_before_sending_them()
+    public async ValueTask D1_rejects_oversized_snapshots_before_sending_them()
     {
         using var fixture = new CloudflareFixture("d1");
         await using ILibrarianDatabase db = fixture.Create();
@@ -166,7 +166,7 @@ public class CloudflareProviderTests
     [Test]
     [Arguments("d1")]
     [Arguments("r2")]
-    public async Task Registrars_resolve_configured_singletons_without_owning_clients(string provider)
+    public async ValueTask Registrars_resolve_configured_singletons_without_owning_clients(string provider)
     {
         using var fixture = new CloudflareFixture(provider);
         var services = new ServiceCollection();

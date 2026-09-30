@@ -16,7 +16,7 @@ public class IncrementalBatchTests
     }
 
     [Test]
-    public async Task Batch_updates_only_changed_automatic_index_entries_and_preserves_no_op_indexes()
+    public async ValueTask Batch_updates_only_changed_automatic_index_entries_and_preserves_no_op_indexes()
     {
         await using var fixture = new BatchFixture("memory");
         var items = await fixture.Database.GetContainer("items");
@@ -33,7 +33,7 @@ public class IncrementalBatchTests
     }
 
     [Test]
-    public async Task Failed_filesystem_persistence_preserves_both_explicit_and_automatic_indexes()
+    public async ValueTask Failed_filesystem_persistence_preserves_both_explicit_and_automatic_indexes()
     {
         await using var fixture = new PersistenceFixture();
         var items = await fixture.Database.GetContainer("items");

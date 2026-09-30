@@ -12,7 +12,7 @@ public class MutationTests
 {
 
     [Test]
-    public async Task Reads_honor_cancellation_and_strict_missing_behavior()
+    public async ValueTask Reads_honor_cancellation_and_strict_missing_behavior()
     {
         using var container = new LibrarianContainer("items", new MutationDatabase(), NullLogger.Instance);
         await container.AddItem("one", "original");
@@ -41,7 +41,7 @@ public class MutationTests
     }
 
     [Test]
-    public async Task Cancelled_mutations_leave_data_unchanged()
+    public async ValueTask Cancelled_mutations_leave_data_unchanged()
     {
         var database = new MutationDatabase();
         using var container = new LibrarianContainer("items", database, NullLogger.Instance);
@@ -65,7 +65,7 @@ public class MutationTests
     }
 
     [Test]
-    public async Task Identical_updates_skip_dirty_tracking_and_committed_changes_use_uncancellable_token()
+    public async ValueTask Identical_updates_skip_dirty_tracking_and_committed_changes_use_uncancellable_token()
     {
         var database = new MutationDatabase();
         using var container = new LibrarianContainer("items", database, NullLogger.Instance);
@@ -81,7 +81,7 @@ public class MutationTests
     }
 
     [Test]
-    public async Task Bulk_reads_return_detached_lists_with_all_entries()
+    public async ValueTask Bulk_reads_return_detached_lists_with_all_entries()
     {
         using var container = new LibrarianContainer("items", new MutationDatabase(), NullLogger.Instance);
         await container.AddItem("one", "first");

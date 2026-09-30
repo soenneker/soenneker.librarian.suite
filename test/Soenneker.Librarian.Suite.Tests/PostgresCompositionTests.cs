@@ -11,7 +11,7 @@ namespace Soenneker.Librarian.Suite.Tests;
 public class PostgresCompositionTests
 {
     [Test]
-    public async Task Nested_pages_filters_orders_and_projection_aliases_keep_operator_order()
+    public async ValueTask Nested_pages_filters_orders_and_projection_aliases_keep_operator_order()
     {
         await using var fixture = new PostgresPersistenceFixture();
         ILibrarianContainer container = await fixture.Database.GetContainer("composition");
@@ -36,7 +36,7 @@ public class PostgresCompositionTests
     }
 
     [Test]
-    public async Task Scalar_distinct_and_computed_expressions_stay_on_the_server()
+    public async ValueTask Scalar_distinct_and_computed_expressions_stay_on_the_server()
     {
         await using var fixture = new PostgresPersistenceFixture();
         ILibrarianContainer container = await fixture.Database.GetContainer("computed");
@@ -59,7 +59,7 @@ public class PostgresCompositionTests
     }
 
     [Test]
-    public async Task Cancellation_interrupts_index_lock_wait_without_blocking_the_caller()
+    public async ValueTask Cancellation_interrupts_index_lock_wait_without_blocking_the_caller()
     {
         await using var fixture = new PostgresPersistenceFixture();
         ILibrarianContainer container = await fixture.Database.GetContainer("cancel");

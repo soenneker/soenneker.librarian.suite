@@ -15,7 +15,7 @@ public class BulkReadTests
     [Arguments("filesystem")]
     [Arguments("redis")]
     [Arguments("postgres")]
-    public async Task Reads_preserve_order_duplicates_missing_values_and_case_insensitive_ids(string provider)
+    public async ValueTask Reads_preserve_order_duplicates_missing_values_and_case_insensitive_ids(string provider)
     {
         await using var fixture = new BatchFixture(provider);
         ILibrarianContainer items = await fixture.Database.GetContainer("items");
@@ -37,7 +37,7 @@ public class BulkReadTests
     [Arguments("filesystem")]
     [Arguments("redis")]
     [Arguments("postgres")]
-    public async Task Bulk_reads_never_observe_partial_batches(string provider)
+    public async ValueTask Bulk_reads_never_observe_partial_batches(string provider)
     {
         await using var fixture = new BatchFixture(provider);
         ILibrarianContainer items = await fixture.Database.GetContainer("items");
@@ -60,7 +60,7 @@ public class BulkReadTests
     [Arguments("filesystem")]
     [Arguments("redis")]
     [Arguments("postgres")]
-    public async Task Range_counts_handle_boundaries_missing_fields_and_index_updates(string provider)
+    public async ValueTask Range_counts_handle_boundaries_missing_fields_and_index_updates(string provider)
     {
         await using var fixture = new BatchFixture(provider);
         ILibrarianContainer items = await fixture.Database.GetContainer("items");
@@ -87,7 +87,7 @@ public class BulkReadTests
     [Arguments("filesystem")]
     [Arguments("redis")]
     [Arguments("postgres")]
-    public async Task Read_only_conditions_distinguish_empty_missing_and_stale_documents(string provider)
+    public async ValueTask Read_only_conditions_distinguish_empty_missing_and_stale_documents(string provider)
     {
         await using var fixture = new BatchFixture(provider);
         await (await fixture.Database.GetContainer("one")).AddItem("empty", "");

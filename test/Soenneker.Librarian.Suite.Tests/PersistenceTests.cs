@@ -11,7 +11,7 @@ public class PersistenceTests
 {
 
     [Test]
-    public async Task Dispose_flushes_pending_changes()
+    public async ValueTask Dispose_flushes_pending_changes()
     {
         await using var fixture = new PersistenceFixture();
         ILibrarianContainer container = await fixture.Database.GetContainer("items");
@@ -21,7 +21,7 @@ public class PersistenceTests
     }
 
     [Test]
-    public async Task Unload_saves_before_disposing_and_reloads_data()
+    public async ValueTask Unload_saves_before_disposing_and_reloads_data()
     {
         await using var fixture = new PersistenceFixture();
         ILibrarianContainer first = await fixture.Database.GetContainer("items");
@@ -32,7 +32,7 @@ public class PersistenceTests
     }
 
     [Test]
-    public async Task Failed_atomic_write_preserves_original_and_retries()
+    public async ValueTask Failed_atomic_write_preserves_original_and_retries()
     {
         await using var fixture = new PersistenceFixture();
         ILibrarianContainer container = await fixture.Database.GetContainer("items");
@@ -51,7 +51,7 @@ public class PersistenceTests
     }
 
     [Test]
-    public async Task Cancelled_write_remains_dirty()
+    public async ValueTask Cancelled_write_remains_dirty()
     {
         await using var fixture = new PersistenceFixture();
         ILibrarianContainer container = await fixture.Database.GetContainer("items");
@@ -71,7 +71,7 @@ public class PersistenceTests
     }
 
     [Test]
-    public async Task Failed_load_remains_dirty_and_does_not_overwrite_corruption()
+    public async ValueTask Failed_load_remains_dirty_and_does_not_overwrite_corruption()
     {
         await using var fixture = new PersistenceFixture();
         ILibrarianContainer container = await fixture.Database.GetContainer("items");
@@ -89,7 +89,7 @@ public class PersistenceTests
     }
 
     [Test]
-    public async Task Save_preserves_unopened_containers_and_legacy_empty_files()
+    public async ValueTask Save_preserves_unopened_containers_and_legacy_empty_files()
     {
         await using var fixture = new PersistenceFixture("{\"unopened\":[{\"id\":\"old\",\"value\":\"kept\"}]}");
         ILibrarianContainer container = await fixture.Database.GetContainer("new");
@@ -103,7 +103,7 @@ public class PersistenceTests
     }
 
     [Test]
-    public async Task Mutation_during_save_is_saved_on_next_pass()
+    public async ValueTask Mutation_during_save_is_saved_on_next_pass()
     {
         await using var fixture = new PersistenceFixture();
         ILibrarianContainer container = await fixture.Database.GetContainer("items");
@@ -116,7 +116,7 @@ public class PersistenceTests
     }
 
     [Test]
-    public async Task Clean_save_and_identical_updates_do_not_write()
+    public async ValueTask Clean_save_and_identical_updates_do_not_write()
     {
         await using var fixture = new PersistenceFixture();
         ILibrarianContainer container = await fixture.Database.GetContainer("items");
@@ -135,7 +135,7 @@ public class PersistenceTests
     }
 
     [Test]
-    public async Task Load_preserves_BOM_encoded_legacy_files()
+    public async ValueTask Load_preserves_BOM_encoded_legacy_files()
     {
         foreach (System.Text.Encoding encoding in new System.Text.Encoding[]
                  { new System.Text.UTF8Encoding(true), System.Text.Encoding.Unicode, System.Text.Encoding.BigEndianUnicode, System.Text.Encoding.UTF32 })

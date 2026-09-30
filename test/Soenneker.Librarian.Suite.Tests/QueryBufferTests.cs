@@ -23,7 +23,7 @@ public class QueryBufferTests
     }
 
     [Test]
-    public async Task Long_queries_and_many_indexes_preserve_paging_closures_and_empty_intersections()
+    public async ValueTask Long_queries_and_many_indexes_preserve_paging_closures_and_empty_intersections()
     {
         await using var database = new MemoryLibrarianDatabase(NullLogger<MemoryLibrarianDatabase>.Instance);
         var container = await database.GetContainer("wide");

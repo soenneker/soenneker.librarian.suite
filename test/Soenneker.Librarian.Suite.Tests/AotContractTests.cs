@@ -11,7 +11,7 @@ namespace Soenneker.Librarian.Suite.Tests;
 public class AotContractTests
 {
     [Test]
-    public async Task Missing_contracts_fail_before_scanning_and_raw_JSON_still_works()
+    public async ValueTask Missing_contracts_fail_before_scanning_and_raw_JSON_still_works()
     {
         await using var database = new MemoryLibrarianDatabase(NullLogger<MemoryLibrarianDatabase>.Instance);
         var container = await database.GetContainer("contracts");
@@ -32,7 +32,7 @@ public class AotContractTests
     }
 
     [Test]
-    public async Task Nullable_aggregates_defaults_casts_and_unsupported_comparers_are_explicit()
+    public async ValueTask Nullable_aggregates_defaults_casts_and_unsupported_comparers_are_explicit()
     {
         await using var database = new MemoryLibrarianDatabase(NullLogger<MemoryLibrarianDatabase>.Instance);
         var container = await database.GetContainer("values");

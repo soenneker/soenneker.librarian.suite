@@ -12,7 +12,7 @@ namespace Soenneker.Librarian.Suite.Tests;
 public class RedisContentionTests
 {
     [Test]
-    public async Task Indexed_read_conflicts_are_bounded_and_the_container_recovers()
+    public async ValueTask Indexed_read_conflicts_are_bounded_and_the_container_recovers()
     {
         await using var fixture = new RedisPersistenceFixture();
         IDatabase real = await fixture.GetStore();
@@ -43,7 +43,7 @@ public class RedisContentionTests
     }
 
     [Test]
-    public async Task Cancellation_interrupts_a_stalled_index_read()
+    public async ValueTask Cancellation_interrupts_a_stalled_index_read()
     {
         await using var fixture = new RedisPersistenceFixture();
         ILibrarianContainer writer = await fixture.Database.GetContainer("items");
