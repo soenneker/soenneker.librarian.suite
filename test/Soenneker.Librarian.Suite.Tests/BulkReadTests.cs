@@ -41,11 +41,11 @@ public class BulkReadTests
     {
         await using var fixture = new BatchFixture(provider);
         ILibrarianContainer items = await fixture.Database.GetContainer("items");
-        await fixture.Database.Execute(new([new("items", "a", "0"), new("items", "b", "0")]));
+        await fixture.Database.Execute(new LibrarianBatch([new LibrarianWrite("items", "a", "0"), new LibrarianWrite("items", "b", "0")]));
         Task writer = Task.Run(async () =>
         {
             for (int i = 1; i <= 30; i++)
-                await fixture.Database.Execute(new([new("items", "a", i.ToString()), new("items", "b", i.ToString())]));
+                await fixture.Database.Execute(new LibrarianBatch([new LibrarianWrite("items", "a", i.ToString()), new LibrarianWrite("items", "b", i.ToString())]));
         });
         for (int i = 0; i < 50; i++)
         {
@@ -64,17 +64,17 @@ public class BulkReadTests
     {
         await using var fixture = new BatchFixture(provider);
         ILibrarianContainer items = await fixture.Database.GetContainer("items");
-        await fixture.Database.Execute(new([
-            new("items", "a", "{\"score\":-1}"), new("items", "b", "{\"score\":0}"),
-            new("items", "c", "{\"score\":0}"), new("items", "d", "{\"score\":2}"),
-            new("items", "null", "{\"score\":null}"), new("items", "missing", "{}") ]));
+        await fixture.Database.Execute(new LibrarianBatch([
+            new LibrarianWrite("items", "a", "{\"score\":-1}"), new LibrarianWrite("items", "b", "{\"score\":0}"),
+            new LibrarianWrite("items", "c", "{\"score\":0}"), new LibrarianWrite("items", "d", "{\"score\":2}"),
+            new LibrarianWrite("items", "null", "{\"score\":null}"), new LibrarianWrite("items", "missing", "{}") ]));
         await items.EnsureIndex("score");
         Check(await items.CountRangeByIndex("score") == 5);
         Check(await items.CountRangeByIndex("score", -1, 0) == 3);
         Check(await items.CountRangeByIndex("score", minimum: 0) == 3);
         Check(await items.CountRangeByIndex("score", maximum: -1) == 2);
         Check(await items.CountRangeByIndex("score", 1, 1) == 0);
-        await fixture.Database.Execute(new([new("items", "c", "{\"score\":3}"), new("items", "b", null)]));
+        await fixture.Database.Execute(new LibrarianBatch([new LibrarianWrite("items", "c", "{\"score\":3}"), new LibrarianWrite("items", "b", null)]));
         Check(await items.CountRangeByIndex("score", -1, 0) == 1 && await items.CountItems() == 5);
         try { await items.CountRangeByIndex("score", 1, -1); throw new Exception("Reversed bounds accepted."); }
         catch (ArgumentException) { }
@@ -93,11 +93,11 @@ public class BulkReadTests
         await (await fixture.Database.GetContainer("one")).AddItem("empty", "");
         await (await fixture.Database.GetContainer("two")).AddItem("value", "old");
         LibrarianCondition[] conditions = [new("one", "EMPTY", ""), new("one", "missing", null), new("two", "value", "old")];
-        Check(await fixture.Database.Execute(new([], conditions)));
+        Check(await fixture.Database.Execute(new LibrarianBatch([], conditions)));
         await (await fixture.Database.GetContainer("two")).UpdateItem("value", "new");
-        Check(!await fixture.Database.Execute(new([], conditions)));
-        Check(!await fixture.Database.Execute(new([], [new("one", "empty", null)])));
-        Check(!await fixture.Database.Execute(new([], [new("one", "missing", "")])));
+        Check(!await fixture.Database.Execute(new LibrarianBatch([], conditions)));
+        Check(!await fixture.Database.Execute(new LibrarianBatch([], [new LibrarianCondition("one", "empty", null)])));
+        Check(!await fixture.Database.Execute(new LibrarianBatch([], [new LibrarianCondition("one", "missing", "")])));
     }
 
     private static void Check(bool condition)

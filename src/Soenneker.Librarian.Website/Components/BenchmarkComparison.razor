@@ -18,7 +18,7 @@
                 <caption class="sr-only">Median query time in microseconds. Lower is better.</caption>
                 <thead><tr><th scope="col">Query</th><th scope="col" class="librarian-result">Librarian</th><th scope="col">LiteDB <small>5.0.21</small></th><th scope="col">sqlite-net <small>1.11.285</small></th></tr></thead>
                 <tbody>
-                    @foreach (var result in Results)
+                    @foreach (Comparison result in Results)
                     {
                         <tr><th scope="row">@result.Label</th><td class="librarian-result" data-engine="Librarian">@FormatTime(result.Librarian.Time)</td><td data-engine="LiteDB">@FormatTime(result.LiteDb.Time)</td><td data-engine="sqlite-net">@FormatTime(result.Sqlite.Time)</td></tr>
                     }
@@ -32,7 +32,7 @@
                     <caption class="sr-only">Managed bytes allocated per operation. Lower is better. SQLite native allocations are excluded.</caption>
                     <thead><tr><th scope="col">Query</th><th scope="col" class="librarian-result">Librarian</th><th scope="col">LiteDB</th><th scope="col">sqlite-net</th></tr></thead>
                     <tbody>
-                        @foreach (var result in Results)
+                        @foreach (Comparison result in Results)
                         {
                             <tr><th scope="row">@result.Label</th><td class="librarian-result" data-engine="Librarian">@FormatBytes(result.Librarian.Bytes)</td><td data-engine="LiteDB">@FormatBytes(result.LiteDb.Bytes)</td><td data-engine="sqlite-net">@FormatBytes(result.Sqlite.Bytes)</td></tr>
                         }
@@ -55,15 +55,15 @@
 
     private static Comparison[] LoadResults()
     {
-        using var stream = typeof(BenchmarkComparison).Assembly.GetManifestResourceStream("Librarian.BenchmarkComparison.csv")
-            ?? throw new InvalidOperationException("The benchmark comparison data is missing.");
+        using Stream stream = typeof(BenchmarkComparison).Assembly.GetManifestResourceStream("Librarian.BenchmarkComparison.csv")
+                              ?? throw new InvalidOperationException("The benchmark comparison data is missing.");
         using var reader = new StreamReader(stream);
         var measurements = new Dictionary<(string Query, string Engine), Measurement>();
         while (reader.ReadLine() is { } line)
         {
             if (line.StartsWith('#') || line.StartsWith("Query,") || string.IsNullOrWhiteSpace(line))
                 continue;
-            var columns = line.Split(',');
+            string[] columns = line.Split(',');
             measurements.Add((columns[0], columns[1]), new Measurement(
                 decimal.Parse(columns[2], CultureInfo.InvariantCulture), long.Parse(columns[3], CultureInfo.InvariantCulture)));
         }

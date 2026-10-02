@@ -31,7 +31,7 @@
 <Section Class="section shell" Id="providers">
     <Div Class="section-heading"><Div><Span Class="eyebrow">FLEXIBLE STORAGE</Span><H2>Storage that fits<br /><em>your application.</em></H2></Div><Paragraph>Use the storage your workload needs.<br />Keep a consistent API as your application grows.</Paragraph></Div>
     <Div Class="provider-grid">
-        @foreach (var provider in Providers)
+        @foreach ((string Id, string Name, string Symbol, string Description, string Tag) provider in Providers)
         {
             <Anchor Href="@($"/providers/#{provider.Id}")" Class="provider-card">
                 <Div Class="provider-card-top"><Span Class="provider-symbol">@provider.Symbol</Span></Div>

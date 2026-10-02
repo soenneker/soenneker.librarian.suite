@@ -17,7 +17,7 @@ internal sealed class RedisProjection
     internal static RedisProjection Create(LambdaExpression selector)
     {
         var projection = new RedisProjection { ResultType = selector.ReturnType };
-        var row = Expression.Parameter(typeof(string[]), "row");
+        ParameterExpression row = Expression.Parameter(typeof(string[]), "row");
         Expression Column(Expression value)
         {
             string path = RedisQueryPlan.Path(value, selector.Parameters[0]) ?? throw RedisQueryPlan.Unsupported();

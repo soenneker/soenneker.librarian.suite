@@ -20,7 +20,7 @@ internal sealed class PostgresProjection
     internal static PostgresProjection Create(PostgresLambda selector)
     {
         var projection = new PostgresProjection { ResultType = selector.ReturnType, _selector = selector };
-        var row = Expression.Parameter(typeof(string[]), "row");
+        ParameterExpression row = Expression.Parameter(typeof(string[]), "row");
         Expression Column(Expression value)
         {
             var scalar = PostgresScalar.Create(value, selector.Parameters[0]);

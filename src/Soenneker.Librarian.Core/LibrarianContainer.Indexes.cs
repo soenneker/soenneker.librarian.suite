@@ -15,7 +15,7 @@ namespace Soenneker.Librarian.Core;
 public sealed partial class LibrarianContainer
 {
     private readonly AsyncLock _mutationGate;
-    private Dictionary<string, DocumentIndex> _indexes = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, DocumentIndex> _indexes = new(StringComparer.Ordinal);
     private IndexKey?[] _preparedKeys = Array.Empty<IndexKey?>();
 
     public async ValueTask EnsureIndex(string fieldPath, CancellationToken cancellationToken = default)

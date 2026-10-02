@@ -138,7 +138,7 @@ public sealed partial class LibrarianContainer
             : DecimalValue(value);
         Expression<Func<int, decimal, string?, IndexKey>> construct = (keyKind, keyNumber, keyText) => new IndexKey(keyKind, keyNumber, keyText);
         NewExpression key = ((NewExpression)construct.Body).Update([kind, number, text ? value : Expression.Constant(null, typeof(string))]);
-        var getter = Expression.Lambda<Func<object, IndexKey?>>(Expression.Convert(key, typeof(IndexKey?)), parameter).Compile(preferInterpretation: true);
+        Func<object, IndexKey?> getter = Expression.Lambda<Func<object, IndexKey?>>(Expression.Convert(key, typeof(IndexKey?)), parameter).Compile(preferInterpretation: true);
         return new AutomaticIndex(getter);
     }
 
@@ -163,7 +163,7 @@ public sealed partial class LibrarianContainer
             if (pending is not null)
                 foreach ((PropertyInfo Property, AutomaticIndex Index) entry in pending) if (entry.Property == property) { duplicate = true; break; }
             if (duplicate) continue;
-            (pending ??= new()).Add((property, CreateAutomaticIndex<T>(property)));
+            (pending ??= new List<(PropertyInfo Property, AutomaticIndex Index)>()).Add((property, CreateAutomaticIndex<T>(property)));
         }
         if (pending is null) return;
         if (!_automaticIndexGroups.TryGetValue(typeof(T), out AutomaticIndexGroup? group))

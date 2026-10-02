@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Npgsql;
 using Soenneker.Librarian.Abstractions;
+using Soenneker.Librarian.Abstractions.Queries;
 using Soenneker.Librarian.Abstractions.Transactions;
 using Soenneker.Librarian.Postgres;
 
@@ -77,9 +78,9 @@ public class PostgresTests
         await items.EnsureIndex("amount");
         await items.EnsureIndex("name");
         Check(await items.CountByIndex("name", null) == 1, "Missing and null were conflated.");
-        var range = await items.FindRangeByIndex<PostgresRow>("amount", decimal.MinValue, decimal.MaxValue);
+        LibrarianQueryResult<PostgresRow> range = await items.FindRangeByIndex<PostgresRow>("amount", decimal.MinValue, decimal.MaxValue);
         Check(range.Items.Select(row => row.Amount).SequenceEqual(new[] { decimal.MinValue, 0.0000000000000000000000000001m, decimal.MaxValue }), "Decimal precision lost.");
-        var strings = await items.FindRangeByIndex<PostgresRow>("name");
+        LibrarianQueryResult<PostgresRow> strings = await items.FindRangeByIndex<PostgresRow>("name");
         Check(strings.Items.Select(row => row.Name).SequenceEqual(new string?[] { null, "😀", "\uE000" }), "Ordinal UTF-16 ordering changed.");
         Check(items.BuildQueryable<PostgresRow>().Count(row => row.Name != null) == 3, "Missing-property complement changed.");
     }
@@ -91,7 +92,7 @@ public class PostgresTests
         await using PostgresLibrarianDatabase other = fixture.CreateDatabase();
         ILibrarianContainer jobs = await fixture.Database.GetContainer("jobs");
         await jobs.AddItem("job", "queued");
-        var batch = new LibrarianBatch([new("jobs", "job", "running"), new("leases", "job", "owner")], [new("jobs", "job", "queued")]);
+        var batch = new LibrarianBatch([new LibrarianWrite("jobs", "job", "running"), new LibrarianWrite("leases", "job", "owner")], [new LibrarianCondition("jobs", "job", "queued")]);
         bool[] results = await Task.WhenAll(fixture.Database.Execute(batch).AsTask(), other.Execute(batch).AsTask());
         Check(results.Count(result => result) == 1, "Both instances committed the same claim.");
         ILibrarianContainer indexed = await fixture.Database.GetContainer("indexed");
@@ -99,7 +100,7 @@ public class PostgresTests
         await indexed.EnsureIndex("amount");
         try
         {
-            await other.Execute(new([new("jobs", "job", "leaked"), new("indexed", "a", "{\"amount\":{}}") ]));
+            await other.Execute(new LibrarianBatch([new LibrarianWrite("jobs", "job", "leaked"), new LibrarianWrite("indexed", "a", "{\"amount\":{}}") ]));
             throw new Exception("Invalid index accepted.");
         }
         catch (ArgumentException) { }

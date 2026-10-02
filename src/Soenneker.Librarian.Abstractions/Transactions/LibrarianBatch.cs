@@ -16,14 +16,14 @@ public sealed class LibrarianBatch
         ArgumentNullException.ThrowIfNull(writes);
         LibrarianWrite[] writeArray = writes.ToArray();
         LibrarianCondition[] conditionArray = conditions?.ToArray() ?? [];
-        HashSet<(string, string)>? addresses = writeArray.Length > 1 ? new(writeArray.Length, AddressComparer.Instance) : null;
+        HashSet<(string, string)>? addresses = writeArray.Length > 1 ? new HashSet<(string, string)>(writeArray.Length, AddressComparer.Instance) : null;
         foreach (LibrarianWrite write in writeArray)
         {
             if (write is null) throw new ArgumentException("Writes cannot contain null.", nameof(writes));
             Validate(write.Container, write.Id, addresses);
         }
         addresses?.Clear();
-        if (conditionArray.Length > 1) addresses ??= new(conditionArray.Length, AddressComparer.Instance);
+        if (conditionArray.Length > 1) addresses ??= new HashSet<(string, string)>(conditionArray.Length, AddressComparer.Instance);
         foreach (LibrarianCondition condition in conditionArray)
         {
             if (condition is null) throw new ArgumentException("Conditions cannot contain null.", nameof(conditions));

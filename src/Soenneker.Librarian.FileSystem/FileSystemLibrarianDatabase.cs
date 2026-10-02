@@ -12,6 +12,7 @@ using Soenneker.Utils.MemoryStream.Abstract;
 using Soenneker.Librarian.Abstractions;
 using Soenneker.Librarian.Core;
 using System;
+using Soenneker.Utils.Json;
 using System.Linq;
 using Soenneker.Librarian.Abstractions.Transactions;
 using System.Collections.Generic;
@@ -145,7 +146,7 @@ public sealed class FileSystemLibrarianDatabase : ILibrarianDatabase
             using (await _fileGate.Lock(cancellationToken).NoSync())
             {
                 await _fileUtil.WriteAtomically(_filePath,
-                    (stream, token) => new ValueTask(JsonSerializer.SerializeAsync(stream, data, FileSystemJsonContext.Default.Database, token)),
+                    (stream, token) => new ValueTask(JsonUtil.SerializeToStream(stream, data, FileSystemJsonContext.Default.Database, token)),
                     log: false, cancellationToken).NoSync();
             }
         }
@@ -185,10 +186,11 @@ public sealed class FileSystemLibrarianDatabase : ILibrarianDatabase
             // Preserve legacy BOM-detected UTF-16/32 files; normal UTF-8 files stay on the streaming path.
             using var reader = new StreamReader(stream);
             string json = await reader.ReadToEndAsync(cancellationToken).NoSync();
-            return JsonSerializer.Deserialize(json, FileSystemJsonContext.Default.Database) ??
+            return JsonUtil.Deserialize(json, FileSystemJsonContext.Default.Database) ??
                    throw new InvalidDataException($"Librarian database '{_filePath}' must contain a JSON object.");
         }
 
+        // JsonUtil's async deserializer swallows I/O and JSON errors; persistence must propagate them.
         return await JsonSerializer.DeserializeAsync<Dictionary<string, List<IdValuePair>>>(stream,
                    FileSystemJsonContext.Default.Database, cancellationToken).NoSync() ??
                throw new InvalidDataException($"Librarian database '{_filePath}' must contain a JSON object.");
@@ -235,7 +237,7 @@ public sealed class FileSystemLibrarianDatabase : ILibrarianDatabase
             await _fileUtil.WriteAtomically(_filePath,
                 async (stream, cancellationToken) =>
                 {
-                    await JsonSerializer.SerializeAsync(stream, data, FileSystemJsonContext.Default.Database, cancellationToken).NoSync();
+                    await JsonUtil.SerializeToStream(stream, data, FileSystemJsonContext.Default.Database, cancellationToken).NoSync();
                     await stream.FlushAsync(cancellationToken).NoSync();
                     if (stream is FileStream file) file.Flush(flushToDisk: true);
                 },

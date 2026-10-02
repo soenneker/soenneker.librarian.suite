@@ -9,6 +9,7 @@ using Soenneker.Librarian.Abstractions;
 using Soenneker.Librarian.Abstractions.Queries;
 using Soenneker.Librarian.Redis;
 using Soenneker.Librarian.Redis.Registrars;
+using StackExchange.Redis;
 
 namespace Soenneker.Librarian.Suite.Tests;
 
@@ -20,7 +21,7 @@ public class RedisPersistenceTests
     public async ValueTask Readable_keys_support_custom_prefixes_and_escape_reserved_characters()
     {
         await using var fixture = new RedisPersistenceFixture("flywheel");
-        var store = await fixture.GetStore();
+        IDatabase store = await fixture.GetStore();
         ILibrarianContainer jobs = await fixture.Database.GetContainer("flywheel.jobs");
         await jobs.AddItem("job-123", "{\"value\":{\"state\":\"scheduled\"}}");
         await jobs.EnsureIndex("value.state");

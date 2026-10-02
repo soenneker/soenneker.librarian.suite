@@ -63,7 +63,7 @@ public sealed partial class LibrarianContainer
             }
             prepared.Add(write.Id, new LibrarianPreparedWrite(write.Value, keys, automaticKeys));
         }
-        return new(prepared);
+        return new LibrarianContainerState(prepared);
     }
 
     internal void PublishBatch(LibrarianContainerState state)

@@ -15,10 +15,15 @@ using Microsoft.Kiota.Abstractions.Authentication;
 using Microsoft.Kiota.Http.HttpClientLibrary;
 using Soenneker.Cloudflare.OpenApiClient;
 using Soenneker.Cloudflare.R2;
+using Soenneker.Cloudflare.D1;
+using Soenneker.Cloudflare.Workers.Kv;
 using Soenneker.Cloudflare.Utils.Client.Abstract;
 using Soenneker.Librarian.Abstractions;
+using Soenneker.Librarian.Abstractions.Transactions;
 using Soenneker.Librarian.D1;
 using Soenneker.Librarian.D1.Registrars;
+using Soenneker.Librarian.Kv;
+using Soenneker.Librarian.Kv.Registrars;
 using Soenneker.Librarian.R2;
 using Soenneker.Librarian.R2.Registrars;
 
@@ -29,6 +34,7 @@ public class CloudflareProviderTests
     [Test]
     [Arguments("d1")]
     [Arguments("r2")]
+    [Arguments("kv")]
     public async ValueTask Save_unload_and_dispose_round_trip_through_cloudflare_clients(string provider)
     {
         using var fixture = new CloudflareFixture(provider);
@@ -56,6 +62,7 @@ public class CloudflareProviderTests
     [Test]
     [Arguments("d1")]
     [Arguments("r2")]
+    [Arguments("kv")]
     public async ValueTask Failed_save_and_batch_preserve_state_and_can_retry(string provider)
     {
         using var fixture = new CloudflareFixture(provider);
@@ -65,7 +72,7 @@ public class CloudflareProviderTests
         await db.Save();
         string? original = fixture.Handler.Snapshot;
         fixture.Handler.FailWrites = true;
-        try { await db.Execute(new([new("items", "a", "after"), new("other", "b", "new")])); throw new Exception("Expected batch failure."); }
+        try { await db.Execute(new LibrarianBatch([new LibrarianWrite("items", "a", "after"), new LibrarianWrite("other", "b", "new")])); throw new Exception("Expected batch failure."); }
         catch (InvalidDataException) { }
         Check(await items.GetItem("a") == "before" && await (await db.GetContainer("other")).GetItem("b") is null, "Failed batch was published.");
         Check(fixture.Handler.Snapshot == original, "Failed batch changed storage.");
@@ -75,14 +82,15 @@ public class CloudflareProviderTests
         fixture.Handler.FailWrites = false;
         await db.Save();
         Check(fixture.Handler.Snapshot!.Contains("pending", StringComparison.Ordinal), "Retry lost pending data.");
-        Check(!await db.Execute(new([new("items", "a", "wrong")], [new("items", "a", "before")])), "Stale condition committed.");
-        Check(await db.Execute(new([new("items", "a", "after"), new("other", "b", "new")], [new("items", "a", "pending")])), "Batch failed.");
+        Check(!await db.Execute(new LibrarianBatch([new LibrarianWrite("items", "a", "wrong")], [new LibrarianCondition("items", "a", "before")])), "Stale condition committed.");
+        Check(await db.Execute(new LibrarianBatch([new LibrarianWrite("items", "a", "after"), new LibrarianWrite("other", "b", "new")], [new LibrarianCondition("items", "a", "pending")])), "Batch failed.");
         Check(fixture.Handler.Snapshot!.Contains("after", StringComparison.Ordinal) && fixture.Handler.Snapshot.Contains("new", StringComparison.Ordinal), "Batch was not durable.");
     }
 
     [Test]
     [Arguments("d1")]
     [Arguments("r2")]
+    [Arguments("kv")]
     public async ValueTask Corrupt_storage_is_not_overwritten_and_load_can_retry(string provider)
     {
         using var fixture = new CloudflareFixture(provider);
@@ -101,6 +109,7 @@ public class CloudflareProviderTests
     [Test]
     [Arguments("d1")]
     [Arguments("r2")]
+    [Arguments("kv")]
     public async ValueTask Cancellation_and_failed_disposal_keep_pending_changes(string provider)
     {
         using var fixture = new CloudflareFixture(provider);
@@ -136,6 +145,7 @@ public class CloudflareProviderTests
     [Test]
     [Arguments("d1")]
     [Arguments("r2")]
+    [Arguments("kv")]
     public async ValueTask Authorization_errors_are_not_treated_as_missing_storage(string provider)
     {
         using var fixture = new CloudflareFixture(provider);
@@ -145,6 +155,7 @@ public class CloudflareProviderTests
         try { await db.GetContainer("items"); }
         catch (HttpRequestException) { failed = true; }
         catch (Microsoft.Kiota.Abstractions.ApiException) { failed = true; }
+        catch (InvalidOperationException) when (provider == "kv") { failed = true; }
         Check(failed, "Authorization failure was swallowed.");
         await db.Save();
         Check(fixture.Handler.Writes == 0, "Failed load caused a write.");
@@ -166,6 +177,7 @@ public class CloudflareProviderTests
     [Test]
     [Arguments("d1")]
     [Arguments("r2")]
+    [Arguments("kv")]
     public async ValueTask Registrars_resolve_configured_singletons_without_owning_clients(string provider)
     {
         using var fixture = new CloudflareFixture(provider);
@@ -180,9 +192,13 @@ public class CloudflareProviderTests
             ["Librarian:D1:Name"] = "name'with-quotes",
             ["Librarian:R2:AccountId"] = "account",
             ["Librarian:R2:ApiKey"] = "test-token",
-            ["Librarian:R2:BucketName"] = "bucket"
+            ["Librarian:R2:BucketName"] = "bucket",
+            ["Librarian:Kv:AccountId"] = "account",
+            ["Librarian:Kv:ApiKey"] = "test-token",
+            ["Librarian:Kv:NamespaceId"] = "namespace"
         }).Build());
         if (provider == "d1") services.AddD1LibrarianDatabaseAsSingleton();
+        else if (provider == "kv") services.AddKvLibrarianDatabaseAsSingleton();
         else services.AddR2LibrarianDatabaseAsSingleton();
         await using ServiceProvider serviceProvider = services.BuildServiceProvider();
         ILibrarianDatabase db = serviceProvider.GetRequiredService<ILibrarianDatabase>();
@@ -219,7 +235,9 @@ internal sealed class CloudflareFixture : IDisposable
     }
 
     public ILibrarianDatabase Create() => _provider == "d1"
-        ? new D1LibrarianDatabase("account", "test-token", "database", _clientUtil, NullLogger.Instance, "name'with-quotes")
+        ? new D1LibrarianDatabase("account", "test-token", "database", new CloudflareD1Util(_clientUtil), NullLogger.Instance, "name'with-quotes")
+        : _provider == "kv"
+        ? new KvLibrarianDatabase("account", "test-token", "namespace", new CloudflareWorkersKvUtil(_clientUtil, NullLogger<CloudflareWorkersKvUtil>.Instance), NullLogger.Instance, "folder/librarian.json")
         : new R2LibrarianDatabase("account", "bucket", "folder/librarian.json", new CloudflareR2Util(_clientUtil), NullLogger.Instance, "test-token");
 
     public void Dispose()
@@ -276,6 +294,21 @@ internal sealed class CloudflareHandler : HttpMessageHandler
             return Snapshot is null ? new HttpResponseMessage(HttpStatusCode.NotFound) { Content = new StringContent("{}", Encoding.UTF8, "application/json") } : Json(Snapshot);
         if (request.Method != HttpMethod.Put) throw new Exception("Unexpected R2 method.");
         if (FailWrites) return Json("{\"success\":false,\"errors\":[{\"message\":\"failure\"}]}");
+        if (request.RequestUri.AbsolutePath.Contains("/storage/kv/", StringComparison.Ordinal))
+        {
+            if (!request.RequestUri.AbsolutePath.EndsWith("/namespaces/namespace/bulk", StringComparison.Ordinal))
+                throw new Exception("Incorrect KV namespace or endpoint.");
+            using JsonDocument body = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(cancellationToken));
+            if (body.RootElement.GetArrayLength() != 1) throw new Exception("Expected one snapshot.");
+            JsonElement entry = body.RootElement[0];
+            if (entry.GetProperty("key").GetString() is not ("folder/librarian.json" or "librarian.json") ||
+                entry.GetProperty("base64").GetBoolean() || entry.TryGetProperty("expiration", out _) ||
+                entry.TryGetProperty("expiration_ttl", out _))
+                throw new Exception("Incorrect KV write settings.");
+            Snapshot = entry.GetProperty("value").GetString();
+            Writes++;
+            return Json("{\"success\":true,\"errors\":[],\"result\":{}}");
+        }
         if (request.Content!.Headers.ContentType?.MediaType != "application/json") throw new Exception("Incorrect R2 content type.");
         Writes++;
         Snapshot = await request.Content.ReadAsStringAsync(cancellationToken);

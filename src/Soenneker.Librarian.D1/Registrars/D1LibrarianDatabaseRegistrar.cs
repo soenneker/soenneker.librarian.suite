@@ -1,7 +1,7 @@
 using System;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
-using Soenneker.Cloudflare.Utils.Client.Registrars;
+using Soenneker.Cloudflare.D1.Registrars;
 using Soenneker.Librarian.Abstractions;
 
 namespace Soenneker.Librarian.D1.Registrars;
@@ -14,7 +14,7 @@ public static class D1LibrarianDatabaseRegistrar
     /// The D1 database must exist; the snapshot table is created automatically. Only one owner may use each name.</remarks>
     public static IServiceCollection AddD1LibrarianDatabaseAsSingleton(this IServiceCollection services)
     {
-        services.AddCloudflareClientUtilAsSingleton().TryAddSingleton<ILibrarianDatabase, D1LibrarianDatabase>();
+        services.AddCloudflareD1UtilAsSingleton().TryAddSingleton<ILibrarianDatabase, D1LibrarianDatabase>();
         return services;
     }
 
@@ -30,7 +30,7 @@ public static class D1LibrarianDatabaseRegistrar
     {
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(serviceKey);
-        services.AddCloudflareClientUtilAsSingleton();
+        services.AddCloudflareD1UtilAsSingleton();
 
         if (factory is null)
             services.TryAddKeyedSingleton<ILibrarianDatabase, D1LibrarianDatabase>(serviceKey);

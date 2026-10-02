@@ -9,6 +9,7 @@
     <File Path=".github/workflows/website.yml" />
   </Folder>
   <Folder Name="/src/">
+    <Project Path="src/Soenneker.Librarian.Kv/Soenneker.Librarian.Kv.csproj" />
     <Project Path="src/Soenneker.Librarian.R2/Soenneker.Librarian.R2.csproj" />
     <Project Path="src/Soenneker.Librarian.D1/Soenneker.Librarian.D1.csproj" />
     <Project Path="src/Soenneker.Librarian.Abstractions/Soenneker.Librarian.Abstractions.csproj" />

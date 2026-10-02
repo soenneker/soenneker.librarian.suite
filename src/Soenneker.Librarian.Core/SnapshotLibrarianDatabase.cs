@@ -1,7 +1,8 @@
+using Soenneker.Extensions.ValueTask;
 using System;
+using Soenneker.Utils.Json;
 using System.Collections.Generic;
 using System.IO;
-using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -33,9 +34,9 @@ public abstract class SnapshotLibrarianDatabase(ILogger logger) : ILibrarianData
     private async ValueTask Load(CancellationToken token)
     {
         if (_snapshot is not null) return;
-        string? json = await ReadSnapshot(token).ConfigureAwait(false);
-        var snapshot = json is null ? new(StringComparer.Ordinal) :
-            JsonSerializer.Deserialize(json, SnapshotJsonContext.Default.Database) ??
+        string? json = await ReadSnapshot(token).NoSync();
+        Dictionary<string, List<IdValuePair>> snapshot = json is null ? new Dictionary<string, List<IdValuePair>>(StringComparer.Ordinal) :
+            JsonUtil.Deserialize(json, SnapshotJsonContext.Default.Database) ??
             throw new InvalidDataException("The Librarian snapshot must be a JSON object.");
         foreach ((string name, List<IdValuePair> items) in snapshot)
         {
@@ -46,7 +47,7 @@ public abstract class SnapshotLibrarianDatabase(ILogger logger) : ILibrarianData
                 if (item is null || item.Id is null || item.Value is null || !ids.Add(item.Id))
                     throw new InvalidDataException("Invalid or duplicate document in Librarian snapshot.");
         }
-        _persistedJson = JsonSerializer.Serialize(snapshot, SnapshotJsonContext.Default.Database);
+        _persistedJson = JsonUtil.Serialize(snapshot, SnapshotJsonContext.Default.Database);
         _snapshot = snapshot;
     }
 
@@ -63,10 +64,10 @@ public abstract class SnapshotLibrarianDatabase(ILogger logger) : ILibrarianData
     public async ValueTask<ILibrarianContainer> GetContainer(string containerName, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(containerName);
-        using (await _gate.Lock(cancellationToken).ConfigureAwait(false))
+        using (await _gate.Lock(cancellationToken).NoSync())
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
-            await Load(cancellationToken).ConfigureAwait(false);
+            await Load(cancellationToken).NoSync();
             return GetOrCreate(containerName);
         }
     }
@@ -80,10 +81,10 @@ public abstract class SnapshotLibrarianDatabase(ILogger logger) : ILibrarianData
 
     public async ValueTask Save(CancellationToken cancellationToken = default)
     {
-        using (await _gate.Lock(cancellationToken).ConfigureAwait(false))
+        using (await _gate.Lock(cancellationToken).NoSync())
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
-            await SavePending(cancellationToken).ConfigureAwait(false);
+            await SavePending(cancellationToken).NoSync();
         }
     }
 
@@ -91,12 +92,12 @@ public abstract class SnapshotLibrarianDatabase(ILogger logger) : ILibrarianData
     {
         token.ThrowIfCancellationRequested();
         if (_snapshot is null) return;
-        using (await _batches.Gate.Lock(token).ConfigureAwait(false))
+        using (await _batches.Gate.Lock(token).NoSync())
         {
             var snapshots = new Dictionary<string, List<IdValuePair>>(StringComparer.Ordinal);
             foreach ((string name, LibrarianContainer container) in _containers)
                 snapshots.Add(name, container.SnapshotForBatch());
-            await Persist(snapshots, token).ConfigureAwait(false);
+            await Persist(snapshots, token).NoSync();
         }
     }
 
@@ -104,9 +105,9 @@ public abstract class SnapshotLibrarianDatabase(ILogger logger) : ILibrarianData
     {
         var next = new Dictionary<string, List<IdValuePair>>(_snapshot!, StringComparer.Ordinal);
         foreach ((string name, List<IdValuePair> items) in snapshots) next[name] = items;
-        string json = JsonSerializer.Serialize(next, SnapshotJsonContext.Default.Database);
+        string json = JsonUtil.Serialize(next, SnapshotJsonContext.Default.Database);
         if (string.Equals(json, _persistedJson, StringComparison.Ordinal)) return;
-        await WriteSnapshot(json, token).ConfigureAwait(false);
+        await WriteSnapshot(json, token).NoSync();
         _snapshot = next;
         _persistedJson = json;
     }
@@ -114,24 +115,24 @@ public abstract class SnapshotLibrarianDatabase(ILogger logger) : ILibrarianData
     public async ValueTask<bool> Execute(LibrarianBatch batch, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(batch);
-        using (await _gate.Lock(cancellationToken).ConfigureAwait(false))
+        using (await _gate.Lock(cancellationToken).NoSync())
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
-            await Load(cancellationToken).ConfigureAwait(false);
+            await Load(cancellationToken).NoSync();
             foreach (LibrarianWrite write in batch.Writes) GetOrCreate(write.Container);
             foreach (LibrarianCondition condition in batch.Conditions) GetOrCreate(condition.Container);
-            return await _batches.Execute(batch, _containers, Persist, cancellationToken).ConfigureAwait(false);
+            return await _batches.Execute(batch, _containers, Persist, cancellationToken).NoSync();
         }
     }
 
     public async ValueTask<bool> UnloadContainer(string containerName, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(containerName);
-        using (await _gate.Lock(cancellationToken).ConfigureAwait(false))
+        using (await _gate.Lock(cancellationToken).NoSync())
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
             if (!_containers.ContainsKey(containerName)) return false;
-            await SavePending(cancellationToken).ConfigureAwait(false);
+            await SavePending(cancellationToken).NoSync();
             _containers.Remove(containerName, out LibrarianContainer? container);
             container!.Dispose();
             return true;
@@ -140,11 +141,11 @@ public abstract class SnapshotLibrarianDatabase(ILogger logger) : ILibrarianData
 
     public async ValueTask DisposeAsync()
     {
-        using (await _gate.Lock(CancellationToken.None).ConfigureAwait(false))
+        using (await _gate.Lock(CancellationToken.None).NoSync())
         {
             if (_disposed) return;
             // Keep state available for retry if flushing fails.
-            await SavePending(CancellationToken.None).ConfigureAwait(false);
+            await SavePending(CancellationToken.None).NoSync();
             _disposed = true;
             foreach (LibrarianContainer container in _containers.Values) container.Dispose();
             _containers.Clear();

@@ -3,6 +3,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Soenneker.Librarian.Abstractions;
 using Soenneker.Librarian.Abstractions.Queries;
+using Soenneker.Librarian.Abstractions.Transactions;
 using StackExchange.Redis;
 
 namespace Soenneker.Librarian.Suite.Tests;
@@ -25,7 +26,7 @@ public class RedisQueryExpansionTests
         Check((await query.OrderBy(row => row.Amount).Take(3).Select(row => row.Name).ToArrayAsync()).SequenceEqual(new[] { "a", "b", "c" }), "Legacy sort upgrade failed.");
         Check(await store.SetContainsAsync(prefix + "sort-schema", "amount"), "Upgrade marker missing.");
         await container.UpdateItemStrict("a", "{\"name\":\"a\",\"amount\":2}");
-        await fixture.Database.Execute(new([new("items", "b", "{\"name\":\"b\",\"amount\":3}")]));
+        await fixture.Database.Execute(new LibrarianBatch([new LibrarianWrite("items", "b", "{\"name\":\"b\",\"amount\":3}")]));
         Check((await query.OrderByDescending(row => row.Amount).Take(3).Select(row => row.Name).ToArrayAsync()).SequenceEqual(new[] { "b", "a", "c" }), "Mutation sort fields became stale.");
         await container.DeleteAllItems();
         await container.AddItem("x", "{\"name\":\"x\",\"amount\":4}");

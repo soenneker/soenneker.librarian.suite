@@ -26,7 +26,7 @@ internal sealed class PostgresQueryPlan
     internal readonly List<PostgresQueryStage> Stages = [];
     internal PostgresQueryStage CurrentStage => new(Filter, Orders.ToArray(), Skip, Take);
 
-    internal PostgresQueryFilter Filter => _filter ?? new("all");
+    internal PostgresQueryFilter Filter => _filter ?? new PostgresQueryFilter("all");
     internal long Skip => _skip;
     internal long Take => _take;
     internal bool CountOnly => Terminal is nameof(Queryable.Count) or nameof(Queryable.LongCount) or nameof(Queryable.Any) or nameof(Queryable.All);
@@ -101,8 +101,8 @@ internal sealed class PostgresQueryPlan
                     BeginStageAfterPage();
                     PostgresLambda predicate = Resolve(Lambda(call.Arguments[1]));
                     PostgresQueryFilter next = Predicate(predicate.Body, predicate.Parameters[0]);
-                    if (method == nameof(Queryable.All)) next = new("not", Left: next);
-                    _filter = _filter is null ? next : new("and", Left: _filter, Right: next);
+                    if (method == nameof(Queryable.All)) next = new PostgresQueryFilter("not", Left: next);
+                    _filter = _filter is null ? next : new PostgresQueryFilter("and", Left: _filter, Right: next);
                 }
                 if (call.Arguments.Count > 2) throw Unsupported();
                 Terminal = method;
@@ -161,12 +161,12 @@ internal sealed class PostgresQueryPlan
     private void AddPredicate(PostgresLambda predicate)
     {
         PostgresQueryFilter next = Predicate(predicate.Body, predicate.Parameters[0]);
-        _filter = _filter is null ? next : new("and", Left: _filter, Right: next);
+        _filter = _filter is null ? next : new PostgresQueryFilter("and", Left: _filter, Right: next);
     }
 
     private PostgresQueryFilter Predicate(Expression expression, ParameterExpression parameter)
     {
-        if (expression is ConstantExpression { Value: bool booleanConstant }) return new(booleanConstant ? "all" : "none");
+        if (expression is ConstantExpression { Value: bool booleanConstant }) return new PostgresQueryFilter(booleanConstant ? "all" : "none");
         if (expression is MethodCallExpression call)
         {
             if (call.Method.DeclaringType == typeof(string) && call.Object is not null &&
@@ -180,10 +180,10 @@ internal sealed class PostgresQueryPlan
                 string hex = PostgresIndexValue.Hex(value);
                 return call.Method.Name switch
                 {
-                    nameof(string.StartsWith) => new("prefix", Register(path), Value: "3" + hex),
-                    nameof(string.EndsWith) => new("pattern", Register(path), Value: "3%" + hex),
+                    nameof(string.StartsWith) => new PostgresQueryFilter("prefix", Register(path), Value: "3" + hex),
+                    nameof(string.EndsWith) => new PostgresQueryFilter("pattern", Register(path), Value: "3%" + hex),
                     // Match only aligned UTF-16 code units, never an arbitrary substring of the hex encoding.
-                    _ => new("regex", Register(path), Value: "^3([0-9A-F]{4})*" + hex)
+                    _ => new PostgresQueryFilter("regex", Register(path), Value: "^3([0-9A-F]{4})*" + hex)
                 };
             }
             Expression? collection = null;
@@ -199,14 +199,14 @@ internal sealed class PostgresQueryPlan
                 object? source = CollectionValue(collection);
                 if (source is not IEnumerable values || !IsMembershipCollection(source)) throw Unsupported();
                 string[] encoded = values.Cast<object?>().Select(PostgresIndexValue.Encode).Distinct(StringComparer.Ordinal).ToArray();
-                return new("in", Register(path), Values: encoded);
+                return new PostgresQueryFilter("in", Register(path), Values: encoded);
             }
             throw Unsupported();
         }
         if (expression is BinaryExpression binary)
         {
             if (binary.NodeType is ExpressionType.AndAlso or ExpressionType.OrElse)
-                return new(binary.NodeType == ExpressionType.AndAlso ? "and" : "or", Left: Predicate(binary.Left, parameter), Right: Predicate(binary.Right, parameter));
+                return new PostgresQueryFilter(binary.NodeType == ExpressionType.AndAlso ? "and" : "or", Left: Predicate(binary.Left, parameter), Right: Predicate(binary.Right, parameter));
             if (binary.NodeType is ExpressionType.Equal or ExpressionType.NotEqual or ExpressionType.LessThan or ExpressionType.LessThanOrEqual or ExpressionType.GreaterThan or ExpressionType.GreaterThanOrEqual &&
                 ((Path(binary.Left, parameter) is not null && Path(binary.Right, parameter) is not null) ||
                  (Path(binary.Left, parameter) is null && Path(binary.Right, parameter) is null) ||
@@ -221,7 +221,7 @@ internal sealed class PostgresQueryPlan
                     ExpressionType.Equal => "IS NOT DISTINCT FROM", ExpressionType.NotEqual => "IS DISTINCT FROM",
                     ExpressionType.LessThan => "<", ExpressionType.LessThanOrEqual => "<=", ExpressionType.GreaterThan => ">", _ => ">="
                 };
-                return new("computed", Comparison: computedComparison, ScalarLeft: left, ScalarRight: right);
+                return new PostgresQueryFilter("computed", Comparison: computedComparison, ScalarLeft: left, ScalarRight: right);
             }
             string? path = Path(binary.Left, parameter);
             Expression constant = binary.Right;
@@ -242,7 +242,7 @@ internal sealed class PostgresQueryPlan
             return Term(path, comparison, Value(constant));
         }
         if (expression is UnaryExpression { NodeType: ExpressionType.Not } unary)
-            return new("not", Left: Predicate(unary.Operand, parameter));
+            return new PostgresQueryFilter("not", Left: Predicate(unary.Operand, parameter));
         if (expression.Type == typeof(bool) && Path(expression, parameter) is { } boolean)
             return Term(boolean, ExpressionType.Equal, true);
         throw Unsupported();
@@ -261,8 +261,8 @@ internal sealed class PostgresQueryPlan
             ExpressionType.LessThanOrEqual => "<=",
             _ => throw Unsupported()
         };
-        if (operation == "!=") return new("not", Left: Term(path, ExpressionType.Equal, value));
-        return new("term", Register(path), operation, encoded);
+        if (operation == "!=") return new PostgresQueryFilter("not", Left: Term(path, ExpressionType.Equal, value));
+        return new PostgresQueryFilter("term", Register(path), operation, encoded);
     }
 
     private string Register(string path)

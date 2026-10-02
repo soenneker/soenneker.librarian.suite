@@ -15,9 +15,9 @@ internal sealed record PostgresScalar(string Operation, Type Type, string? Path 
     internal static PostgresScalar Create(Expression expression, ParameterExpression parameter)
     {
         if (expression is MemberExpression { Member.Name: nameof(string.Length), Expression.Type: var receiver } length && receiver == typeof(string))
-            return new("length", typeof(int), Left: Create(length.Expression!, parameter));
+            return new PostgresScalar("length", typeof(int), Left: Create(length.Expression!, parameter));
         if (PostgresQueryPlan.Path(expression, parameter) is { } path)
-            return new("path", expression.Type, path);
+            return new PostgresScalar("path", expression.Type, path);
         if (expression is BinaryExpression binary && Numeric(expression.Type))
         {
             string operation = binary.NodeType switch
@@ -30,16 +30,16 @@ internal sealed record PostgresScalar(string Operation, Type Type, string? Path 
                 ExpressionType.Coalesce => "coalesce",
                 _ => throw PostgresQueryPlan.Unsupported()
             };
-            return new(operation, expression.Type, Left: Create(binary.Left, parameter), Right: Create(binary.Right, parameter));
+            return new PostgresScalar(operation, expression.Type, Left: Create(binary.Left, parameter), Right: Create(binary.Right, parameter));
         }
         if (expression is UnaryExpression unary && Numeric(expression.Type))
         {
             if (unary.NodeType is ExpressionType.Convert or ExpressionType.ConvertChecked && Numeric(unary.Operand.Type))
-                return new("convert", expression.Type, Left: Create(unary.Operand, parameter));
+                return new PostgresScalar("convert", expression.Type, Left: Create(unary.Operand, parameter));
             if (unary.NodeType is ExpressionType.Negate or ExpressionType.NegateChecked)
-                return new("negate", expression.Type, Left: Create(unary.Operand, parameter));
+                return new PostgresScalar("negate", expression.Type, Left: Create(unary.Operand, parameter));
         }
-        return new("constant", expression.Type, Value: PostgresQueryPlan.Value(expression));
+        return new PostgresScalar("constant", expression.Type, Value: PostgresQueryPlan.Value(expression));
     }
 
     internal string Sql(Func<object, string> parameter, string alias)

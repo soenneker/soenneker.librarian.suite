@@ -201,11 +201,11 @@ internal sealed class QueryPlan
         }
         else
         {
-            AdditionalFilters ??= new();
-            var index = -1;
+            AdditionalFilters ??= new List<IndexFilter>();
+            int index = -1;
             for (var i = 0; i < AdditionalFilters.Count; i++)
                 if (AdditionalFilters[i].Property == property) { index = i; break; }
-            IndexFilter filter = index < 0 ? new(property) : AdditionalFilters[index];
+            IndexFilter filter = index < 0 ? new IndexFilter(property) : AdditionalFilters[index];
             filter.Apply(key, operation);
             if (index < 0) AdditionalFilters.Add(filter);
             else AdditionalFilters[index] = filter;

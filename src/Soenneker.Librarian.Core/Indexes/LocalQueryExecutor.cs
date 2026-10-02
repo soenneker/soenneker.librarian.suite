@@ -56,7 +56,7 @@ internal sealed class LocalQueryExecutor(Func<Expression, IEnumerable<object?>?>
             case nameof(Queryable.ThenBy):
             case nameof(Queryable.ThenByDescending):
                 if (call.Arguments.Count != 2) throw Unsupported(name);
-                var comparer = Comparer<object?>.Create(QueryTypes.Get(lambda!.ReturnType).Compare);
+                Comparer<object?> comparer = Comparer<object?>.Create(QueryTypes.Get(lambda!.ReturnType).Compare);
                 Func<object?, object?> key = value => function!(value, 0);
                 return name switch
                 {
@@ -117,35 +117,35 @@ internal sealed class LocalQueryExecutor(Func<Expression, IEnumerable<object?>?>
         // Dispatch numeric overloads statically so overflow, floating-point and nullable behavior follow Enumerable.
         if (type == typeof(int))
         {
-            var values = input.Select(value => (int?)value);
+            IEnumerable<int?> values = input.Select(value => (int?)value);
             if (name == nameof(Queryable.Sum)) return values.Sum();
             double? average = values.Average();
             return average ?? (nullable ? null : throw new InvalidOperationException("Sequence contains no elements"));
         }
         if (type == typeof(long))
         {
-            var values = input.Select(value => (long?)value);
+            IEnumerable<long?> values = input.Select(value => (long?)value);
             if (name == nameof(Queryable.Sum)) return values.Sum();
             double? average = values.Average();
             return average ?? (nullable ? null : throw new InvalidOperationException("Sequence contains no elements"));
         }
         if (type == typeof(float))
         {
-            var values = input.Select(value => (float?)value);
+            IEnumerable<float?> values = input.Select(value => (float?)value);
             if (name == nameof(Queryable.Sum)) return values.Sum();
             float? average = values.Average();
             return average ?? (nullable ? null : throw new InvalidOperationException("Sequence contains no elements"));
         }
         if (type == typeof(double))
         {
-            var values = input.Select(value => (double?)value);
+            IEnumerable<double?> values = input.Select(value => (double?)value);
             if (name == nameof(Queryable.Sum)) return values.Sum();
             double? average = values.Average();
             return average ?? (nullable ? null : throw new InvalidOperationException("Sequence contains no elements"));
         }
         if (type == typeof(decimal))
         {
-            var values = input.Select(value => (decimal?)value);
+            IEnumerable<decimal?> values = input.Select(value => (decimal?)value);
             if (name == nameof(Queryable.Sum)) return values.Sum();
             decimal? average = values.Average();
             return average ?? (nullable ? null : throw new InvalidOperationException("Sequence contains no elements"));
@@ -156,8 +156,8 @@ internal sealed class LocalQueryExecutor(Func<Expression, IEnumerable<object?>?>
     private static Func<object?, int, object?> Function(LambdaExpression lambda)
     {
         if (lambda.Parameters.Count is < 1 or > 2) throw Unsupported("lambda");
-        var value = Expression.Parameter(typeof(object));
-        var index = Expression.Parameter(typeof(int));
+        ParameterExpression value = Expression.Parameter(typeof(object));
+        ParameterExpression index = Expression.Parameter(typeof(int));
         Expression body = new Replace(lambda.Parameters[0], Expression.Convert(value, lambda.Parameters[0].Type)).Visit(lambda.Body)!;
         if (lambda.Parameters.Count == 2) body = new Replace(lambda.Parameters[1], index).Visit(body)!;
         return Expression.Lambda<Func<object?, int, object?>>(Expression.Convert(QueryExpression.Prepare(body), typeof(object)), value, index).Compile(preferInterpretation: true);

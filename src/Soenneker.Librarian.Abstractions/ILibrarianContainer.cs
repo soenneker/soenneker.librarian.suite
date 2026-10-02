@@ -1,3 +1,4 @@
+using Soenneker.Extensions.ValueTask;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -69,7 +70,7 @@ public interface ILibrarianContainer : IDisposable
     async ValueTask<int> CountRangeByIndex(string fieldPath, object? minimum = null, object? maximum = null,
         CancellationToken cancellationToken = default) =>
         (await FindRangeByIndex<System.Text.Json.JsonElement>(fieldPath, minimum, maximum, take: int.MaxValue,
-            cancellationToken: cancellationToken).ConfigureAwait(false)).Items.Count;
+            cancellationToken: cancellationToken).NoSync()).Items.Count;
 
     /// <summary>
     /// Creates a deferred query with automatic indexes for supported scalar property filters and ordering.
@@ -118,14 +119,14 @@ public interface ILibrarianContainer : IDisposable
         cancellationToken.ThrowIfCancellationRequested();
         var result = new string?[ids.Count];
         for (int i = 0; i < ids.Count; i++) ArgumentNullException.ThrowIfNull(ids[i]);
-        for (int i = 0; i < ids.Count; i++) result[i] = await GetItem(ids[i], cancellationToken).ConfigureAwait(false);
+        for (int i = 0; i < ids.Count; i++) result[i] = await GetItem(ids[i], cancellationToken).NoSync();
         return result;
     }
 
     /// <summary>Counts all documents without deserialization or requiring a user-created index.</summary>
     /// <remarks>Built-in providers use native container cardinality. The default implementation reads document IDs.</remarks>
     async ValueTask<int> CountItems(CancellationToken cancellationToken = default) =>
-        (await GetAllIds(cancellationToken).ConfigureAwait(false)).Count;
+        (await GetAllIds(cancellationToken).NoSync()).Count;
 
     /// <summary>
     /// Retrieves a document by its ID, throwing an exception if not found.

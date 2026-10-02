@@ -31,7 +31,7 @@ await using (var memory = new MemoryLibrarianDatabase(NullLogger<MemoryLibrarian
 }
 
 string path = Path.Combine(Path.GetTempPath(), $"librarian-aot-{Guid.NewGuid():N}.json");
-await using var services = new ServiceCollection().AddLogging().AddFileUtilAsSingleton().BuildServiceProvider();
+await using ServiceProvider services = new ServiceCollection().AddLogging().AddFileUtilAsSingleton().BuildServiceProvider();
 try
 {
     await using (var file = new FileSystemLibrarianDatabase(path, services.GetRequiredService<IFileUtil>(),
@@ -49,7 +49,7 @@ finally { await services.GetRequiredService<IFileUtil>().Delete(path); }
 // Exercise both remote translators and materializers without requiring live services.
 var redisProvider = new RedisQueryProvider<SmokeRow>(null!);
 var redis = new RedisQueryable<SmokeRow>(redisProvider);
-var selected = redis.OrderBy(row => row.Score).Take(2).Select(row => new SmokeProjection(row.Name, row.Score));
+IQueryable<SmokeProjection> selected = redis.OrderBy(row => row.Score).Take(2).Select(row => new SmokeProjection(row.Name, row.Score));
 RedisQueryPlan redisPlan = RedisQueryPlan.Create(selected.Expression, redisProvider);
 object? projected = redisPlan.Projection!.FromDocument("{\"score\":2,\"name\":\"row-2\",\"status\":\"Active\"}");
 Check(projected is SmokeProjection { Name: "row-2", Score: 2 }, "Redis record projection");
@@ -61,13 +61,13 @@ var set = new HashSet<int> { 1, 2 };
 RedisQueryPlan.Create(redis.Where(row => set.Contains(row.Score)).Expression, redisProvider);
 var postgresProvider = new PostgresQueryProvider<SmokeRow>(null!);
 var postgres = new PostgresQueryable<SmokeRow>(postgresProvider);
-var composed = postgres.Select(row => row.Score + 1).Where(score => score > 1).Take(2);
+IQueryable<int> composed = postgres.Select(row => row.Score + 1).Where(score => score > 1).Take(2);
 PostgresQueryPlan postgresPlan = PostgresQueryPlan.Create(composed.Expression, postgresProvider);
 Check(Equals(postgresPlan.Projection!.Materialize(["2"]), 2), "Postgres composed scalar projection");
 PostgresQueryPlan.Create(postgres.Where(row => set.Contains(row.Score)).Expression, postgresProvider);
 if (Environment.GetEnvironmentVariable("LIBRARIAN_TEST_REDIS") is { Length: > 0 } redisConnection)
 {
-    using var connection = await ConnectionMultiplexer.ConnectAsync(redisConnection);
+    using ConnectionMultiplexer connection = await ConnectionMultiplexer.ConnectAsync(redisConnection);
     await using var database = new RedisLibrarianDatabase($"aot-{Guid.NewGuid():N}", _ => ValueTask.FromResult(connection.GetDatabase()));
     await CheckRemote(database);
     Console.WriteLine("Native Redis I/O passed.");
@@ -119,8 +119,8 @@ static async Task CheckRemote(ILibrarianDatabase database)
         for (var i = 0; i < 6; i++)
             await container.AddItem(i.ToString(), JsonSerializer.Serialize(new SmokeRow { Score = i, Name = $"row-{i}", Status = SmokeStatus.Active }, SmokeJsonContext.Default.SmokeRow));
         IQueryable<SmokeRow> root = container.BuildQueryable<SmokeRow>();
-        var page = await root.Where(row => row.Score >= 2).OrderBy(row => row.Score).Take(2)
-            .Select(row => new SmokeProjection(row.Name, row.Score)).ToListAsync();
+        List<SmokeProjection> page = await root.Where(row => row.Score >= 2).OrderBy(row => row.Score).Take(2)
+                                               .Select(row => new SmokeProjection(row.Name, row.Score)).ToListAsync();
         Check(page.Count == 2 && page[0].Score == 2, "Remote record projection");
         Check((await root.Take(2).ToListAsync()).Count == 2, "Remote typed document list");
         Check(await root.AllAsync(row => row.Score >= 0), "Remote async All");

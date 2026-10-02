@@ -1,3 +1,5 @@
+using Soenneker.Extensions.Task;
+using Soenneker.Extensions.ValueTask;
 using System;
 using System.IO;
 using System.Text;
@@ -6,6 +8,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Microsoft.Kiota.Abstractions;
+using Soenneker.Cloudflare.OpenApiClient.Models;
 using Soenneker.Cloudflare.R2.Abstract;
 using Soenneker.Librarian.Core;
 
@@ -45,7 +48,7 @@ public sealed class R2LibrarianDatabase : SnapshotLibrarianDatabase
         Stream? stream;
         try
         {
-            stream = await _r2.GetObject(_accountId, _bucketName, _objectKey, _apiKey, cancellationToken).ConfigureAwait(false);
+            stream = await _r2.GetObject(_accountId, _bucketName, _objectKey, _apiKey, cancellationToken).NoSync();
         }
         catch (ApiException exception) when (exception.ResponseStatusCode == 404)
         {
@@ -56,14 +59,14 @@ public sealed class R2LibrarianDatabase : SnapshotLibrarianDatabase
         await using (stream.ConfigureAwait(false))
         {
             using var reader = new StreamReader(stream, new UTF8Encoding(false, true));
-            return await reader.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
+            return await reader.ReadToEndAsync(cancellationToken).NoSync();
         }
     }
 
     protected override async ValueTask WriteSnapshot(string json, CancellationToken cancellationToken)
     {
-        var response = await _r2.PutObject(_accountId, _bucketName, _objectKey, json,
-            "application/json; charset=utf-8", _apiKey, cancellationToken).ConfigureAwait(false);
+        R2PutObject200? response = await _r2.PutObject(_accountId, _bucketName, _objectKey, json,
+            "application/json; charset=utf-8", _apiKey, cancellationToken).NoSync();
         if (response?.Success != true || response.Errors is { Count: > 0 })
             throw new InvalidDataException("R2 did not confirm the Librarian snapshot upload.");
     }

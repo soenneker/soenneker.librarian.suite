@@ -25,9 +25,9 @@ public class PostgresExpandedQueryTests
             .Skip(1).Take(2).Select(row => new { row.Name, row.Active }).ToArray();
         Check(page.Select(row => row.Name).SequenceEqual(new[] { "A", "D" }), "Multiple ordering keys or page boundaries changed.");
         Check(PostgresRow.Reads.Value == 0, "Projection deserialized the source document.");
-        var scalar = query.OrderByDescending(row => row.Amount).ThenBy(row => row.Name).Select(row => row.Name).Skip(1).Take(2).ToArray();
+        string?[] scalar = query.OrderByDescending(row => row.Amount).ThenBy(row => row.Name).Select(row => row.Name).Skip(1).Take(2).ToArray();
         Check(scalar.SequenceEqual(new[] { "D", "A" }), "Paging after projection changed ordering.");
-        var dto = query.Where(row => row.Name == "B").Select(row => new ProjectionDto { Label = row.Name, Value = row.Amount }).Single();
+        ProjectionDto dto = query.Where(row => row.Name == "B").Select(row => new ProjectionDto { Label = row.Name, Value = row.Amount }).Single();
         Check(dto.Label == "B" && dto.Value == 1, "Member initializer projection failed.");
         Check(query.Where(row => row.Name == "C").Select(row => new ProjectionRecord(row.Name!, row.Amount)).First().Amount == 2,
             "Constructor projection failed.");

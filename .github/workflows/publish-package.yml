@@ -105,6 +105,7 @@ jobs:
             Soenneker.Librarian.Postgres
             Soenneker.Librarian.D1
             Soenneker.Librarian.R2
+            Soenneker.Librarian.Kv
           )
 
           for package in "${packages[@]}"; do

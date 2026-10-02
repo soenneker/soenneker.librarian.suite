@@ -51,9 +51,9 @@ public class QueryConformanceTests
         await container.EnsureIndex("name");
         await container.EnsureIndex("amount");
         Check(await container.CountByIndex("name", null) == 1, "Explicit null includes missing data.");
-        var strings = await container.FindRangeByIndex<ConformanceRow>("name");
+        LibrarianQueryResult<ConformanceRow> strings = await container.FindRangeByIndex<ConformanceRow>("name");
         Check(strings.Items.Select(row => row.Name).SequenceEqual(new string?[] { null, "😀", "\uE000" }), "Explicit ordinal ordering differs.");
-        var numbers = await container.FindRangeByIndex<ConformanceRow>("amount", decimal.MinValue, decimal.MaxValue);
+        LibrarianQueryResult<ConformanceRow> numbers = await container.FindRangeByIndex<ConformanceRow>("amount", decimal.MinValue, decimal.MaxValue);
         Check(numbers.Items.Select(row => row.Amount).SequenceEqual(new[] { decimal.MinValue, 0.0000000000000000000000000001m, decimal.MaxValue }), "Decimal precision differs.");
         int nullMatches = await container.BuildQueryable<ConformanceRow>().CountAsync(row => row.Name == null);
         Check(nullMatches == (provider is "memory" or "filesystem" ? 2 : 1), "Documented missing-property behavior changed.");
