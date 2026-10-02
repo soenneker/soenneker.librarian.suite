@@ -1,3 +1,4 @@
+using System;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Soenneker.Cloudflare.Utils.Client.Registrars;
@@ -14,6 +15,28 @@ public static class D1LibrarianDatabaseRegistrar
     public static IServiceCollection AddD1LibrarianDatabaseAsSingleton(this IServiceCollection services)
     {
         services.AddCloudflareClientUtilAsSingleton().TryAddSingleton<ILibrarianDatabase, D1LibrarianDatabase>();
+        return services;
+    }
+
+    /// <summary>Adds a keyed D1 database as a singleton service.</summary>
+    /// <param name="services">Service collection that receives the registration.</param>
+    /// <param name="serviceKey">Key used to resolve this database independently of other registrations.</param>
+    /// <param name="factory">Optional factory for instance-specific connections and storage settings. When omitted, shared application configuration is used.</param>
+    /// <returns>The same service collection, so additional registrations can be chained.</returns>
+    /// <remarks>The service key selects the DI instance; it does not change the underlying storage namespace.
+    /// Resolve with GetRequiredKeyedService&lt;ILibrarianDatabase&gt; or inject with FromKeyedServices.</remarks>
+    public static IServiceCollection AddD1LibrarianDatabaseAsSingleton(this IServiceCollection services, object serviceKey,
+        Func<IServiceProvider, D1LibrarianDatabase>? factory = null)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        ArgumentNullException.ThrowIfNull(serviceKey);
+        services.AddCloudflareClientUtilAsSingleton();
+
+        if (factory is null)
+            services.TryAddKeyedSingleton<ILibrarianDatabase, D1LibrarianDatabase>(serviceKey);
+        else
+            services.TryAddKeyedSingleton<ILibrarianDatabase>(serviceKey, (provider, _) => factory(provider));
+
         return services;
     }
 }
