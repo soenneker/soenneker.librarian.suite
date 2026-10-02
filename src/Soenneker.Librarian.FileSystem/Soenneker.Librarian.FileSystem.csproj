@@ -46,7 +46,7 @@
     <ItemGroup>
         <PackageReference Include="Soenneker.Utils.AsyncInitializers" Version="4.0.5" />
         <PackageReference Include="Soenneker.Dictionaries.Singletons" Version="4.0.113" />
-        <PackageReference Include="Soenneker.Utils.File" Version="4.0.2291" />
+        <PackageReference Include="Soenneker.Utils.File" Version="4.0.2292" />
         <ProjectReference Include="../Soenneker.Librarian.Core/Soenneker.Librarian.Core.csproj" />
     </ItemGroup>
 </Project>
