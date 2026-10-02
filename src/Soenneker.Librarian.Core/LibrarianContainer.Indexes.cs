@@ -16,7 +16,7 @@ public sealed partial class LibrarianContainer
 {
     private readonly AsyncLock _mutationGate;
     private readonly Dictionary<string, DocumentIndex> _indexes = new(StringComparer.Ordinal);
-    private IndexKey?[] _preparedKeys = Array.Empty<IndexKey?>();
+    private IndexKey?[] _preparedKeys = [];
 
     public async ValueTask EnsureIndex(string fieldPath, CancellationToken cancellationToken = default)
     {

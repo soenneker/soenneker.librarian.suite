@@ -1,4 +1,5 @@
 using System;
+using Soenneker.Utils.AsyncInitializers;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -18,7 +19,7 @@ public sealed class PostgresLibrarianDatabase : ILibrarianDatabase
     private readonly bool _ownsSource;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly Dictionary<string, PostgresLibrarianContainer> _containers = new(StringComparer.Ordinal);
-    private volatile bool _initialized;
+    private readonly AsyncInitializer _initializer;
     private ValueAtomicBool _disposed = new(false);
     internal string Key { get; }
 
@@ -34,6 +35,7 @@ public sealed class PostgresLibrarianDatabase : ILibrarianDatabase
         Key = PostgresIndexValue.Hex(key);
         _source = NpgsqlDataSource.Create(connectionString);
         _ownsSource = true;
+        _initializer = new AsyncInitializer(Initialize);
     }
 
     /// <summary>Uses a caller-owned connection pool, which remains open after provider disposal.</summary>
@@ -42,6 +44,7 @@ public sealed class PostgresLibrarianDatabase : ILibrarianDatabase
         ArgumentNullException.ThrowIfNull(dataSource);
         ArgumentException.ThrowIfNullOrWhiteSpace(key);
         _source = dataSource;
+        _initializer = new AsyncInitializer(Initialize);
         Key = PostgresIndexValue.Hex(key);
     }
 
@@ -51,29 +54,22 @@ public sealed class PostgresLibrarianDatabase : ILibrarianDatabase
     {
         Check();
         token.ThrowIfCancellationRequested();
-        if (!_initialized)
-        {
-            await _gate.WaitAsync(token).NoSync();
-            try
-            {
-                Check();
-                if (!_initialized)
-                {
-                    await using NpgsqlConnection connection = await _source.OpenConnectionAsync(token).NoSync();
-                    await using NpgsqlTransaction transaction = await connection.BeginTransactionAsync(token).NoSync();
-                    // Serialize first-time DDL across processes; released on commit or rollback.
-                    await using (var command = new NpgsqlCommand("SELECT pg_advisory_xact_lock(-704382180949935101)", connection, transaction))
-                        await command.ExecuteNonQueryAsync(token).NoSync();
-                    await using (var command = new NpgsqlCommand(Schema, connection, transaction))
-                        await command.ExecuteNonQueryAsync(token).NoSync();
-                    await transaction.CommitAsync(token).NoSync();
-                    _initialized = true;
-                }
-            }
-            finally { _gate.Release(); }
-        }
+        await _initializer.Init(token).NoSync();
         Check();
         return await _source.OpenConnectionAsync(token).NoSync();
+    }
+
+    private async ValueTask Initialize(CancellationToken token)
+    {
+        Check();
+        await using NpgsqlConnection connection = await _source.OpenConnectionAsync(token).NoSync();
+        await using NpgsqlTransaction transaction = await connection.BeginTransactionAsync(token).NoSync();
+        // Serialize first-time DDL across processes; released on commit or rollback.
+        await using (var command = new NpgsqlCommand("SELECT pg_advisory_xact_lock(-704382180949935101)", connection, transaction))
+            await command.ExecuteNonQueryAsync(token).NoSync();
+        await using (var command = new NpgsqlCommand(Schema, connection, transaction))
+            await command.ExecuteNonQueryAsync(token).NoSync();
+        await transaction.CommitAsync(token).NoSync();
     }
 
     internal NpgsqlCommand Command(NpgsqlConnection connection, string sql, params object[] values)
@@ -164,6 +160,7 @@ public sealed class PostgresLibrarianDatabase : ILibrarianDatabase
             if (!_disposed.TrySetTrue()) return;
             foreach (PostgresLibrarianContainer container in _containers.Values) container.Dispose();
             _containers.Clear();
+            await _initializer.DisposeAsync().NoSync();
             if (_ownsSource) await _source.DisposeAsync().NoSync();
         }
         finally { _gate.Release(); }

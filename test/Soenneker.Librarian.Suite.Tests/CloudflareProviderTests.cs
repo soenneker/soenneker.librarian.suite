@@ -208,6 +208,25 @@ public class CloudflareProviderTests
         Check(fixture.Handler.Snapshot!.Contains("registered", StringComparison.Ordinal), "Registered provider did not save.");
     }
 
+    [Test]
+    public async ValueTask D1_initialization_retries_after_failure_and_runs_once_after_success()
+    {
+        using var fixture = new CloudflareFixture("d1");
+        await using ILibrarianDatabase db = fixture.Create();
+        fixture.Handler.FailStatement = true;
+        try { await db.GetContainer("items"); throw new Exception("Initialization failure ignored."); }
+        catch (InvalidDataException) { }
+        fixture.Handler.FailStatement = false;
+        // Force the subsequent snapshot load to fail after schema initialization succeeds.
+        fixture.Handler.Snapshot = "null";
+        try { await db.GetContainer("items"); throw new Exception("Corrupt snapshot accepted."); }
+        catch (InvalidDataException) { }
+        fixture.Handler.Snapshot = "{}";
+        await db.GetContainer("items");
+        await db.GetContainer("other");
+        Check(fixture.Handler.SchemaAttempts == 2, "Initialization did not retry or repeated after success.");
+    }
+
     private static void Check(bool condition, string message)
     {
         if (!condition) throw new Exception(message);
@@ -268,6 +287,7 @@ internal sealed class CloudflareHandler : HttpMessageHandler
     public bool FailStatement;
     public bool DenyReads;
     public int Writes;
+    public int SchemaAttempts;
 
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
@@ -277,7 +297,13 @@ internal sealed class CloudflareHandler : HttpMessageHandler
         {
             using JsonDocument body = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(cancellationToken));
             string sql = body.RootElement.GetProperty("sql").GetString()!;
-            if (sql.StartsWith("CREATE", StringComparison.Ordinal)) return Json("{\"success\":true,\"result\":[{\"success\":true,\"results\":[]}]}");
+            if (sql.StartsWith("CREATE", StringComparison.Ordinal))
+            {
+                SchemaAttempts++;
+                return FailStatement
+                    ? Json("{\"success\":true,\"result\":[{\"success\":false,\"error\":\"failure\"}]}")
+                    : Json("{\"success\":true,\"result\":[{\"success\":true,\"results\":[]}]}");
+            }
             JsonElement parameters = body.RootElement.GetProperty("params");
             if (parameters[0].GetString() != "name'with-quotes" || sql.Contains("name'with-quotes", StringComparison.Ordinal))
                 throw new Exception("D1 logical name was not parameterized.");

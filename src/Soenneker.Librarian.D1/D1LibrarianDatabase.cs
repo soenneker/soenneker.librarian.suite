@@ -1,5 +1,6 @@
 using Soenneker.Extensions.ValueTask;
 using System;
+using Soenneker.Utils.AsyncInitializers;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
@@ -21,7 +22,7 @@ public sealed class D1LibrarianDatabase : SnapshotLibrarianDatabase
     private readonly string _apiKey;
     private readonly string _databaseId;
     private readonly string _name;
-    private bool _initialized;
+    private readonly AsyncInitializer _initializer;
 
     public D1LibrarianDatabase(IConfiguration configuration, ICloudflareD1Util d1, ILogger<D1LibrarianDatabase> logger)
         : this(Required(configuration, "AccountId"), Required(configuration, "ApiKey"),
@@ -42,6 +43,12 @@ public sealed class D1LibrarianDatabase : SnapshotLibrarianDatabase
         _databaseId = databaseId;
         _name = name;
         _d1 = d1;
+        _initializer = new AsyncInitializer(async token =>
+        {
+            using JsonDocument created = await Query(
+                "CREATE TABLE IF NOT EXISTS librarian_snapshots (name TEXT PRIMARY KEY, value TEXT NOT NULL)", [],
+                token).NoSync();
+        });
     }
 
     private static string Required(IConfiguration configuration, string key) => configuration[$"Librarian:D1:{key}"] ??
@@ -49,13 +56,7 @@ public sealed class D1LibrarianDatabase : SnapshotLibrarianDatabase
 
     protected override async ValueTask<string?> ReadSnapshot(CancellationToken cancellationToken)
     {
-        if (!_initialized)
-        {
-            using JsonDocument created = await Query(
-                "CREATE TABLE IF NOT EXISTS librarian_snapshots (name TEXT PRIMARY KEY, value TEXT NOT NULL)", [],
-                cancellationToken).NoSync();
-            _initialized = true;
-        }
+        await _initializer.Init(cancellationToken).NoSync();
 
         using JsonDocument response =
             await Query("SELECT value FROM librarian_snapshots WHERE name = ?", [_name], cancellationToken).NoSync();
@@ -77,6 +78,13 @@ public sealed class D1LibrarianDatabase : SnapshotLibrarianDatabase
         using JsonDocument response = await Query(
             "INSERT INTO librarian_snapshots (name, value) VALUES (?, ?) ON CONFLICT(name) DO UPDATE SET value = excluded.value",
             [_name, json], cancellationToken).NoSync();
+    }
+
+    public override async ValueTask DisposeAsync()
+    {
+        // A failed flush must leave initialization available for a later disposal retry.
+        await base.DisposeAsync().NoSync();
+        await _initializer.DisposeAsync().NoSync();
     }
 
     private async ValueTask<JsonDocument> Query(string sql, List<string> parameters, CancellationToken token)

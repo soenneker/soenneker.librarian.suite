@@ -139,7 +139,7 @@ public abstract class SnapshotLibrarianDatabase(ILogger logger) : ILibrarianData
         }
     }
 
-    public async ValueTask DisposeAsync()
+    public virtual async ValueTask DisposeAsync()
     {
         using (await _gate.Lock(CancellationToken.None).NoSync())
         {
