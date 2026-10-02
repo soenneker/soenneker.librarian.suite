@@ -22,7 +22,7 @@ public sealed partial class LibrarianContainer
         var result = new List<IdValuePair>(_items.Count);
         foreach (KeyValuePair<string, string> pair in _items)
         {
-            string? value = state is not null && state.Writes.TryGetValue(pair.Key, out LibrarianPreparedWrite? write) ? write.Value : pair.Value;
+            string? value = state is not null && state.Writes.TryGetValue(pair.Key, out LibrarianPreparedWrite write) ? write.Value : pair.Value;
             if (value is not null) result.Add(new IdValuePair { Id = pair.Key, Value = value });
         }
         if (state is not null)
@@ -31,39 +31,34 @@ public sealed partial class LibrarianContainer
         return result;
     }
 
-    internal LibrarianContainerState PrepareBatch(IEnumerable<LibrarianWrite> writes, CancellationToken token)
+    internal void PrepareBatchWrite(LibrarianWrite write, LibrarianContainerState state, CancellationToken token)
     {
         ThrowIfDisposed();
-        var prepared = new Dictionary<string, LibrarianPreparedWrite>(StringComparer.OrdinalIgnoreCase);
-        foreach (LibrarianWrite write in writes)
+        token.ThrowIfCancellationRequested();
+        if (string.Equals(_items.GetValueOrDefault(write.Id), write.Value, StringComparison.Ordinal)) return;
+        IndexKey?[] keys = [];
+        IndexKey?[] automaticKeys = [];
+        if (write.Value is not null)
         {
-            token.ThrowIfCancellationRequested();
-            if (string.Equals(_items.GetValueOrDefault(write.Id), write.Value, StringComparison.Ordinal)) continue;
-            IndexKey?[] keys = [];
-            IndexKey?[] automaticKeys = [];
-            if (write.Value is not null)
+            if (_indexes.Count > 0)
             {
-                if (_indexes.Count > 0)
+                keys = new IndexKey?[_indexes.Count];
+                using JsonDocument document = JsonDocument.Parse(write.Value);
+                int i = 0;
+                foreach (DocumentIndex index in _indexes.Values) keys[i++] = index.Extract(document.RootElement);
+            }
+            if (_automaticIndexes.Count > 0)
+            {
+                automaticKeys = new IndexKey?[_automaticIndexes.Count];
+                int i = 0;
+                foreach (AutomaticIndexGroup group in _automaticIndexGroups.Values)
                 {
-                    keys = new IndexKey?[_indexes.Count];
-                    using JsonDocument document = JsonDocument.Parse(write.Value);
-                    int i = 0;
-                    foreach (DocumentIndex index in _indexes.Values) keys[i++] = index.Extract(document.RootElement);
-                }
-                if (_automaticIndexes.Count > 0)
-                {
-                    automaticKeys = new IndexKey?[_automaticIndexes.Count];
-                    int i = 0;
-                    foreach (AutomaticIndexGroup group in _automaticIndexGroups.Values)
-                    {
-                        object? value = group.Deserialize(write.Value);
-                        foreach (AutomaticIndex index in group.Indexes) automaticKeys[i++] = index.Extract(value);
-                    }
+                    object? value = group.Deserialize(write.Value);
+                    foreach (AutomaticIndex index in group.Indexes) automaticKeys[i++] = index.Extract(value);
                 }
             }
-            prepared.Add(write.Id, new LibrarianPreparedWrite(write.Value, keys, automaticKeys));
         }
-        return new LibrarianContainerState(prepared);
+        state.Writes.Add(write.Id, new LibrarianPreparedWrite(write.Value, keys, automaticKeys));
     }
 
     internal void PublishBatch(LibrarianContainerState state)

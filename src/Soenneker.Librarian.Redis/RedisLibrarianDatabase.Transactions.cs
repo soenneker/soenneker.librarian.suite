@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -49,26 +48,28 @@ public sealed partial class RedisLibrarianDatabase
                 cancellationToken.ThrowIfCancellationRequested();
                 return (long)await store.ScriptEvaluateAsync(CheckConditionsScript, keys, values).WaitAsync(cancellationToken).NoSync() == 1;
             }
+            // Group once; optimistic retries reuse the immutable input groups.
+            ILookup<string, LibrarianWrite> writesByContainer = batch.Writes.ToLookup(write => write.Container, StringComparer.Ordinal);
+            ILookup<string, LibrarianCondition> conditionsByContainer = batch.Conditions.ToLookup(condition => condition.Container, StringComparer.Ordinal);
+            var writes = new LibrarianWrite[names.Length][];
+            var conditions = new LibrarianCondition[names.Length][];
+            for (int i = 0; i < names.Length; i++)
+            {
+                writes[i] = writesByContainer[names[i]].ToArray();
+                conditions[i] = conditionsByContainer[names[i]].ToArray();
+            }
             for (var attempt = 0; ; attempt++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                var actions = new List<Action<ITransaction, List<Task>>>();
-                foreach (string name in names)
+                var commands = new RedisBatchCommands();
+                for (int i = 0; i < names.Length; i++)
                 {
-                    var container = (RedisLibrarianContainer)_containers[name];
-                    Action<ITransaction, List<Task>>? action = await container.PrepareBatch(store, batch.Conditions.Where(condition => condition.Container == name),
-                        batch.Writes.Where(write => write.Container == name), cancellationToken).NoSync();
-                    if (action is null) return false;
-                    actions.Add(action);
+                    var container = (RedisLibrarianContainer)_containers[names[i]];
+                    if (!await container.PrepareBatch(store, conditions[i], writes[i], commands, cancellationToken).NoSync()) return false;
                 }
                 cancellationToken.ThrowIfCancellationRequested();
-                ITransaction transaction = store.CreateTransaction();
-                var commands = new List<Task>();
-                foreach (Action<ITransaction, List<Task>> action in actions) action(transaction, commands);
-                bool committed = await transaction.ExecuteAsync().NoSync();
-                try { await Task.WhenAll(commands).NoSync(); }
-                catch (TaskCanceledException) when (!committed) { }
-                if (committed) return true;
+                // Observe the commit outcome even if cancellation arrives after submission.
+                if ((long)await commands.Execute(store).NoSync() == 1) return true;
                 if (attempt >= 127) throw new TimeoutException("The Librarian batch repeatedly conflicted with concurrent writes.");
                 await Task.Delay(Random.Shared.Next(1, 10), cancellationToken).NoSync();
             }

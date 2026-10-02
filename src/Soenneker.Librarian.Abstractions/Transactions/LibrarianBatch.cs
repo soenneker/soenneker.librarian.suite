@@ -16,18 +16,27 @@ public sealed class LibrarianBatch
         ArgumentNullException.ThrowIfNull(writes);
         LibrarianWrite[] writeArray = writes.ToArray();
         LibrarianCondition[] conditionArray = conditions?.ToArray() ?? [];
-        HashSet<(string, string)>? addresses = writeArray.Length > 1 ? new HashSet<(string, string)>(writeArray.Length, AddressComparer.Instance) : null;
-        foreach (LibrarianWrite write in writeArray)
+        // Small batches are common in optimistic transactions; a bounded scan avoids a hash table per operation.
+        HashSet<(string, string)>? addresses = writeArray.Length > 8 ? new HashSet<(string, string)>(writeArray.Length, AddressComparer.Instance) : null;
+        for (int i = 0; i < writeArray.Length; i++)
         {
+            LibrarianWrite write = writeArray[i];
             if (write is null) throw new ArgumentException("Writes cannot contain null.", nameof(writes));
             Validate(write.Container, write.Id, addresses);
+            if (addresses is null)
+                for (int j = 0; j < i; j++)
+                    RejectDuplicate(write.Container, write.Id, writeArray[j].Container, writeArray[j].Id);
         }
         addresses?.Clear();
-        if (conditionArray.Length > 1) addresses ??= new HashSet<(string, string)>(conditionArray.Length, AddressComparer.Instance);
-        foreach (LibrarianCondition condition in conditionArray)
+        if (conditionArray.Length > 8) addresses ??= new HashSet<(string, string)>(conditionArray.Length, AddressComparer.Instance);
+        for (int i = 0; i < conditionArray.Length; i++)
         {
+            LibrarianCondition condition = conditionArray[i];
             if (condition is null) throw new ArgumentException("Conditions cannot contain null.", nameof(conditions));
             Validate(condition.Container, condition.Id, addresses);
+            if (addresses is null)
+                for (int j = 0; j < i; j++)
+                    RejectDuplicate(condition.Container, condition.Id, conditionArray[j].Container, conditionArray[j].Id);
         }
         Writes = Array.AsReadOnly(writeArray);
         Conditions = Array.AsReadOnly(conditionArray);
@@ -37,6 +46,12 @@ public sealed class LibrarianBatch
     public IReadOnlyList<LibrarianWrite> Writes { get; }
     /// <summary>Conditions evaluated against the state immediately preceding the commit.</summary>
     public IReadOnlyList<LibrarianCondition> Conditions { get; }
+
+    private static void RejectDuplicate(string container, string id, string previousContainer, string previousId)
+    {
+        if (StringComparer.Ordinal.Equals(container, previousContainer) && StringComparer.OrdinalIgnoreCase.Equals(id, previousId))
+            throw new ArgumentException($"Duplicate document '{id}' in container '{container}'.");
+    }
 
     private static void Validate(string container, string id, HashSet<(string, string)>? addresses)
     {

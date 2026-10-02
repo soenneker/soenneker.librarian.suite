@@ -1,10 +1,10 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Soenneker.Extensions.Task;
+using Soenneker.Extensions.ValueTask;
 using Soenneker.Librarian.Abstractions.Transactions;
 using StackExchange.Redis;
 
@@ -14,98 +14,85 @@ public sealed partial class RedisLibrarianContainer
 {
     internal RedisKey BatchDocument(string id) => Document(Id(id));
 
-    internal async ValueTask<Action<ITransaction, List<Task>>?> PrepareBatch(IDatabase store,
-        IEnumerable<LibrarianCondition> conditions, IEnumerable<LibrarianWrite> writes, CancellationToken token)
+    private const string PrepareBatchScript = """
+        for i = 3, #KEYS do
+            local value = redis.call('HGET', KEYS[i], 'json')
+            local p = (i - 3) * 2 + 2
+            if ARGV[p] == '0' then
+                if value ~= false then return false end
+            elseif value ~= ARGV[p + 1] then
+                return false
+            end
+        end
+        local paths = {}
+        if ARGV[1] == '1' then paths = redis.call('SMEMBERS', KEYS[2]) end
+        return { redis.call('GET', KEYS[1]), paths }
+        """;
+
+    private const string ReadIndexFieldsScript = """
+        local result = {}
+        for i = 1, #KEYS do
+            result[i] = redis.call('HMGET', KEYS[i], unpack(ARGV))
+        end
+        return result
+        """;
+
+    internal async ValueTask<bool> PrepareBatch(IDatabase store, IReadOnlyList<LibrarianCondition> conditions,
+        IReadOnlyList<LibrarianWrite> writes, RedisBatchCommands commands, CancellationToken token)
     {
         ObjectDisposedException.ThrowIf(_disposed.Value, this);
-        RedisValue version = await store.StringGetAsync(Version).WaitAsync(token).NoSync();
-        LibrarianCondition[] conditionArray = conditions.ToArray();
-        if (conditionArray.Length > 0)
+        var keys = new RedisKey[conditions.Count + 2];
+        keys[0] = Version;
+        keys[1] = Schema;
+        var arguments = new RedisValue[conditions.Count * 2 + 1];
+        arguments[0] = writes.Count == 0 ? "0" : "1";
+        for (int i = 0; i < conditions.Count; i++)
         {
-            var keys = new RedisKey[conditionArray.Length];
-            for (int i = 0; i < keys.Length; i++) keys[i] = BatchDocument(conditionArray[i].Id);
-            var values = (RedisResult[])(await store.ScriptEvaluateAsync(ReadItemsScript, keys).WaitAsync(token).NoSync())!;
-            for (int i = 0; i < values.Length; i++)
-                if (!string.Equals(values[i].IsNull ? null : (string?)values[i], conditionArray[i].ExpectedValue, StringComparison.Ordinal)) return null;
+            keys[i + 2] = BatchDocument(conditions[i].Id);
+            string? expected = conditions[i].ExpectedValue;
+            arguments[i * 2 + 1] = expected is null ? "0" : "1";
+            arguments[i * 2 + 2] = expected ?? "";
         }
-        var actions = new List<Action<ITransaction, List<Task>>>();
-        var deltas = new Dictionary<(string Path, string Value), long>();
-        LibrarianWrite[] writeArray = writes.ToArray();
-        RedisValue[] paths = writeArray.Length == 0 ? [] : await store.SetMembersAsync(Schema).WaitAsync(token).NoSync();
+        RedisResult snapshot = await store.ScriptEvaluateAsync(PrepareBatchScript, keys, arguments).WaitAsync(token).NoSync();
+        if (snapshot.IsNull) return false;
+        var parts = (RedisResult[])snapshot!;
+        RedisValue version = (RedisValue)parts[0];
+        var paths = (string[])parts[1]!;
+        commands.Version(Version, version, writes.Count != 0);
+        if (writes.Count == 0) return true;
+        await PrepareWrites(store, writes, paths, commands, token).NoSync();
+        return true;
+    }
+
+    private async ValueTask PrepareWrites(IDatabase store, IReadOnlyList<LibrarianWrite> writes, string[] paths,
+        RedisBatchCommands commands, CancellationToken token)
+    {
+        var documentKeys = new RedisKey[writes.Count];
+        var ids = new string[writes.Count];
+        for (int i = 0; i < writes.Count; i++) documentKeys[i] = Document(ids[i] = Id(writes[i].Id));
         var fields = new RedisValue[paths.Length];
-        for (int i = 0; i < paths.Length; i++) fields[i] = Field(paths[i].ToString());
-        foreach (LibrarianWrite write in writeArray)
+        var sortFields = new string[paths.Length];
+        for (int i = 0; i < paths.Length; i++) { fields[i] = Field(paths[i]); sortFields[i] = SortField(paths[i]); }
+        RedisResult[] previous = paths.Length == 0 ? [] : (RedisResult[])(await store.ScriptEvaluateAsync(
+            ReadIndexFieldsScript, documentKeys, fields).WaitAsync(token).NoSync())!;
+        for (int i = 0; i < writes.Count; i++)
         {
             token.ThrowIfCancellationRequested();
-            string id = Id(write.Id);
+            LibrarianWrite write = writes[i];
+            string id = ids[i];
             using JsonDocument? json = write.Value is not null && paths.Length > 0 ? JsonDocument.Parse(write.Value) : null;
-            RedisValue[] previousValues = paths.Length == 0 ? [] : await store.HashGetAsync(Document(id), fields).WaitAsync(token).NoSync();
-            for (int i = 0; i < paths.Length; i++)
+            RedisResult[] oldValues = paths.Length == 0 ? [] : (RedisResult[])previous[i]!;
+            for (int j = 0; j < paths.Length; j++)
             {
-                var path = paths[i].ToString();
-                RedisValue old = previousValues[i];
+                string path = paths[j];
+                string? old = oldValues[j].IsNull ? null : (string?)oldValues[j];
                 string? next = json is null ? null : RedisIndexValue.Read(json.RootElement, path);
-                if (string.Equals(old.IsNull ? null : old.ToString(), next, StringComparison.Ordinal)) continue;
-                if (!old.IsNull)
-                {
-                    var previous = old.ToString();
-                    deltas[(path, previous)] = deltas.GetValueOrDefault((path, previous)) - 1;
-                    actions.Add((transaction, commands) =>
-                    {
-                        commands.Add(transaction.SortedSetRemoveAsync(Index(path), previous + "!" + id));
-                        commands.Add(transaction.SetRemoveAsync(Bucket(path, previous), id));
-                    });
-                }
-                if (next is null)
-                {
-                    actions.Add((transaction, commands) =>
-                    {
-                        commands.Add(transaction.HashDeleteAsync(Document(id), Field(path)));
-                        commands.Add(transaction.HashDeleteAsync(Document(id), SortField(path)));
-                        commands.Add(transaction.SetRemoveAsync(Present(path), id));
-                    });
-                }
-                else
-                {
-                    deltas[(path, next)] = deltas.GetValueOrDefault((path, next)) + 1;
-                    actions.Add((transaction, commands) =>
-                    {
-                        commands.Add(transaction.HashSetAsync(Document(id), Field(path), next));
-                        commands.Add(transaction.HashSetAsync(Document(id), SortField(path), next + "!" + id));
-                        commands.Add(transaction.SortedSetAddAsync(Index(path), next + "!" + id, 0));
-                        commands.Add(transaction.SetAddAsync(Bucket(path, next), id));
-                        commands.Add(transaction.SetAddAsync(Present(path), id));
-                    });
-                }
+                if (string.Equals(old, next, StringComparison.Ordinal)) continue;
+                commands.Index(documentKeys[i], Index(path), Distinct(path), Present(path),
+                    old is null ? default : Bucket(path, old), next is null ? default : Bucket(path, next),
+                    fields[j].ToString(), sortFields[j], id, old, next);
             }
-            actions.Add((transaction, commands) =>
-            {
-                if (write.Value is null)
-                {
-                    commands.Add(transaction.KeyDeleteAsync(Document(id)));
-                    commands.Add(transaction.SetRemoveAsync(Ids, id));
-                }
-                else
-                {
-                    commands.Add(transaction.HashSetAsync(Document(id), "json", write.Value));
-                    commands.Add(transaction.HashSetAsync(Document(id), "id", write.Id, When.NotExists));
-                    commands.Add(transaction.SetAddAsync(Ids, id));
-                }
-            });
+            commands.Write(documentKeys[i], Ids, id, write.Id, write.Value);
         }
-        foreach (KeyValuePair<(string Path, string Value), long> pair in deltas)
-        {
-            if (pair.Value == 0) continue;
-            long count = await store.SetLengthAsync(Bucket(pair.Key.Path, pair.Key.Value)).WaitAsync(token).NoSync() + pair.Value;
-            actions.Add((transaction, commands) => commands.Add(count <= 0
-                ? transaction.SortedSetRemoveAsync(Distinct(pair.Key.Path), pair.Key.Value)
-                : transaction.SortedSetAddAsync(Distinct(pair.Key.Path), pair.Key.Value, 0)));
-        }
-        return (transaction, commands) =>
-        {
-            transaction.AddCondition(version.IsNull ? Condition.KeyNotExists(Version) : Condition.StringEqual(Version, version));
-            foreach (Action<ITransaction, List<Task>> action in actions) action(transaction, commands);
-            if (writeArray.Length > 0) commands.Add(transaction.StringIncrementAsync(Version));
-        };
     }
 }

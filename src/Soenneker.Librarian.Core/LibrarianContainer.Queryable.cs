@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 using System.Threading;
 using Microsoft.Extensions.Logging;
@@ -138,7 +139,8 @@ public sealed partial class LibrarianContainer
             : DecimalValue(value);
         Expression<Func<int, decimal, string?, IndexKey>> construct = (keyKind, keyNumber, keyText) => new IndexKey(keyKind, keyNumber, keyText);
         NewExpression key = ((NewExpression)construct.Body).Update([kind, number, text ? value : Expression.Constant(null, typeof(string))]);
-        Func<object, IndexKey?> getter = Expression.Lambda<Func<object, IndexKey?>>(Expression.Convert(key, typeof(IndexKey?)), parameter).Compile(preferInterpretation: true);
+        Func<object, IndexKey?> getter = Expression.Lambda<Func<object, IndexKey?>>(Expression.Convert(key, typeof(IndexKey?)), parameter)
+            .Compile(preferInterpretation: !RuntimeFeature.IsDynamicCodeSupported);
         return new AutomaticIndex(getter);
     }
 

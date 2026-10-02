@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Soenneker.Asyncs.Locks;
@@ -30,13 +29,20 @@ public sealed class LibrarianBatchExecutor
                 if (!string.Equals(containers[condition.Container].ReadForBatch(condition.Id), condition.ExpectedValue, StringComparison.Ordinal)) return false;
             if (batch.Writes.Count == 0) return true;
             var prepared = new Dictionary<string, LibrarianContainerState>(StringComparer.Ordinal);
-            foreach (IGrouping<string, LibrarianWrite> group in batch.Writes.GroupBy(write => write.Container, StringComparer.Ordinal))
+            foreach (LibrarianWrite write in batch.Writes)
             {
-                LibrarianContainerState state = containers[group.Key].PrepareBatch(group, cancellationToken);
-                if (state.Writes.Count > 0) prepared.Add(group.Key, state);
+                if (!prepared.TryGetValue(write.Container, out LibrarianContainerState? state))
+                {
+                    state = new LibrarianContainerState(new Dictionary<string, LibrarianPreparedWrite>(StringComparer.OrdinalIgnoreCase));
+                    prepared.Add(write.Container, state);
+                }
+                containers[write.Container].PrepareBatchWrite(write, state, cancellationToken);
             }
             cancellationToken.ThrowIfCancellationRequested();
-            if (persist is not null && prepared.Count > 0)
+            bool changed = false;
+            foreach (LibrarianContainerState state in prepared.Values)
+                if (state.Writes.Count > 0) { changed = true; break; }
+            if (persist is not null && changed)
             {
                 var snapshots = new Dictionary<string, List<IdValuePair>>(StringComparer.Ordinal);
                 foreach (KeyValuePair<string, LibrarianContainer> pair in containers)

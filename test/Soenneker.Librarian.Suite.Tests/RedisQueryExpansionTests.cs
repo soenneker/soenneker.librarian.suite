@@ -12,6 +12,36 @@ namespace Soenneker.Librarian.Suite.Tests;
 public class RedisQueryExpansionTests
 {
     [Test]
+    public async ValueTask Compound_pages_cross_windows_preserve_ties_and_clean_temporary_sets()
+    {
+        await using var fixture = new RedisPersistenceFixture();
+        ILibrarianContainer container = await fixture.Database.GetContainer("items");
+        var rows = Enumerable.Range(0, 350).Select(i => new RedisRow { Name = $"row-{i:D4}", Amount = i % 11 }).ToArray();
+        await fixture.Database.Execute(new LibrarianBatch(rows.Select(row => new LibrarianWrite("items", row.Name,
+            $"{{\"name\":\"{row.Name}\",\"amount\":{row.Amount}}}"))));
+        await container.AddItem("missing", "{\"name\":\"missing\"}");
+        string[] names = rows.Take(300).Select(row => row.Name).ToArray();
+        IQueryable<RedisRow> query = container.BuildQueryable<RedisRow>();
+        foreach (int take in new[] { 1, 128, 256, 300 })
+        {
+            string[] actual = await query.Where(row => names.Contains(row.Name) && row.Amount >= 2)
+                .OrderByDescending(row => row.Amount).Skip(17).Take(take).Select(row => row.Name).ToArrayAsync();
+            string[] expected = rows.Where(row => names.Contains(row.Name) && row.Amount >= 2)
+                .OrderByDescending(row => row.Amount).ThenByDescending(row => row.Name, StringComparer.Ordinal)
+                .Skip(17).Take(take).Select(row => row.Name).ToArray();
+            Check(actual.SequenceEqual(expected), "Compound page changed ordering or membership across a window.");
+        }
+        Check(await query.CountAsync(row => !names.Contains(row.Name)) == 51, "Negation omitted missing properties.");
+        Check((await query.Where(row => row.Name == "row-0349" || row.Name == "missing")
+            .OrderBy(row => row.Amount).Take(2).ToArrayAsync()).Single().Name == "row-0349",
+            "Sparse ordered page included a missing ordering property.");
+        IDatabase store = await fixture.GetStore();
+        IServer server = store.Multiplexer.GetServer((await store.IdentifyEndpointAsync(fixture.RedisPrefix + "items:ids"))!);
+        await foreach (RedisKey key in server.KeysAsync(pattern: fixture.RedisPrefix + "items:query:*"))
+            throw new Exception("Query left a temporary key: " + key.ToString());
+    }
+
+    [Test]
     public async ValueTask Old_indexes_gain_stable_sort_keys_and_writes_keep_them_current()
     {
         await using var fixture = new RedisPersistenceFixture();

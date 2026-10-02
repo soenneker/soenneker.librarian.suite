@@ -16,7 +16,7 @@ public interface ILibrarianDatabase : IAsyncDisposable
     /// No writes are applied for a failed condition or validation error. Ordinary reads and writes participate in the same
     /// coordination boundary. Separate read calls are not a snapshot; protect decisions with conditions on every document read.
     /// Memory coordinates within one database instance. Filesystem coordinates within its single owner and persists before
-    /// publishing the new state. Redis coordinates across instances with conditional transactions and database-wide hash slots.
+    /// publishing the new state. Redis coordinates across instances with version-checked atomic scripts and database-wide hash slots.
     /// Cancellation is checked before commit; an operation already dispatched may commit. A transport failure can leave
     /// the Redis commit outcome unknown; callers must reconcile authoritative state before retrying non-idempotent work.</remarks>
     /// <remarks>PostgreSQL uses a server transaction and a logical database row lock shared by all writes across instances.

@@ -156,6 +156,26 @@ public class TransactionTests
     }
 
     [Test]
+    [Arguments(2)]
+    [Arguments(8)]
+    [Arguments(9)]
+    [Arguments(32)]
+    public void Batch_validation_preserves_address_comparison_at_every_size(int size)
+    {
+        LibrarianWrite[] writes = Enumerable.Range(0, size).Select(i => new LibrarianWrite("items", "id-" + i, "value")).ToArray();
+        LibrarianCondition[] conditions = Enumerable.Range(0, size).Select(i => new LibrarianCondition("items", "id-" + i, null)).ToArray();
+        _ = new LibrarianBatch(writes, conditions);
+        writes[^1] = new LibrarianWrite("Items", "ID-0", "separate container");
+        _ = new LibrarianBatch(writes, conditions);
+        writes[^1] = new LibrarianWrite("items", "ID-0", "duplicate");
+        try { _ = new LibrarianBatch(writes); throw new Exception("Duplicate write accepted."); }
+        catch (ArgumentException) { }
+        conditions[^1] = new LibrarianCondition("items", "ID-0", null);
+        try { _ = new LibrarianBatch([], conditions); throw new Exception("Duplicate condition accepted."); }
+        catch (ArgumentException) { }
+    }
+
+    [Test]
     public void Batch_copies_inputs_and_rejects_duplicate_document_addresses()
     {
         LibrarianWrite[] writes = [new("items", "id", "original")];
