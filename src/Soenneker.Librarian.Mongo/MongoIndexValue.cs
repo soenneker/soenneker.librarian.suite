@@ -4,37 +4,10 @@ using System.Text.Json;
 using Soenneker.Librarian.Abstractions.Serialization;
 using Soenneker.Utils.PooledStringBuilders;
 
-namespace Soenneker.Librarian.Redis;
+namespace Soenneker.Librarian.Mongo;
 
-public static class RedisIndexValue
+internal static class MongoIndexValue
 {
-    // Keep key segments readable while protecting separators, SORT patterns, and lexicographic ID bounds.
-    public static string KeySegment(string text)
-    {
-        var safe = true;
-        foreach (char character in text)
-            if (!char.IsAsciiLetterOrDigit(character) && character is not ('.' or '-' or '_')) { safe = false; break; }
-        if (safe) return text;
-        var builder = new PooledStringBuilder(text.Length);
-        try
-        {
-            Span<char> hex = stackalloc char[4];
-            foreach (char character in text)
-            {
-                if (char.IsAsciiLetterOrDigit(character) || character is '.' or '-' or '_')
-                    builder.Append(character);
-                else
-                {
-                    builder.Append('%');
-                    ((int)character).TryFormat(hex, out _, "X4", CultureInfo.InvariantCulture);
-                    builder.Append(hex);
-                }
-            }
-            return builder.ToString();
-        }
-        finally { builder.Dispose(); }
-    }
-
     internal static string Hex(string text, string prefix = "")
     {
         var builder = new PooledStringBuilder(checked(prefix.Length + text.Length * 4));
@@ -62,7 +35,7 @@ public static class RedisIndexValue
         }
     }
 
-    public static string Encode(object? value)
+    internal static string Encode(object? value)
     {
         // Preserve the serializer fallback for enums and custom values, but avoid a JSON document for scalar keys.
         switch (value)
@@ -80,11 +53,10 @@ public static class RedisIndexValue
             case byte number: return Number(number);
             case sbyte number: return Number(number);
         }
-        JsonElement? element = LibrarianJson.Element(value);
-        return element is { } scalar ? Encode(scalar) : "0";
+        return Encode(LibrarianJson.Element(value));
     }
 
-    public static string Encode(JsonElement value) => value.ValueKind switch
+    internal static string Encode(JsonElement value) => value.ValueKind switch
     {
         JsonValueKind.Null => "0",
         JsonValueKind.False => "10",
@@ -94,7 +66,7 @@ public static class RedisIndexValue
         _ => throw new ArgumentException("Indexed values must be null, booleans, decimal-compatible numbers, or strings.")
     };
 
-    // Fixed-width decimal encoding keeps the exact decimal order in Redis lexicographic sorted sets.
+    // Fixed-width decimal encoding keeps the exact decimal order in MongoDB lexicographic index values.
     private static string Number(decimal value)
     {
         return string.Create(59, value, static (destination, number) =>

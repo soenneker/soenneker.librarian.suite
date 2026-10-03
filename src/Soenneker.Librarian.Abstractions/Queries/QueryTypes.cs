@@ -9,7 +9,7 @@ using System.Linq.Expressions;
 namespace Soenneker.Librarian.Abstractions.Queries;
 
 // Every factory is instantiated by a generic API call, never MakeGenericType/Activator.
-internal static class QueryTypes
+public static class QueryTypes
 {
     private static readonly ConcurrentDictionary<Type, QueryType> _types = new();
     private static readonly ConcurrentDictionary<Type, QueryType> _queries = new();
@@ -63,7 +63,7 @@ internal static class QueryTypes
         Register<System.Text.Json.JsonElement?>();
     }
 
-    internal static QueryType Register<T>() => Cache<T>.Value;
+    public static QueryType Register<T>() => Cache<T>.Value;
 
     private static class Cache<T>
     {
@@ -89,10 +89,10 @@ internal static class QueryTypes
         return entry;
     }
 
-    internal static QueryType Get(Type type) => _types.TryGetValue(type, out QueryType? entry) ? entry
+    public static QueryType Get(Type type) => _types.TryGetValue(type, out QueryType? entry) ? entry
         : throw new NotSupportedException($"Query type {type} has not been registered by a generic query or LibrarianJson.Register<T>().");
 
-    internal static IQueryable CreateQuery(IQueryProvider provider, Expression expression)
+    public static IQueryable CreateQuery(IQueryProvider provider, Expression expression)
     {
         ArgumentNullException.ThrowIfNull(expression);
         if (_queries.TryGetValue(expression.Type, out QueryType? entry)) return entry.CreateQuery(provider, expression);
@@ -100,7 +100,7 @@ internal static class QueryTypes
         throw new ArgumentException("Use generic CreateQuery<T> for a new query element type.", nameof(expression));
     }
 
-    internal static bool IsMembershipCollection(object source)
+    public static bool IsMembershipCollection(object source)
     {
         Type type = source.GetType();
         if (type.IsArray) return true;
@@ -108,7 +108,3 @@ internal static class QueryTypes
         return _sets.TryGetValue(type, out Func<object, bool>? accepted) && accepted(source);
     }
 }
-
-internal sealed record QueryType(Func<IList> CreateList, object? Default,
-    Func<IQueryProvider, Expression, IQueryable> CreateQuery, Func<IEnumerable<object?>, object> CastSequence,
-    Comparison<object?> Compare, Func<object?, object?, bool> Equal, Func<object?, object?> Cast);

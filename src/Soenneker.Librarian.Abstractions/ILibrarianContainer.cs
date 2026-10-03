@@ -21,6 +21,13 @@ namespace Soenneker.Librarian.Abstractions;
 /// lifetime; use its UnloadContainer method to save and release a container, and stop concurrent operations before unloading.
 /// PostgreSQL mutations commit documents and persistent scalar indexes together in server transactions. Reads and queries use
 /// current server state; PostgreSQL Save and MarkDirty are no-ops, and unloading releases only the local handle.
+/// MongoDB also uses current server data and immediate atomic writes. Scalar index keys are persisted with
+/// each document using decimal and ordinal string semantics; index registrations survive unload and restart.
+/// Explicit index and bulk reads verify the database version and retry concurrent changes up to 16 times.
+/// MongoDB LINQ uses the driver's native aggregation pipelines and consistency semantics.
+/// Cosmos uses native point operations, JSON indexes, and SDK LINQ translation.
+/// Its queries follow Cosmos numeric, string, null/missing, consistency, and continuation-page semantics, rather than
+/// emulating local decimal/ordinal comparison or a database-wide snapshot. A Cosmos database key occupies one logical partition.
 /// </remarks>
 public interface ILibrarianContainer : IDisposable
 {
@@ -31,6 +38,8 @@ public interface ILibrarianContainer : IDisposable
     /// booleans, or null. Strings use ordinal comparison; numeric comparison uses decimal semantics.
     /// Malformed JSON and non-scalar indexed values reject index creation or subsequent writes before data changes.
     /// Indexes are maintained on writes. Memory/filesystem indexes must be recreated after unload or restart; Redis and PostgreSQL indexes persist.
+    /// Cosmos uses automatic JSON indexes without a registration requirement or scalar validation on writes. EnsureIndex
+    /// adds a native composite index for ordered range reads with an ID tie-breaker and waits for its online build.
     /// </remarks>
     /// <exception cref="TimeoutException">Redis index creation exhausted its bounded conflict retries.</exception>
     ValueTask EnsureIndex(string fieldPath, CancellationToken cancellationToken = default);
@@ -90,6 +99,18 @@ public interface ILibrarianContainer : IDisposable
     /// PostgreSQL unsupported expressions throw NotSupportedException. SQL OFFSET may visit skipped index entries.</remarks>
     /// <remarks>All built-in providers support the async terminal extensions in LibrarianQueryableExtensions.
     /// Remote providers await I/O; local providers run cancellable CPU work without Task.Run.</remarks>
+    /// <remarks>MongoDB delegates LINQ translation to the MongoDB driver's LINQ3 provider. Filtering, ordering,
+    /// grouping, aggregates, nested arrays, and supported projections execute on the server without requiring a bounded page.
+    /// Registered JSON contracts supply member names and serialization; raw JSON text remains unchanged beside a BSON query body.
+    /// LINQ follows native MongoDB numeric and null/missing semantics and does not register scalar indexes automatically.
+    /// Client-side projections are disabled. Unsupported driver expressions and overloads throw, including Take(0),
+    /// ordinal StringComparison overloads of StartsWith, and Join with a filtered inner source (such as a Librarian container).
+    /// JSON date strings remain strings, so BSON date-only operations require an explicit server conversion.
+    /// Both Librarian async terminals and MongoDB driver async/cursor extensions are supported.</remarks>
+    /// <remarks>Cosmos delegates expression translation and materialization to the Cosmos SDK and its configured serializer,
+    /// including its supported filters, ordering, projections, and aggregates. It does not require a bounded projection.
+    /// Cosmos SDK LINQ does not require LibrarianJson registration. Use native
+    /// Cosmos indexing policies for additional composite ordering. Unsupported expressions are rejected by the SDK.</remarks>
     IQueryable<T> BuildQueryable<T>();
 
     /// <summary>
@@ -112,6 +133,7 @@ public interface ILibrarianContainer : IDisposable
     /// <summary>Reads documents in request order, preserving duplicates and returning null for missing IDs.</summary>
     /// <remarks>Built-in providers capture one consistent snapshot without deserializing documents. Redis uses one server
     /// script and PostgreSQL one statement. The default implementation for third-party providers performs separate reads;
+    /// Cosmos uses the SDK ReadMany API and its native consistency guarantees rather than an additional snapshot protocol.
     /// use batch conditions when coordinating decisions across reads. Do not modify the IDs until the operation completes.</remarks>
     async ValueTask<string?[]> GetItems(IReadOnlyList<string> ids, CancellationToken cancellationToken = default)
     {
@@ -188,5 +210,7 @@ public interface ILibrarianContainer : IDisposable
     /// </summary>
     /// <param name="cancellationToken">Token used to cancel the operation.</param>
     /// <returns>An operation that completes after the in-memory mutation is tracked or the Redis mutation commits.</returns>
+    /// <remarks>MongoDB and Cosmos DB delete atomically. Cosmos uses a stored procedure; exceeding its server execution
+    /// budget rolls back the deletion. Use explicit smaller operations when atomicity is unnecessary.</remarks>
     ValueTask DeleteAllItems(CancellationToken cancellationToken = default);
 }

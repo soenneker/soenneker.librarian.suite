@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 namespace Soenneker.Librarian.Abstractions;
 
 /// <summary>
-/// A document database implemented by a memory, filesystem, Redis, PostgreSQL, Cloudflare D1, or Cloudflare R2 provider.
+/// A document database implemented by a memory, filesystem, Redis, PostgreSQL, MongoDB, Cosmos DB, or Cloudflare provider.
 /// </summary>
 public interface ILibrarianDatabase : IAsyncDisposable
 {
@@ -24,6 +24,15 @@ public interface ILibrarianDatabase : IAsyncDisposable
     /// <remarks>D1 and R2 coordinate within a single owner of each stored snapshot. Batches replace the complete snapshot
     /// before publication and include pending ordinary writes. Other instances must not share the same storage address.
     /// A transport failure or cancellation after dispatch can leave the remote commit outcome unknown.</remarks>
+    /// <remarks>MongoDB commits native documents and a database-wide version together. Conditions and writes
+    /// coordinate across provider instances; conflicts retry up to 16 times before throwing TimeoutException.
+    /// MongoDB requires a replica set or sharded cluster supporting transactions. Cosmos DB uses one logical partition per
+    /// Librarian database key in a container partitioned by /partitionKey. A lazily created Cosmos stored procedure checks
+    /// conditions and applies writes transactionally, including conditions on documents not otherwise written. Confirmed
+    /// transaction conflicts retry up to five times; other failures propagate. Cosmos request size, execution time, storage,
+    /// and partition throughput limits apply. Exceeding the procedure's execution budget rolls back the entire operation.
+    /// Transport failures after dispatch may leave either provider's commit outcome unknown. Reconcile before retrying.
+    /// Only Librarian providers may modify their stored documents and metadata.</remarks>
     ValueTask<bool> Execute(LibrarianBatch batch, CancellationToken cancellationToken = default) =>
         throw new NotSupportedException("This provider does not support atomic batches.");
 
@@ -59,6 +68,17 @@ public interface ILibrarianDatabase : IAsyncDisposable
     /// disposal; they do not run periodic saves. Failed saves retain pending changes for retry. Indexes are rebuilt after reload.
     /// D1 stores one snapshot row in librarian_snapshots, limited to 1,900,000 UTF-8 bytes including the logical name.
     /// R2 stores one JSON object. Both require an existing remote database or bucket and a single owner per snapshot.
+    /// MongoDB and Cosmos DB also write immediately; Save and MarkDirty perform no I/O. Unload releases local handles only.
+    /// Configure Librarian:Mongo:ConnectionString, DatabaseName, Key, and optionally CollectionName (default librarian).
+    /// Cosmos uses ICosmosContainerUtil and the existing Azure:Cosmos configuration: Endpoint, AccountKey, DatabaseName,
+    /// DatabaseThroughput, and DatabaseThroughputType, plus Environment for the shared client utility.
+    /// The first GetContainer or Execute ensures the database and physical container through the Cosmos utilities.
+    /// Azure:Cosmos:EnsureDatabaseOnFirstUse and EnsureContainerOnFirstUse default to true; disabling them requires
+    /// pre-provisioned resources. Optional Librarian:Cosmos:ContainerName and Key both default to librarian.
+    /// Supplying a Cosmos Container directly assumes it is already provisioned. Shared Cosmos clients remain utility-owned.
+    /// Both offer default/keyed singleton and scoped DI registrations; prefer singleton clients for connection reuse.
+    /// Caller-supplied MongoDB databases and Cosmos containers retain ownership of their clients after provider disposal.
+    /// The MongoDB and Cosmos SDK packages are not advertised as Native AOT compatible.
     /// </remarks>
     ValueTask Save(CancellationToken cancellationToken = default);
 

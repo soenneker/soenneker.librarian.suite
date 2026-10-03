@@ -7,7 +7,7 @@ using System.Linq.Expressions;
 
 namespace Soenneker.Librarian.Postgres;
 
-internal sealed class PostgresQueryable<T> : IOrderedQueryable<T>
+public sealed class PostgresQueryable<T> : IOrderedQueryable<T>
 {
     public PostgresQueryable(IQueryProvider provider, Expression? expression = null)
     {

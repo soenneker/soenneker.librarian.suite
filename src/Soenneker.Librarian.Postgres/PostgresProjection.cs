@@ -8,13 +8,13 @@ using Soenneker.Librarian.Abstractions.Serialization;
 
 namespace Soenneker.Librarian.Postgres;
 
-internal sealed class PostgresProjection
+public sealed class PostgresProjection
 {
     internal readonly List<(string Path, Type Type)> Columns = [];
     internal readonly List<PostgresScalar> Expressions = [];
     internal bool Scalar { get; private set; }
     internal Type ResultType { get; private set; } = null!;
-    internal Func<string?[], object?> Materialize { get; private set; } = null!;
+    public Func<string?[], object?> Materialize { get; private set; } = null!;
     private PostgresLambda _selector = null!;
 
     internal static PostgresProjection Create(PostgresLambda selector)

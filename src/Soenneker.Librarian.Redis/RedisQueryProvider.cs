@@ -12,7 +12,7 @@ using StackExchange.Redis;
 
 namespace Soenneker.Librarian.Redis;
 
-internal sealed class RedisQueryProvider<T>(RedisLibrarianContainer container) : ILibrarianAsyncQueryProvider
+public sealed class RedisQueryProvider<T>(RedisLibrarianContainer container) : ILibrarianAsyncQueryProvider
 {
     public IQueryable CreateQuery(Expression expression)
     {

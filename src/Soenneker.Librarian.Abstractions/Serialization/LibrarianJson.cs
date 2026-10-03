@@ -26,13 +26,13 @@ public static class LibrarianJson
         QueryTypes.Register<T>();
     }
 
-    internal static JsonTypeInfo Contract(Type type) => _contracts.TryGetValue(type, out JsonTypeInfo? contract)
+    public static JsonTypeInfo Contract(Type type) => _contracts.TryGetValue(type, out JsonTypeInfo? contract)
         ? contract : LibrarianScalarJsonContext.Default.GetTypeInfo(type)
         ?? throw new InvalidOperationException($"Register a source-generated JSON contract with LibrarianJson.Register<T>() before using {type}.");
 
-    internal static T? Deserialize<T>(string json) => JsonUtil.Deserialize(json, (JsonTypeInfo<T>)Contract(typeof(T)));
+    public static T? Deserialize<T>(string json) => JsonUtil.Deserialize(json, (JsonTypeInfo<T>)Contract(typeof(T)));
     // JsonUtil has no non-generic metadata overload; retain the registered AOT contract here.
-    internal static object? Deserialize(string json, Type type) => JsonSerializer.Deserialize(json, Contract(type));
-    internal static string Serialize<T>(T value) => JsonUtil.Serialize(value, (JsonTypeInfo<T>)Contract(typeof(T)));
-    internal static JsonElement Element(object? value) => JsonSerializer.SerializeToElement(value, Contract(value?.GetType() ?? typeof(string)));
+    public static object? Deserialize(string json, Type type) => JsonSerializer.Deserialize(json, Contract(type));
+    public static string Serialize<T>(T value) => JsonUtil.Serialize(value, (JsonTypeInfo<T>)Contract(typeof(T)));
+    public static JsonElement Element(object? value) => JsonSerializer.SerializeToElement(value, Contract(value?.GetType() ?? typeof(string)));
 }

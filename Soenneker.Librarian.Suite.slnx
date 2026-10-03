@@ -11,11 +11,13 @@
   <Folder Name="/src/">
     <Project Path="src/Soenneker.Librarian.Kv/Soenneker.Librarian.Kv.csproj" />
     <Project Path="src/Soenneker.Librarian.R2/Soenneker.Librarian.R2.csproj" />
+    <Project Path="src/Soenneker.Librarian.Cosmos/Soenneker.Librarian.Cosmos.csproj" />
     <Project Path="src/Soenneker.Librarian.D1/Soenneker.Librarian.D1.csproj" />
     <Project Path="src/Soenneker.Librarian.Abstractions/Soenneker.Librarian.Abstractions.csproj" />
     <Project Path="src/Soenneker.Librarian.Core/Soenneker.Librarian.Core.csproj" />
     <Project Path="src/Soenneker.Librarian.FileSystem/Soenneker.Librarian.FileSystem.csproj" />
     <Project Path="src/Soenneker.Librarian.Memory/Soenneker.Librarian.Memory.csproj" />
+    <Project Path="src/Soenneker.Librarian.Mongo/Soenneker.Librarian.Mongo.csproj" />
     <Project Path="src/Soenneker.Librarian.Postgres/Soenneker.Librarian.Postgres.csproj" />
     <Project Path="src/Soenneker.Librarian.Redis/Soenneker.Librarian.Redis.csproj" />
     <Project Path="src/Soenneker.Librarian.Website/Soenneker.Librarian.Website.csproj" />

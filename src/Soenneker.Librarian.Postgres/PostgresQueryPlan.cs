@@ -10,13 +10,13 @@ using System.Text.Json.Serialization;
 
 namespace Soenneker.Librarian.Postgres;
 
-internal sealed class PostgresQueryPlan
+public sealed class PostgresQueryPlan
 {
     internal readonly List<string> Paths = [];
     internal string? Terminal;
     private PostgresQueryFilter? _filter;
     internal readonly List<(string Path, bool Descending)> Orders = [];
-    internal PostgresProjection? Projection;
+    public PostgresProjection? Projection;
     internal string? AggregatePath;
     internal Type? AggregateType;
     internal PostgresScalar? AggregateExpression;
@@ -32,7 +32,7 @@ internal sealed class PostgresQueryPlan
     internal bool CountOnly => Terminal is nameof(Queryable.Count) or nameof(Queryable.LongCount) or nameof(Queryable.Any) or nameof(Queryable.All);
     internal bool Aggregate => AggregateExpression is not null;
 
-    internal static PostgresQueryPlan Create(Expression expression, IQueryProvider owner)
+    public static PostgresQueryPlan Create(Expression expression, IQueryProvider owner)
     {
         var plan = new PostgresQueryPlan();
         plan.Parse(expression, owner);

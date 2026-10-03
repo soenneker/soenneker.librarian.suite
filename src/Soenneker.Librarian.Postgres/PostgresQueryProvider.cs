@@ -12,7 +12,7 @@ using Soenneker.Librarian.Abstractions.Serialization;
 
 namespace Soenneker.Librarian.Postgres;
 
-internal sealed class PostgresQueryProvider<T>(PostgresLibrarianContainer container) : ILibrarianAsyncQueryProvider
+public sealed class PostgresQueryProvider<T>(PostgresLibrarianContainer container) : ILibrarianAsyncQueryProvider
 {
     public IQueryable CreateQuery(Expression expression)
     {

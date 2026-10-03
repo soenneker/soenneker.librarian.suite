@@ -7,7 +7,7 @@ using System.Linq.Expressions;
 
 namespace Soenneker.Librarian.Redis;
 
-internal sealed class RedisQueryable<T> : IOrderedQueryable<T>
+public sealed class RedisQueryable<T> : IOrderedQueryable<T>
 {
     public RedisQueryable(IQueryProvider provider, Expression? expression = null)
     {

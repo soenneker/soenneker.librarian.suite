@@ -1,10 +1,10 @@
 @page "/"
-<LibrarianSeoHead Title="Librarian — Your documents. Your choice of storage." Description="Open-source document storage for .NET 10. One familiar API for Memory, FileSystem, Redis, and PostgreSQL, with indexed queries and atomic batches." />
+<LibrarianSeoHead Title="Librarian — Your documents. Your choice of storage." Description="Open-source document storage for .NET 10. One familiar API for Memory, FileSystem, Redis, PostgreSQL, MongoDB, and Cosmos DB, with indexed queries and atomic batches." />
 <Section Class="hero shell">
     <Div Class="hero-copy">
         <Span Class="eyebrow"><span class="status-dot"></span> DOCUMENT STORAGE FOR .NET 10</Span>
         <H1>Your documents.<br /><em>Your stack.</em></H1>
-        <Paragraph Class="hero-description">A consistent .NET API for documents, indexed queries, and atomic writes. Run in memory, on disk, or with Redis and PostgreSQL.</Paragraph>
+        <Paragraph Class="hero-description">A consistent .NET API for documents, indexed queries, and atomic writes. Run in memory, on disk, or with Redis, PostgreSQL, MongoDB, and Cosmos DB.</Paragraph>
         <Div Class="hero-actions"><Anchor Href="/getting-started/" Class="button">Get started <span aria-hidden="true">↗</span></Anchor><Anchor Href="#performance" Class="text-link">View benchmarks <span aria-hidden="true">↓</span></Anchor></Div>
         <Div Class="hero-note"><Span>Open source</Span><span aria-hidden="true">/</span><Span>MIT licensed</Span><span aria-hidden="true">/</span><Span>Made for .NET</Span></Div>
     </Div>
@@ -59,7 +59,9 @@
         ("memory", "Memory", "◈", "Fast, in-process storage for temporary data, tests, and getting started.", "START SIMPLE"),
         ("filesystem", "FileSystem", "▤", "In-memory documents backed by a JSON file. Local persistence for a single process.", "KEEP IT LOCAL"),
         ("redis", "Redis", "≋", "Share documents and indexes across instances. No Redis modules or Lua required.", "WORK TOGETHER"),
-        ("postgres", "PostgreSQL", "▥", "Persistent documents, SQL-backed queries, and atomic transactions.", "BUILD TO LAST")
+        ("postgres", "PostgreSQL", "▥", "Persistent documents, SQL-backed queries, and atomic transactions.", "BUILD TO LAST"),
+        ("mongo", "MongoDB", "◈", "Native documents with server queries and atomic transactions.", "NATIVE DOCUMENTS"),
+        ("cosmos", "Cosmos DB", "◉", "Azure NoSQL documents with server queries and partition-scoped atomic batches.", "AZURE STORAGE")
     ];
     private const string Example = """"
         // Register your storage provider.

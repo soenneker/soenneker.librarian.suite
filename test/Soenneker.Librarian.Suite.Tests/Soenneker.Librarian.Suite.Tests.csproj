@@ -7,7 +7,9 @@
         <IsPackable>false</IsPackable>
     </PropertyGroup>
 
-    <ItemGroup><PackageReference Include="TUnit" Version="1.72.16" />
+    <ItemGroup>
+        <PackageReference Include="Moq" Version="4.20.72" />
+        <PackageReference Include="TUnit" Version="1.72.16" />
     </ItemGroup>
 
     <ItemGroup>
@@ -20,6 +22,8 @@
         <ProjectReference Include="../../src/Soenneker.Librarian.FileSystem/Soenneker.Librarian.FileSystem.csproj" />
         <ProjectReference Include="../../src/Soenneker.Librarian.Redis/Soenneker.Librarian.Redis.csproj" />
         <ProjectReference Include="..\..\src\Soenneker.Librarian.Postgres\Soenneker.Librarian.Postgres.csproj" />
+        <ProjectReference Include="..\..\src\Soenneker.Librarian.Mongo\Soenneker.Librarian.Mongo.csproj" />
+        <ProjectReference Include="..\..\src\Soenneker.Librarian.Cosmos\Soenneker.Librarian.Cosmos.csproj" />
     </ItemGroup>
 
 </Project>

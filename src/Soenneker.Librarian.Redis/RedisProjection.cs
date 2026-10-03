@@ -7,12 +7,12 @@ using Soenneker.Librarian.Abstractions.Serialization;
 
 namespace Soenneker.Librarian.Redis;
 
-internal sealed class RedisProjection
+public sealed class RedisProjection
 {
     internal readonly List<(string Path, Type Type)> Columns = [];
     internal bool Scalar { get; private set; }
     internal Type ResultType { get; private set; } = null!;
-    internal Func<string?[], object?> Materialize { get; private set; } = null!;
+    public Func<string?[], object?> Materialize { get; private set; } = null!;
 
     internal static RedisProjection Create(LambdaExpression selector)
     {
@@ -66,7 +66,7 @@ internal sealed class RedisProjection
     private static object? Read(string json, Type type) =>
         LibrarianJson.Deserialize(json, type);
 
-    internal object? FromDocument(string document)
+    public object? FromDocument(string document)
     {
         using JsonDocument json = JsonDocument.Parse(document);
         var fields = new string?[Columns.Count];

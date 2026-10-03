@@ -14,6 +14,7 @@ namespace Soenneker.Librarian.Suite.Tests;
 [JsonSerializable(typeof(OtherRow), TypeInfoPropertyName = "OtherRow")]
 [JsonSerializable(typeof(PlannerRow), TypeInfoPropertyName = "PlannerRow")]
 [JsonSerializable(typeof(PostgresRow), TypeInfoPropertyName = "PostgresRow")]
+[JsonSerializable(typeof(MongoLinqRow))]
 [JsonSerializable(typeof(QueryableRow), TypeInfoPropertyName = "QueryableRow")]
 [JsonSerializable(typeof(RedisRow), TypeInfoPropertyName = "RedisRow")]
 [JsonSerializable(typeof(RedisStatus), TypeInfoPropertyName = "RedisStatus")]
@@ -35,6 +36,7 @@ internal partial class TestJsonContext : JsonSerializerContext
         LibrarianJson.Register(Default.PlannerRow);
         LibrarianJson.Register(Default.PostgresRow);
         LibrarianJson.Register(Default.QueryableRow);
+        LibrarianJson.Register(Default.MongoLinqRow);
         LibrarianJson.Register(Default.RedisRow);
         LibrarianJson.Register(Default.RedisStatus);
         LibrarianJson.Register(Default.IncrementalBatchTestsRow);

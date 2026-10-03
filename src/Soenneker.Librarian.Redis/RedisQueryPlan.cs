@@ -10,11 +10,11 @@ using System.Text.Json.Serialization;
 
 namespace Soenneker.Librarian.Redis;
 
-internal sealed class RedisQueryPlan
+public sealed class RedisQueryPlan
 {
     internal readonly List<string> Paths = [];
     internal string? Terminal;
-    internal RedisProjection? Projection;
+    public RedisProjection? Projection;
     private RedisQueryFilter? _filter;
     private bool _paged;
 
@@ -29,7 +29,7 @@ internal sealed class RedisQueryPlan
 
     internal bool CountOnly => Terminal is nameof(Queryable.Count) or nameof(Queryable.LongCount) or nameof(Queryable.Any) or nameof(Queryable.All);
 
-    internal static RedisQueryPlan Create(Expression expression, IQueryProvider owner)
+    public static RedisQueryPlan Create(Expression expression, IQueryProvider owner)
     {
         var plan = new RedisQueryPlan();
         plan.Parse(expression, owner);
