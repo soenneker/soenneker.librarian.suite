@@ -107,21 +107,6 @@ internal sealed class DocumentIndex
         return new CandidateEnumerator(At(descending ? upper - 1 : lower), upper - lower, descending);
     }
 
-    internal struct CandidateEnumerator(DocumentIndexNode? next, int remaining, bool descending)
-    {
-        public string Current { get; private set; } = null!;
-        public readonly CandidateEnumerator GetEnumerator() => this;
-
-        public bool MoveNext()
-        {
-            if (remaining <= 0) return false;
-            Current = next!.Id;
-            next = descending ? next.Previous : next.Next;
-            remaining--;
-            return true;
-        }
-    }
-
     internal int CountRange(IndexKey? minimum, IndexKey? maximum, bool includeMinimum = true, bool includeMaximum = true)
         => Math.Max(0, (maximum is { } hi ? Rank(hi, includeMaximum) : Size(_root)) - (minimum is { } lo ? Rank(lo, !includeMinimum) : 0));
 

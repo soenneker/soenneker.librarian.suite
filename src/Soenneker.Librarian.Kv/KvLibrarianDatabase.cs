@@ -55,10 +55,14 @@ public sealed class KvLibrarianDatabase : SnapshotLibrarianDatabase
         if (stream is null)
             return null;
 
-        await using (stream.ConfigureAwait(false))
+        try
         {
             using var reader = new StreamReader(stream, new UTF8Encoding(false, true));
             return await reader.ReadToEndAsync(cancellationToken).NoSync();
+        }
+        finally
+        {
+            await stream.DisposeAsync().NoSync();
         }
     }
 

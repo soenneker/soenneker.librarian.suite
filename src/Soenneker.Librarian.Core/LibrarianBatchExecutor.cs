@@ -22,26 +22,27 @@ public sealed class LibrarianBatchExecutor
         Func<IReadOnlyDictionary<string, List<IdValuePair>>, CancellationToken, ValueTask>? persist = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(batch);
+        batch.ValidateConcurrency(supportsVersions: false);
         using (await Gate.Lock(cancellationToken).NoSync())
         {
             cancellationToken.ThrowIfCancellationRequested();
             foreach (LibrarianCondition condition in batch.Conditions)
                 if (!string.Equals(containers[condition.Container].ReadForBatch(condition.Id), condition.ExpectedValue, StringComparison.Ordinal)) return false;
             if (batch.Writes.Count == 0) return true;
-            var prepared = new Dictionary<string, LibrarianContainerState>(StringComparer.Ordinal);
+            var prepared = new Dictionary<string, Dictionary<string, LibrarianPreparedWrite>>(StringComparer.Ordinal);
             foreach (LibrarianWrite write in batch.Writes)
             {
-                if (!prepared.TryGetValue(write.Container, out LibrarianContainerState? state))
+                if (!prepared.TryGetValue(write.Container, out Dictionary<string, LibrarianPreparedWrite>? state))
                 {
-                    state = new LibrarianContainerState(new Dictionary<string, LibrarianPreparedWrite>(StringComparer.OrdinalIgnoreCase));
+                    state = new Dictionary<string, LibrarianPreparedWrite>(StringComparer.OrdinalIgnoreCase);
                     prepared.Add(write.Container, state);
                 }
                 containers[write.Container].PrepareBatchWrite(write, state, cancellationToken);
             }
             cancellationToken.ThrowIfCancellationRequested();
-            bool changed = false;
-            foreach (LibrarianContainerState state in prepared.Values)
-                if (state.Writes.Count > 0) { changed = true; break; }
+            var changed = false;
+            foreach (Dictionary<string, LibrarianPreparedWrite> state in prepared.Values)
+                if (state.Count > 0) { changed = true; break; }
             if (persist is not null && changed)
             {
                 var snapshots = new Dictionary<string, List<IdValuePair>>(StringComparer.Ordinal);
@@ -50,7 +51,7 @@ public sealed class LibrarianBatchExecutor
                 await persist(snapshots, cancellationToken).NoSync();
                 // Persistence is the commit point. Do not cancel publication after it succeeds.
             }
-            foreach (KeyValuePair<string, LibrarianContainerState> pair in prepared) containers[pair.Key].PublishBatch(pair.Value);
+            foreach (KeyValuePair<string, Dictionary<string, LibrarianPreparedWrite>> pair in prepared) containers[pair.Key].PublishBatch(pair.Value);
             return true;
         }
     }

@@ -21,7 +21,7 @@ public sealed partial class PostgresLibrarianContainer
         await using NpgsqlConnection connection = await _database.Open(cancellationToken).NoSync();
         await RequireIndex(connection, fieldPath, cancellationToken).NoSync();
         var values = new List<object> { fieldPath };
-        string sql = "SELECT COUNT(*) FROM public.librarian_postgres_values WHERE database_key=$1 AND container=$2 AND path=$3";
+        var sql = "SELECT COUNT(*) FROM public.librarian_postgres_values WHERE database_key=$1 AND container=$2 AND path=$3";
         if (min is not null) { values.Add(min); sql += " AND value >= $" + (values.Count + 2); }
         if (max is not null) { values.Add(max); sql += " AND value <= $" + (values.Count + 2); }
         await using NpgsqlCommand command = Command(connection, sql, values.ToArray());
@@ -35,7 +35,7 @@ public sealed partial class PostgresLibrarianContainer
         cancellationToken.ThrowIfCancellationRequested();
         if (ids.Count == 0) return [];
         var keys = new string[ids.Count];
-        for (int i = 0; i < ids.Count; i++) keys[i] = Id(ids[i]);
+        for (var i = 0; i < ids.Count; i++) keys[i] = Id(ids[i]);
         await using NpgsqlConnection connection = await _database.Open(cancellationToken).NoSync();
         await using NpgsqlCommand command = Command(connection, """
             SELECT d.document FROM unnest($3::text[]) WITH ORDINALITY AS requested(id_key, position)
@@ -45,7 +45,7 @@ public sealed partial class PostgresLibrarianContainer
             """, (object)keys);
         await using NpgsqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken).NoSync();
         var result = new string?[keys.Length];
-        int index = 0;
+        var index = 0;
         while (await reader.ReadAsync(cancellationToken).NoSync())
             result[index++] = reader.IsDBNull(0) ? null : reader.GetString(0);
         return result;

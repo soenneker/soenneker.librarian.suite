@@ -46,8 +46,6 @@
 </Section>
 
 @code {
-    private sealed record Measurement(decimal Time, long Bytes);
-    private sealed record Comparison(string Label, Measurement Librarian, Measurement LiteDb, Measurement Sqlite);
     private static readonly Comparison[] Results = LoadResults();
 
     private static string FormatTime(decimal value) => value.ToString("N3", CultureInfo.InvariantCulture);

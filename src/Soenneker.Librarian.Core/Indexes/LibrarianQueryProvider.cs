@@ -18,10 +18,10 @@ internal sealed class LibrarianQueryProvider<T>(LibrarianContainer container) : 
             var plan = QueryPlan.Create(expression, this);
             if (plan?.Prefix == expression)
                 return plan.ResidualPredicate is not null
-                    ? (IEnumerable<TElement>)container.QuerySource<T>(plan).GetAwaiter().GetResult()
-                    : (IEnumerable<TElement>)container.QuerySnapshot<T>(plan).GetAwaiter().GetResult();
+                    ? (IEnumerable<TElement>)container.QuerySourceSync<T>(plan)
+                    : (IEnumerable<TElement>)container.QuerySnapshotSync<T>(plan);
             if (expression is ConstantExpression { Value: IQueryable query } && query.Provider == this)
-                return (IEnumerable<TElement>)container.QuerySource<T>(null).GetAwaiter().GetResult();
+                return (IEnumerable<TElement>)container.QuerySourceSync<T>(null);
         }
         if (expression is MethodCallExpression call && call.Method.DeclaringType == typeof(Queryable))
         {
@@ -45,7 +45,7 @@ internal sealed class LibrarianQueryProvider<T>(LibrarianContainer container) : 
                     if (page?.Prefix == projection.Arguments[0] && page.ResidualPredicate is null)
                     {
                         page.Take = Math.Min(page.Take, amount);
-                        return container.QuerySnapshot<T>(page).GetAwaiter().GetResult().Select(QueryFunction<T, TElement>.Get(project));
+                        return container.QuerySnapshotSync<T>(page).Select(QueryFunction<T, TElement>.Get(project));
                     }
                 }
                 IEnumerable<TElement> source = ExecuteSequence<TElement>(call.Arguments[0]);
@@ -64,7 +64,7 @@ internal sealed class LibrarianQueryProvider<T>(LibrarianContainer container) : 
         if (typeof(TElement) == typeof(T))
         {
             var plan = QueryPlan.Create(expression, this);
-            if (plan?.Prefix == expression) return (IEnumerable<TElement>)container.QuerySource<T>(plan).GetAwaiter().GetResult();
+            if (plan?.Prefix == expression) return (IEnumerable<TElement>)container.QuerySourceSync<T>(plan);
         }
         return ExecuteSequence<TElement>(expression);
     }
@@ -101,7 +101,7 @@ internal sealed class LibrarianQueryProvider<T>(LibrarianContainer container) : 
             MethodCallExpression page = paging[i];
             plan.ApplyPage(page.Method.Name, (int)((ConstantExpression)page.Arguments[1]).Value!);
         }
-        result = container.QuerySnapshot<T>(plan).GetAwaiter().GetResult().Select(QueryFunction<T, TElement>.Get(selector));
+        result = container.QuerySnapshotSync<T>(plan).Select(QueryFunction<T, TElement>.Get(selector));
         return true;
     }
 
@@ -137,8 +137,8 @@ internal sealed class LibrarianQueryProvider<T>(LibrarianContainer container) : 
             var plan = QueryPlan.Create(expression, this);
             if (plan?.Prefix == expression)
                 return plan.ResidualPredicate is not null
-                    ? (TResult)container.QuerySource<T>(plan).GetAwaiter().GetResult()
-                    : (TResult)container.QuerySnapshot<T>(plan).GetAwaiter().GetResult();
+                    ? (TResult)container.QuerySourceSync<T>(plan)
+                    : (TResult)container.QuerySnapshotSync<T>(plan);
         }
         return (TResult)ExecuteLocal(expression)!;
     }
@@ -157,7 +157,16 @@ internal sealed class LibrarianQueryProvider<T>(LibrarianContainer container) : 
         var plan = QueryPlan.Create(expression, this);
         IEnumerable<T> source = await container.QuerySource<T>(plan, cancellationToken).NoSync();
         cancellationToken.ThrowIfCancellationRequested();
-        return (TResult)LocalExecutor(plan, source, cancellationToken).Execute(expression)!;
+        IEnumerable<T>? unfiltered = plan is not null && NeedsUnfilteredSource(expression, plan.Prefix)
+            ? await container.QuerySource<T>(null, cancellationToken).NoSync() : source;
+        return (TResult)LocalExecutor(plan, source, cancellationToken, unfiltered).Execute(expression)!;
+    }
+
+    private bool NeedsUnfilteredSource(Expression expression, Expression? prefix)
+    {
+        if (expression == prefix) return false;
+        if (expression is ConstantExpression { Value: IQueryable query }) return query.Provider == this;
+        return expression is MethodCallExpression call && call.Arguments.Any(argument => NeedsUnfilteredSource(argument, prefix));
     }
 
     private static Expression NormalizeProjectedPaging(Expression expression)
@@ -258,7 +267,7 @@ internal sealed class LibrarianQueryProvider<T>(LibrarianContainer container) : 
         if (plan is null || plan.ResidualPredicate is not null || plan.Prefix != source) return false;
         bool single = call.Method.Name is nameof(Queryable.Single) or nameof(Queryable.SingleOrDefault);
         plan.Take = Math.Min(plan.Take, single ? 2 : 1);
-        IReadOnlyList<T> items = container.QuerySnapshot<T>(plan).GetAwaiter().GetResult();
+        IReadOnlyList<T> items = container.QuerySnapshotSync<T>(plan);
         if (single && items.Count > 1) throw new InvalidOperationException("Sequence contains more than one element");
         if (items.Count != 0) result = items[0];
         else if (call.Method.Name is nameof(Queryable.First) or nameof(Queryable.Single))
@@ -285,7 +294,7 @@ internal sealed class LibrarianQueryProvider<T>(LibrarianContainer container) : 
     {
         result = null;
         if (CountPlan(expression) is not { } plan) return false;
-        container.QuerySnapshot<T>(plan).GetAwaiter().GetResult();
+        container.QuerySnapshotSync<T>(plan);
         result = ((MethodCallExpression)expression).Method.Name switch
         {
             nameof(Queryable.Any) => (object)(plan.Count != 0),
@@ -297,15 +306,15 @@ internal sealed class LibrarianQueryProvider<T>(LibrarianContainer container) : 
     private object? ExecuteLocal(Expression expression)
     {
         var plan = QueryPlan.Create(expression, this);
-        IEnumerable<T> source = container.QuerySource<T>(plan).GetAwaiter().GetResult();
+        IEnumerable<T> source = container.QuerySourceSync<T>(plan);
         return LocalExecutor(plan, source).Execute(expression);
     }
 
-    private LocalQueryExecutor LocalExecutor(QueryPlan? plan, IEnumerable<T> source, CancellationToken token = default) => new(node =>
+    private LocalQueryExecutor LocalExecutor(QueryPlan? plan, IEnumerable<T> source, CancellationToken token = default, IEnumerable<T>? unfiltered = null) => new(node =>
     {
         if (node == plan?.Prefix) return source.Cast<object?>();
         if (node is ConstantExpression { Value: IQueryable query } && query.Provider == this)
-            return (plan is null ? source : container.QuerySource<T>(null, token).GetAwaiter().GetResult()).Cast<object?>();
+            return (unfiltered ?? (plan is null ? source : container.QuerySourceSync<T>(null, token))).Cast<object?>();
         return null;
     });
 

@@ -119,26 +119,3 @@ public class PostgresTests
         if (!condition) throw new InvalidOperationException(message);
     }
 }
-
-public sealed class PostgresRow
-{
-    public static readonly ReadCounter Reads = new();
-    private decimal _amount;
-    public decimal Amount { get => _amount; set { _amount = value; Reads.Value++; } }
-    public string? Name { get; set; }
-    public bool Active { get; set; }
-
-    public sealed class ReadCounter
-    {
-        private readonly AsyncLocal<int[]> _scope = new();
-        public int Value
-        {
-            get => _scope.Value?[0] ?? 0;
-            set
-            {
-                if (value == 0 || _scope.Value is null) _scope.Value = [value];
-                else _scope.Value[0] = value;
-            }
-        }
-    }
-}

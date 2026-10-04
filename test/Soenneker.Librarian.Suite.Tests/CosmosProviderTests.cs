@@ -1,8 +1,6 @@
 using System;
-using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Linq.Expressions;
 using System.Net;
 using System.Text;
 using System.Text.Json;
@@ -10,16 +8,12 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Azure.Cosmos;
 using Microsoft.Azure.Cosmos.Linq;
-using Microsoft.Azure.Cosmos.Scripts;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
 using Moq;
-using Soenneker.Cosmos.Client.Abstract;
 using Soenneker.Cosmos.Container.Abstract;
 using Soenneker.Librarian.Abstractions;
 using Soenneker.Librarian.Abstractions.Transactions;
 using Soenneker.Librarian.Cosmos;
-using Soenneker.Librarian.Cosmos.Registrars;
+using static Soenneker.Librarian.Suite.Tests.DocumentProviderAssertions;
 
 namespace Soenneker.Librarian.Suite.Tests;
 
@@ -32,131 +26,95 @@ public sealed class CosmosProviderTests
         if (json is not null) response.Content = new MemoryStream(Encoding.UTF8.GetBytes(json));
         return response;
     }
-
     [Test]
-    public async Task First_access_ensures_database_and_container_through_existing_utilities()
-    {
-        var client = new Mock<CosmosClient>();
-        var sdkDatabase = new Mock<Database>();
-        sdkDatabase.SetupGet(d => d.Client).Returns(client.Object);
-        sdkDatabase.SetupGet(d => d.Id).Returns("test-database");
-        var container = new Mock<Container>();
-        var databaseResponse = new Mock<DatabaseResponse>();
-        databaseResponse.SetupGet(r => r.Database).Returns(sdkDatabase.Object);
-        var containerResponse = new Mock<ContainerResponse>();
-        containerResponse.SetupGet(r => r.Container).Returns(container.Object);
-        client.Setup(c => c.CreateDatabaseIfNotExistsAsync("test-database", It.IsAny<ThroughputProperties>(), It.IsAny<RequestOptions>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(databaseResponse.Object);
-        client.Setup(c => c.GetDatabase("test-database")).Returns(sdkDatabase.Object);
-        client.Setup(c => c.GetContainer("test-database", "librarian")).Returns(container.Object);
-        sdkDatabase.Setup(d => d.CreateContainerIfNotExistsAsync(It.IsAny<ContainerProperties>(), It.IsAny<ThroughputProperties>(), It.IsAny<RequestOptions>(), It.IsAny<CancellationToken>()))
-            .Callback<ContainerProperties, ThroughputProperties, RequestOptions, CancellationToken>((p, _, _, _) =>
-                DocumentProviderAssertions.Check(p.Id == "librarian" && p.PartitionKeyPath == "/partitionKey", "Wrong container schema."))
-            .ReturnsAsync(containerResponse.Object);
-        var clients = new Mock<ICosmosClientUtil>();
-        clients.Setup(c => c.Get(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync(client.Object);
-        IConfiguration configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
-        {
-            ["Azure:Cosmos:Endpoint"] = "https://localhost:8081/", ["Azure:Cosmos:AccountKey"] = "test",
-            ["Azure:Cosmos:DatabaseName"] = "test-database", ["Azure:Cosmos:DatabaseThroughput"] = "400",
-            ["Azure:Cosmos:DatabaseThroughputType"] = "manual"
-        }).Build();
-        await using ServiceProvider services = new ServiceCollection().AddLogging().AddSingleton(configuration)
-            .AddSingleton(clients.Object).AddCosmosLibrarianDatabaseAsSingleton().BuildServiceProvider();
-        ILibrarianDatabase database = services.GetRequiredService<ILibrarianDatabase>();
-        client.Verify(c => c.GetContainer(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
-        ILibrarianContainer first = await database.GetContainer("items");
-        DocumentProviderAssertions.Check(ReferenceEquals(first, await database.GetContainer("items")), "Handle not cached.");
-        await database.GetContainer("other");
-        client.Verify(c => c.CreateDatabaseIfNotExistsAsync("test-database", It.IsAny<ThroughputProperties>(), It.IsAny<RequestOptions>(), It.IsAny<CancellationToken>()), Times.Once);
-        sdkDatabase.Verify(d => d.CreateContainerIfNotExistsAsync(It.IsAny<ContainerProperties>(), It.IsAny<ThroughputProperties>(), It.IsAny<RequestOptions>(), It.IsAny<CancellationToken>()), Times.Once);
-        await database.DisposeAsync();
-        clients.Verify(c => c.Dispose(), Times.Never);
-    }
-
-    [Test]
-    public async Task Failed_first_access_can_retry_and_cancellation_does_not_initialize()
+    public async Task First_access_provisions_each_physical_container_once_through_utilities()
     {
         var util = new Mock<ICosmosContainerUtil>(MockBehavior.Strict);
-        var container = new Mock<Container>();
-        util.SetupSequence(u => u.Get("librarian", It.IsAny<CancellationToken>()))
-            .ThrowsAsync(new InvalidOperationException("Setup failed")).ReturnsAsync(container.Object);
-        await using var database = new CosmosLibrarianDatabase(util.Object, "librarian");
+        util.Setup(u => u.Get(It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync(Mock.Of<Container>());
+        await using var database = new CosmosLibrarianDatabase(util.Object, "key");
+        util.Verify(u => u.Get(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+        ILibrarianContainer first = await database.GetContainer("items");
+        Check(ReferenceEquals(first, await database.GetContainer("items")), "Handle not cached.");
+        await database.GetContainer("items", "org-a");
+        await database.GetContainer("other");
+        util.Verify(u => u.Get("librarian.key.items", It.IsAny<CancellationToken>()), Times.Once);
+        util.Verify(u => u.Get("librarian.key.other", It.IsAny<CancellationToken>()), Times.Once);
+    }
+    [Test]
+    public async Task Failed_first_access_retries_and_cancellation_does_not_initialize()
+    {
+        var util = new Mock<ICosmosContainerUtil>(MockBehavior.Strict);
+        util.SetupSequence(u => u.Get("librarian.key.items", It.IsAny<CancellationToken>())).ThrowsAsync(new InvalidOperationException("Setup failed")).ReturnsAsync(Mock.Of<Container>());
+        await using var database = new CosmosLibrarianDatabase(util.Object, "key");
         try { await database.GetContainer("items", new CancellationToken(true)); throw new Exception("Cancellation ignored."); } catch (OperationCanceledException) { }
         util.Verify(u => u.Get(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
-        try { await database.GetContainer("items"); throw new Exception("Setup error swallowed."); } catch (InvalidOperationException) { }
+        try { await database.GetContainer("items"); throw new Exception("Failure hidden."); } catch (InvalidOperationException) { }
         await database.GetContainer("items");
-        util.Verify(u => u.Get("librarian", It.IsAny<CancellationToken>()), Times.Exactly(2));
+        util.Verify(u => u.Get("librarian.key.items", It.IsAny<CancellationToken>()), Times.Exactly(2));
     }
-
     [Test]
-    public async Task Add_is_one_native_point_write_without_metadata_or_encoded_indexes()
+    public async Task Document_json_is_written_directly_using_its_partition_key()
     {
-        var container = new Mock<Container>(MockBehavior.Strict);
+        var store = new Mock<Container>(MockBehavior.Strict);
+        store.SetupGet(c => c.Id).Returns("items");
         string? payload = null;
-        container.Setup(c => c.CreateItemStreamAsync(It.IsAny<Stream>(), new PartitionKey("key"), It.IsAny<ItemRequestOptions>(), It.IsAny<CancellationToken>()))
+        store.Setup(c => c.CreateItemStreamAsync(It.IsAny<Stream>(), new PartitionKey("org-a"), It.IsAny<ItemRequestOptions>(), It.IsAny<CancellationToken>()))
             .Callback<Stream, PartitionKey, ItemRequestOptions, CancellationToken>((stream, _, _, _) => payload = new StreamReader(stream, leaveOpen: true).ReadToEnd())
             .ReturnsAsync(() => Response(HttpStatusCode.Created));
-        await using var database = new CosmosLibrarianDatabase(container.Object, "key");
+        await using var database = new CosmosLibrarianDatabase(store.Object);
         ILibrarianContainer items = await database.GetContainer("items");
-        await items.AddItem("ID/with?#", "{ \"amount\": 1.00 }");
-        using JsonDocument json = JsonDocument.Parse(payload!);
-        DocumentProviderAssertions.Check(json.RootElement.GetProperty("body").GetProperty("amount").GetDecimal() == 1m, "Document is not natively queryable.");
-        DocumentProviderAssertions.Check(json.RootElement.GetProperty("rawJson").GetString() == "{ \"amount\": 1.00 }", "Raw JSON changed.");
-        DocumentProviderAssertions.Check(!json.RootElement.TryGetProperty("values", out _), "Encoded indexes retained.");
-        container.Verify(c => c.CreateItemStreamAsync(It.IsAny<Stream>(), It.IsAny<PartitionKey>(), It.IsAny<ItemRequestOptions>(), It.IsAny<CancellationToken>()), Times.Once);
-        container.VerifyNoOtherCalls();
+        string document = NativeDocumentJson.Create("org-a:one", "{\"score_value\":7}");
+        await items.AddItem("org-a:one", document);
+        Check(payload == document && !payload.Contains("rawJson") && !payload.Contains("body"), "Document was wrapped or transformed.");
+        try { await items.AddItem("wrong", document); throw new Exception("Identity mismatch accepted."); } catch (ArgumentException) { }
+        store.Verify(c => c.CreateItemStreamAsync(It.IsAny<Stream>(), It.IsAny<PartitionKey>(), It.IsAny<ItemRequestOptions>(), It.IsAny<CancellationToken>()), Times.Once);
     }
-
     [Test]
-    public async Task Reads_propagate_authorization_errors()
+    public async Task Reads_use_document_identity_and_propagate_authorization_errors()
     {
-        var container = new Mock<Container>(MockBehavior.Strict);
-        container.Setup(c => c.ReadItemStreamAsync(It.IsAny<string>(), It.IsAny<PartitionKey>(), It.IsAny<ItemRequestOptions>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(() => Response(HttpStatusCode.Forbidden));
-        await using var database = new CosmosLibrarianDatabase(container.Object);
-        try { await (await database.GetContainer("items")).GetItem("a"); throw new Exception("Authorization failure treated as missing."); }
-        catch (CosmosException exception) when (exception.StatusCode == HttpStatusCode.Forbidden) { }
+        var store = new Mock<Container>(MockBehavior.Strict);
+        store.SetupGet(c => c.Id).Returns("items");
+        store.Setup(c => c.ReadItemStreamAsync("one", new PartitionKey("org-a"), It.IsAny<ItemRequestOptions>(), It.IsAny<CancellationToken>())).ReturnsAsync(() => Response(HttpStatusCode.Forbidden));
+        await using var database = new CosmosLibrarianDatabase(store.Object);
+        try { await (await database.GetContainer("items")).GetItem("org-a:one"); throw new Exception("Authorization error hidden."); }
+        catch (CosmosException e) when (e.StatusCode == HttpStatusCode.Forbidden) { }
+        try { await database.GetContainer("other"); throw new Exception("Caller-owned container leaked into another name."); } catch (ArgumentException) { }
     }
-
     [Test]
-    public async Task Batches_lazily_deploy_one_procedure_and_pass_raw_conditions()
+    public async Task Batches_use_native_etag_operations_without_reading_documents()
     {
-        var container = new Mock<Container>(MockBehavior.Strict);
-        var scripts = new Mock<Scripts>(MockBehavior.Strict);
-        var result = new Mock<StoredProcedureExecuteResponse<bool>>();
-        result.SetupGet(r => r.Resource).Returns(false);
-        scripts.Setup(s => s.CreateStoredProcedureAsync(It.IsAny<StoredProcedureProperties>(), It.IsAny<RequestOptions>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(Mock.Of<StoredProcedureResponse>());
-        string? captured = null;
-        scripts.Setup(s => s.ExecuteStoredProcedureAsync<bool>(CosmosBatchScript.Id, new PartitionKey("key"), It.IsAny<dynamic[]>(), It.IsAny<StoredProcedureRequestOptions>(), It.IsAny<CancellationToken>()))
-            .Callback<string, PartitionKey, dynamic[], StoredProcedureRequestOptions, CancellationToken>((_, _, args, _, _) => captured = (string)args[0])
-            .ReturnsAsync(result.Object);
-        container.SetupGet(c => c.Scripts).Returns(scripts.Object);
-        await using var database = new CosmosLibrarianDatabase(container.Object, "key");
-        var batch = new LibrarianBatch([new LibrarianWrite("other", "B", "new")], [new LibrarianCondition("items", "a", "before")]);
-        DocumentProviderAssertions.Check(!await database.Execute(batch), "Failed condition reported success.");
-        await database.Execute(batch);
-        using JsonDocument payload = JsonDocument.Parse(captured!);
-        DocumentProviderAssertions.Check(payload.RootElement.GetProperty("conditions")[0].GetProperty("expected").GetString() == "before", "Condition changed.");
-        scripts.Verify(s => s.CreateStoredProcedureAsync(It.IsAny<StoredProcedureProperties>(), It.IsAny<RequestOptions>(), It.IsAny<CancellationToken>()), Times.Once);
+        var store = new Mock<Container>(MockBehavior.Strict);
+        store.SetupGet(c => c.Id).Returns("items");
+        var transaction = new Mock<TransactionalBatch>(MockBehavior.Strict);
+        var response = new Mock<TransactionalBatchResponse>();
+        response.SetupGet(r => r.IsSuccessStatusCode).Returns(true);
+        store.Setup(c => c.CreateTransactionalBatch(new PartitionKey("org-a"))).Returns(transaction.Object);
+        transaction.Setup(t => t.ReplaceItemStream("one", It.IsAny<Stream>(), It.Is<TransactionalBatchItemRequestOptions>(o => o.IfMatchEtag == "version"))).Returns(transaction.Object);
+        transaction.Setup(t => t.CreateItemStream(It.IsAny<Stream>(), It.IsAny<TransactionalBatchItemRequestOptions>())).Returns(transaction.Object);
+        transaction.Setup(t => t.ExecuteAsync(It.IsAny<CancellationToken>())).ReturnsAsync(response.Object);
+        await using var database = new CosmosLibrarianDatabase(store.Object);
+        var batch = new LibrarianBatch([
+            new LibrarianWrite("items", "org-a:one", NativeDocumentJson.Create("org-a:one"), "version"),
+            new LibrarianWrite("items", "org-a:audit", NativeDocumentJson.Create("org-a:audit"), CreateOnly: true)]);
+        Check(await database.Execute(batch), "Native batch failed.");
+        transaction.Verify(t => t.ExecuteAsync(It.IsAny<CancellationToken>()), Times.Once);
+        foreach (LibrarianBatch invalid in new[] {
+            new LibrarianBatch([new LibrarianWrite("items", "org-a:one", null), new LibrarianWrite("other", "org-a:two", null)]),
+            new LibrarianBatch([new LibrarianWrite("items", "org-a:one", null), new LibrarianWrite("items", "org-b:two", null)]),
+            new LibrarianBatch([], [new LibrarianCondition("items", "org-a:one", null)]) })
+        {
+            try { await database.Execute(invalid); throw new Exception("Unsupported batch accepted."); } catch (NotSupportedException) { }
+        }
     }
-
     [Test]
-    public async Task Queries_use_native_sdk_translation_for_filters_projections_and_aggregates()
+    public async Task Native_linq_translates_document_members_without_a_body_projection()
     {
-        using var client = new CosmosClient("https://localhost:8081/", Convert.ToBase64String(new byte[64]), new CosmosClientOptions
-        { UseSystemTextJsonSerializerWithOptions = new JsonSerializerOptions(JsonSerializerDefaults.Web) });
-        Container container = client.GetContainer("test", "librarian");
-        await using var database = new CosmosLibrarianDatabase(container);
-        IQueryable<QueryableRow> query = (await database.GetContainer("items")).BuildQueryable<QueryableRow>();
-        IQueryable<QueryableRow> filtered = query.Where(row => row.Score > 1 && row.Name!.Contains("hello")).OrderBy(row => row.Score).ThenBy(row => row.Name).Take(10);
-        IQueryProvider native = container.GetItemLinqQueryable<QueryableRow>().Provider;
-        string sql = native.CreateQuery<QueryableRow>(filtered.Expression).ToQueryDefinition().QueryText;
-        DocumentProviderAssertions.Check(sql.Contains("score_value", StringComparison.Ordinal) && sql.Contains("CONTAINS", StringComparison.OrdinalIgnoreCase), "Native translation not used.");
-        Expression<Func<IQueryable<QueryableRow>, int>> count = q => q.Count();
-        var call = (MethodCallExpression)count.Body;
-        string aggregate = native.CreateQuery<int>(call.Update(null, [query.Expression])).ToQueryDefinition().QueryText;
-        DocumentProviderAssertions.Check(aggregate.Contains("COUNT", StringComparison.OrdinalIgnoreCase), "Native aggregate translation failed.");
+        using var client = new CosmosClient("https://localhost:8081/", Convert.ToBase64String(new byte[64]), new CosmosClientOptions { UseSystemTextJsonSerializerWithOptions = new JsonSerializerOptions(JsonSerializerDefaults.Web) });
+        Container store = client.GetContainer("test", "items");
+        await using var database = new CosmosLibrarianDatabase(store);
+        IQueryable<int> query = (await database.GetContainer("items")).BuildQueryable<NativeDocument>()
+                                                                      .Where(row => row.PartitionKey == "org-a" && row.DocumentId == "one" && row.Score > 1 && row.Name!.Contains("hello")).Select(row => row.Score);
+        string sql = store.GetItemLinqQueryable<NativeDocument>().Provider.CreateQuery<int>(query.Expression).ToQueryDefinition().QueryText;
+        Check(sql.Contains("score_value") && sql.Contains("partitionKey") && sql.Contains("CONTAINS") && !sql.Contains("body"), "Direct native translation failed.");
     }
 }

@@ -322,15 +322,9 @@ public sealed class PostgresQueryPlan
 
     private static bool References(Expression expression, ParameterExpression parameter)
     {
-        var visitor = new ParameterReference(parameter);
+        var visitor = new PostgresParameterReference(parameter);
         visitor.Visit(expression);
         return visitor.Found;
-    }
-
-    private sealed class ParameterReference(ParameterExpression parameter) : ExpressionVisitor
-    {
-        internal bool Found;
-        protected override Expression VisitParameter(ParameterExpression node) { Found |= node == parameter; return node; }
     }
 
     internal static NotSupportedException Unsupported() => new("This LINQ expression cannot execute in PostgreSQL. See docs/POSTGRES.md for supported operators and overloads; unsupported expressions never fall back to local evaluation.");

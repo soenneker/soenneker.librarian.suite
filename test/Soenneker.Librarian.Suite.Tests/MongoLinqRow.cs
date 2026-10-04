@@ -3,7 +3,7 @@ using System.Text.Json.Serialization;
 
 namespace Soenneker.Librarian.Suite.Tests;
 
-public sealed class MongoLinqRow
+public sealed class MongoLinqRow : Soenneker.Documents.Document.Document
 {
     [JsonPropertyName("score_value")]
     public int Score { get; set; }

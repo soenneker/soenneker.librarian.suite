@@ -29,7 +29,7 @@ internal sealed class LocalQueryExecutor(Func<Expression, IEnumerable<object?>?>
             return constant.Value is IEnumerable items && constant.Value is not string ? items.Cast<object?>() : constant.Value;
         if (expression is not MethodCallExpression call || call.Method.DeclaringType != typeof(Queryable))
             throw new NotSupportedException("The local query operator is not supported by the AOT query executor.");
-        IEnumerable<object?> input = (IEnumerable<object?>)Evaluate(call.Arguments[0])!;
+        var input = (IEnumerable<object?>)Evaluate(call.Arguments[0])!;
         string name = call.Method.Name;
         LambdaExpression? lambda = call.Arguments.Count > 1 && call.Arguments[1] is UnaryExpression { Operand: LambdaExpression quoted } ? quoted : null;
         Func<object?, int, object?>? function = lambda is null ? null : Function(lambda);
@@ -43,14 +43,14 @@ internal sealed class LocalQueryExecutor(Func<Expression, IEnumerable<object?>?>
             case nameof(Queryable.Reverse): return input.Reverse();
             case nameof(Queryable.SequenceEqual):
                 if (call.Arguments.Count != 2) throw Unsupported(name);
-                return input.SequenceEqual((IEnumerable<object?>)Evaluate(call.Arguments[1])!, new Equality(QueryTypes.Get(call.Method.GetGenericArguments()[0])));
+                return input.SequenceEqual((IEnumerable<object?>)Evaluate(call.Arguments[1])!, new QueryTypeEqualityComparer(QueryTypes.Get(call.Method.GetGenericArguments()[0])));
             case nameof(Queryable.Concat): return input.Concat((IEnumerable<object?>)Evaluate(call.Arguments[1])!);
             case nameof(Queryable.Cast):
                 return input.Select(QueryTypes.Get(call.Method.GetGenericArguments()[0]).Cast);
             case nameof(Queryable.OfType): return input.Where(value => value is not null && call.Method.GetGenericArguments()[0].IsInstanceOfType(value));
             case nameof(Queryable.Distinct):
                 if (call.Arguments.Count != 1) throw Unsupported(name);
-                return input.Distinct(new Equality(QueryTypes.Get(call.Method.GetGenericArguments()[0])));
+                return input.Distinct(new QueryTypeEqualityComparer(QueryTypes.Get(call.Method.GetGenericArguments()[0])));
             case nameof(Queryable.OrderBy):
             case nameof(Queryable.OrderByDescending):
             case nameof(Queryable.ThenBy):
@@ -158,20 +158,11 @@ internal sealed class LocalQueryExecutor(Func<Expression, IEnumerable<object?>?>
         if (lambda.Parameters.Count is < 1 or > 2) throw Unsupported("lambda");
         ParameterExpression value = Expression.Parameter(typeof(object));
         ParameterExpression index = Expression.Parameter(typeof(int));
-        Expression body = new Replace(lambda.Parameters[0], Expression.Convert(value, lambda.Parameters[0].Type)).Visit(lambda.Body)!;
-        if (lambda.Parameters.Count == 2) body = new Replace(lambda.Parameters[1], index).Visit(body)!;
+        Expression body = new LocalExpressionReplacement(lambda.Parameters[0], Expression.Convert(value, lambda.Parameters[0].Type)).Visit(lambda.Body)!;
+        if (lambda.Parameters.Count == 2) body = new LocalExpressionReplacement(lambda.Parameters[1], index).Visit(body)!;
         return Expression.Lambda<Func<object?, int, object?>>(Expression.Convert(QueryExpression.Prepare(body), typeof(object)), value, index).Compile(preferInterpretation: true);
     }
 
     private static object? Value(Expression expression) => Expression.Lambda<Func<object?>>(Expression.Convert(expression, typeof(object))).Compile(preferInterpretation: true)();
     private static NotSupportedException Unsupported(string name) => new($"Local query operator {name} is not supported. Use AsEnumerable() for additional client-side LINQ operations.");
-    private sealed class Replace(Expression source, Expression replacement) : ExpressionVisitor
-    {
-        public override Expression? Visit(Expression? node) => node == source ? replacement : base.Visit(node);
-    }
-    private sealed class Equality(QueryType type) : IEqualityComparer<object?>
-    {
-        public new bool Equals(object? left, object? right) => type.Equal(left, right);
-        public int GetHashCode(object? value) => value?.GetHashCode() ?? 0;
-    }
 }

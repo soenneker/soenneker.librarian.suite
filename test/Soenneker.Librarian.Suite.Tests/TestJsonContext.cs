@@ -15,13 +15,14 @@ namespace Soenneker.Librarian.Suite.Tests;
 [JsonSerializable(typeof(PlannerRow), TypeInfoPropertyName = "PlannerRow")]
 [JsonSerializable(typeof(PostgresRow), TypeInfoPropertyName = "PostgresRow")]
 [JsonSerializable(typeof(MongoLinqRow))]
+[JsonSerializable(typeof(NativeDocument))]
 [JsonSerializable(typeof(QueryableRow), TypeInfoPropertyName = "QueryableRow")]
 [JsonSerializable(typeof(RedisRow), TypeInfoPropertyName = "RedisRow")]
 [JsonSerializable(typeof(RedisStatus), TypeInfoPropertyName = "RedisStatus")]
-[JsonSerializable(typeof(IncrementalBatchTests.Row), TypeInfoPropertyName = "IncrementalBatchTestsRow")]
-[JsonSerializable(typeof(QueryBufferTests.WideRow), TypeInfoPropertyName = "QueryBufferTestsWideRow")]
-[JsonSerializable(typeof(QueryConformanceTests.ConformanceRow), TypeInfoPropertyName = "QueryConformanceTestsConformanceRow")]
-[JsonSerializable(typeof(PostgresExpandedQueryTests.NumericRow), TypeInfoPropertyName = "PostgresExpandedQueryTestsNumericRow")]
+[JsonSerializable(typeof(IncrementalBatchRow), TypeInfoPropertyName = "IncrementalBatchTestsRow")]
+[JsonSerializable(typeof(WideRow), TypeInfoPropertyName = "QueryBufferTestsWideRow")]
+[JsonSerializable(typeof(ConformanceRow), TypeInfoPropertyName = "QueryConformanceTestsConformanceRow")]
+[JsonSerializable(typeof(NumericRow), TypeInfoPropertyName = "PostgresExpandedQueryTestsNumericRow")]
 internal partial class TestJsonContext : JsonSerializerContext
 {
     [ModuleInitializer]
@@ -37,6 +38,7 @@ internal partial class TestJsonContext : JsonSerializerContext
         LibrarianJson.Register(Default.PostgresRow);
         LibrarianJson.Register(Default.QueryableRow);
         LibrarianJson.Register(Default.MongoLinqRow);
+        LibrarianJson.Register(Default.NativeDocument);
         LibrarianJson.Register(Default.RedisRow);
         LibrarianJson.Register(Default.RedisStatus);
         LibrarianJson.Register(Default.IncrementalBatchTestsRow);

@@ -11,6 +11,7 @@
   <Folder Name="/src/">
     <Project Path="src/Soenneker.Librarian.Kv/Soenneker.Librarian.Kv.csproj" />
     <Project Path="src/Soenneker.Librarian.R2/Soenneker.Librarian.R2.csproj" />
+    <Project Path="src/Soenneker.Librarian.CouchDb/Soenneker.Librarian.CouchDb.csproj" />
     <Project Path="src/Soenneker.Librarian.Cosmos/Soenneker.Librarian.Cosmos.csproj" />
     <Project Path="src/Soenneker.Librarian.D1/Soenneker.Librarian.D1.csproj" />
     <Project Path="src/Soenneker.Librarian.Abstractions/Soenneker.Librarian.Abstractions.csproj" />

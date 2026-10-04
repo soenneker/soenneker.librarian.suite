@@ -17,6 +17,7 @@ namespace Soenneker.Librarian.Core;
 public class LibrarianRepository<TDocument> : ILibrarianRepository<TDocument> where TDocument : Document
 {
     private readonly ILibrarianDatabase _database;
+    private readonly string? _partitionKey;
 
     protected ILogger<LibrarianRepository<TDocument>> Logger { get; }
 
@@ -25,50 +26,88 @@ public class LibrarianRepository<TDocument> : ILibrarianRepository<TDocument> wh
     protected string ContainerName { get; set; }
 
     public LibrarianRepository(IConfiguration config, ILogger<LibrarianRepository<TDocument>> logger, ILibrarianDatabase database, string containerName)
+        : this(config, logger, database, containerName, null) { }
+
+    public LibrarianRepository(IConfiguration config, ILogger<LibrarianRepository<TDocument>> logger, ILibrarianDatabase database, string containerName,
+        string? partitionKey)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(containerName);
+        if (partitionKey is not null) ArgumentException.ThrowIfNullOrWhiteSpace(partitionKey);
         _database = database;
+        _partitionKey = partitionKey;
         ContainerName = containerName;
         Logger = logger;
 
         _log = bool.Parse(config["Librarian:Log"] ?? "false");
     }
 
+    protected ValueTask<ILibrarianContainer> GetContainer(CancellationToken token) => _partitionKey is null
+        ? _database.GetContainer(ContainerName, token) : _database.GetContainer(ContainerName, _partitionKey, token);
+
+    public async ValueTask<LibrarianItem<TDocument>?> GetItemWithVersion(string id, CancellationToken cancellationToken = default) =>
+        await (await GetContainer(cancellationToken).NoSync()).GetItemWithVersion<TDocument>(id, cancellationToken).NoSync();
+
+    public async ValueTask<LibrarianItem<TDocument>?> UpdateItemIfVersion(TDocument document, string version, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        ArgumentException.ThrowIfNullOrEmpty(document.Id);
+        return await (await GetContainer(cancellationToken).NoSync()).UpdateItemIfVersion(document.Id, document, version, cancellationToken).NoSync();
+    }
+
+    public async ValueTask<bool> DeleteItemIfVersion(string id, string version, CancellationToken cancellationToken = default) =>
+        await (await GetContainer(cancellationToken).NoSync()).DeleteItemIfVersion(id, version, cancellationToken).NoSync();
+
+    public async ValueTask<LibrarianItem<TDocument>> MutateItem(string id, Func<TDocument, TDocument> mutation, int maxAttempts = 5,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(mutation);
+        return await (await GetContainer(cancellationToken).NoSync()).MutateItem<TDocument>(id, current =>
+        {
+            string? originalId = current.Id;
+            TDocument changed = mutation(current);
+            if (changed is null || changed.Id != originalId) throw new ArgumentException("A mutation must preserve the document ID.", nameof(mutation));
+            return changed;
+        }, maxAttempts, cancellationToken).NoSync();
+    }
+
+    public ValueTask<LibrarianPage<T>> GetItemsPaged<T>(IQueryable<T> query, int pageSize = 100, string? continuationToken = null,
+        CancellationToken cancellationToken = default) => query.ToPageAsync(pageSize, continuationToken, cancellationToken);
+
     public async ValueTask EnsureIndex(string fieldPath, CancellationToken cancellationToken = default)
     {
-        ILibrarianContainer container = await _database.GetContainer(ContainerName, cancellationToken).NoSync();
+        ILibrarianContainer container = await GetContainer(cancellationToken).NoSync();
         await container.EnsureIndex(fieldPath, cancellationToken).NoSync();
     }
 
     public async ValueTask<LibrarianQueryResult<TDocument>> FindByIndex(string fieldPath, object? value, int skip = 0, int take = 100,
         CancellationToken cancellationToken = default)
     {
-        ILibrarianContainer container = await _database.GetContainer(ContainerName, cancellationToken).NoSync();
+        ILibrarianContainer container = await GetContainer(cancellationToken).NoSync();
         return await container.FindByIndex<TDocument>(fieldPath, value, skip, take, cancellationToken).NoSync();
     }
 
     public async ValueTask<int> CountByIndex(string fieldPath, object? value, CancellationToken cancellationToken = default)
     {
-        ILibrarianContainer container = await _database.GetContainer(ContainerName, cancellationToken).NoSync();
+        ILibrarianContainer container = await GetContainer(cancellationToken).NoSync();
         return await container.CountByIndex(fieldPath, value, cancellationToken).NoSync();
     }
 
     public async ValueTask<bool> ExistsByIndex(string fieldPath, object? value, CancellationToken cancellationToken = default)
     {
-        ILibrarianContainer container = await _database.GetContainer(ContainerName, cancellationToken).NoSync();
+        ILibrarianContainer container = await GetContainer(cancellationToken).NoSync();
         return await container.ExistsByIndex(fieldPath, value, cancellationToken).NoSync();
     }
 
     public async ValueTask<LibrarianQueryResult<TDocument>> FindRangeByIndex(string fieldPath, object? minimum = null, object? maximum = null,
         bool descending = false, int skip = 0, int take = 100, CancellationToken cancellationToken = default)
     {
-        ILibrarianContainer container = await _database.GetContainer(ContainerName, cancellationToken).NoSync();
+        ILibrarianContainer container = await GetContainer(cancellationToken).NoSync();
         return await container.FindRangeByIndex<TDocument>(fieldPath, minimum, maximum, descending, skip, take, cancellationToken).NoSync();
     }
 
     public async ValueTask<IQueryable<T>> BuildQueryable<T>(CancellationToken cancellationToken = default)
     {
-        ILibrarianContainer container = await _database.GetContainer(ContainerName, cancellationToken).NoSync();
+        ILibrarianContainer container = await GetContainer(cancellationToken).NoSync();
 
         return container.BuildQueryable<T>();
     }
@@ -87,7 +126,7 @@ public class LibrarianRepository<TDocument> : ILibrarianRepository<TDocument> wh
         if (_log && Logger.IsEnabled(LogLevel.Debug))
             Logger.LogDebug("-- LIBRARIAN: {method} ({type}): {id}", nameof(GetItem), typeof(TDocument).Name, id);
 
-        ILibrarianContainer container = await _database.GetContainer(ContainerName, cancellationToken).NoSync();
+        ILibrarianContainer container = await GetContainer(cancellationToken).NoSync();
 
         string? item = await container.GetItem(id, cancellationToken).NoSync();
 
@@ -99,7 +138,7 @@ public class LibrarianRepository<TDocument> : ILibrarianRepository<TDocument> wh
 
     public async ValueTask<List<TDocument>?> GetAll(CancellationToken cancellationToken = default)
     {
-        ILibrarianContainer container = await _database.GetContainer(ContainerName, cancellationToken).NoSync();
+        ILibrarianContainer container = await GetContainer(cancellationToken).NoSync();
 
         List<string> items = await container.GetAllItems(cancellationToken).NoSync();
 
@@ -134,7 +173,7 @@ public class LibrarianRepository<TDocument> : ILibrarianRepository<TDocument> wh
             Logger.LogDebug("-- LIBRARIAN: {method} ({type}): {document}", nameof(AddItem), typeof(TDocument).Name, serialized);
         }
 
-        ILibrarianContainer container = await _database.GetContainer(ContainerName, cancellationToken).NoSync();
+        ILibrarianContainer container = await GetContainer(cancellationToken).NoSync();
 
         ArgumentException.ThrowIfNullOrEmpty(document.Id);
         string? docSerialized = LibrarianJson.Serialize(document);
@@ -154,7 +193,7 @@ public class LibrarianRepository<TDocument> : ILibrarianRepository<TDocument> wh
             Logger.LogDebug("-- LIBRARIAN: {method} ({type})", nameof(AddItems), typeof(TDocument).Name);
         }
 
-        ILibrarianContainer container = await _database.GetContainer(ContainerName, cancellationToken).NoSync();
+        ILibrarianContainer container = await GetContainer(cancellationToken).NoSync();
 
         foreach (TDocument document in documents)
         {
@@ -179,7 +218,7 @@ public class LibrarianRepository<TDocument> : ILibrarianRepository<TDocument> wh
             Logger.LogDebug("-- LIBRARIAN: {method} ({type}): {document}", nameof(UpdateItem), typeof(TDocument).Name, serialized);
         }
 
-        ILibrarianContainer container = await _database.GetContainer(ContainerName, cancellationToken).NoSync();
+        ILibrarianContainer container = await GetContainer(cancellationToken).NoSync();
 
         ArgumentException.ThrowIfNullOrEmpty(document.Id);
         string? docSerialized = LibrarianJson.Serialize(document);
@@ -199,7 +238,7 @@ public class LibrarianRepository<TDocument> : ILibrarianRepository<TDocument> wh
             Logger.LogDebug("-- LIBRARIAN: {method} ({type})", nameof(UpdateItems), typeof(TDocument).Name);
         }
 
-        ILibrarianContainer container = await _database.GetContainer(ContainerName, cancellationToken).NoSync();
+        ILibrarianContainer container = await GetContainer(cancellationToken).NoSync();
 
         for (var i = 0; i < documents.Count; i++)
         {
@@ -219,7 +258,7 @@ public class LibrarianRepository<TDocument> : ILibrarianRepository<TDocument> wh
 
     public virtual async ValueTask DeleteItem(string id, CancellationToken cancellationToken = default)
     {
-        ILibrarianContainer container = await _database.GetContainer(ContainerName, cancellationToken).NoSync();
+        ILibrarianContainer container = await GetContainer(cancellationToken).NoSync();
 
         await container.DeleteItem(id, cancellationToken).NoSync();
     }
@@ -228,7 +267,7 @@ public class LibrarianRepository<TDocument> : ILibrarianRepository<TDocument> wh
     {
         Logger.LogWarning("-- LIBRARIAN: {method} ({type}) ", nameof(DeleteAll), typeof(TDocument).Name);
 
-        ILibrarianContainer container = await _database.GetContainer(ContainerName, cancellationToken).NoSync();
+        ILibrarianContainer container = await GetContainer(cancellationToken).NoSync();
 
         await container.DeleteAllItems(cancellationToken).NoSync();
     }

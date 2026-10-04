@@ -23,7 +23,7 @@ public sealed partial class RedisLibrarianContainer
         if (plan.Paths.Count == 0) return;
         var arguments = new RedisValue[plan.Paths.Count + 1];
         arguments[0] = plan.Order ?? "";
-        for (int i = 0; i < plan.Paths.Count; i++) arguments[i + 1] = plan.Paths[i];
+        for (var i = 0; i < plan.Paths.Count; i++) arguments[i + 1] = plan.Paths[i];
         var result = (RedisResult[])(await store.ScriptEvaluateAsync(QueryIndexesScript, [Schema, SortSchema], arguments)
             .WaitAsync(token).NoSync())!;
         foreach (string path in (string[])result[0]!) await EnsureIndex(path, token).NoSync();

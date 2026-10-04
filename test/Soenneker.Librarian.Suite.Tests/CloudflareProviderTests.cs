@@ -1,3 +1,4 @@
+using Soenneker.Utils.Json;
 using System;
 using System.IO;
 using System.Collections.Generic;
@@ -151,7 +152,7 @@ public class CloudflareProviderTests
         using var fixture = new CloudflareFixture(provider);
         fixture.Handler.DenyReads = true;
         await using ILibrarianDatabase db = fixture.Create();
-        bool failed = false;
+        var failed = false;
         try { await db.GetContainer("items"); }
         catch (HttpRequestException) { failed = true; }
         catch (Microsoft.Kiota.Abstractions.ApiException) { failed = true; }
@@ -201,7 +202,7 @@ public class CloudflareProviderTests
         else if (provider == "kv") services.AddKvLibrarianDatabaseAsSingleton();
         else services.AddR2LibrarianDatabaseAsSingleton();
         await using ServiceProvider serviceProvider = services.BuildServiceProvider();
-        ILibrarianDatabase db = serviceProvider.GetRequiredService<ILibrarianDatabase>();
+        var db = serviceProvider.GetRequiredService<ILibrarianDatabase>();
         Check(ReferenceEquals(db, serviceProvider.GetRequiredService<ILibrarianDatabase>()), "Provider is not a singleton.");
         await (await db.GetContainer("items")).AddItem("one", "registered");
         await db.Save();
@@ -231,118 +232,4 @@ public class CloudflareProviderTests
     {
         if (!condition) throw new Exception(message);
     }
-}
-
-internal sealed class CloudflareFixture : IDisposable
-{
-    private readonly string _provider;
-    private readonly HttpClient _http;
-    private readonly HttpClientRequestAdapter _adapter;
-    private readonly ICloudflareClientUtil _clientUtil;
-    public ICloudflareClientUtil ClientUtil => _clientUtil;
-    public readonly CloudflareHandler Handler = new();
-    public readonly CloudflareClientProxy Clients;
-
-    public CloudflareFixture(string provider)
-    {
-        _provider = provider;
-        _http = new HttpClient(Handler);
-        _adapter = new HttpClientRequestAdapter(new AnonymousAuthenticationProvider(), httpClient: _http);
-        _clientUtil = DispatchProxy.Create<ICloudflareClientUtil, CloudflareClientProxy>();
-        Clients = (CloudflareClientProxy)_clientUtil;
-        Clients.Client = new CloudflareOpenApiClient(_adapter);
-    }
-
-    public ILibrarianDatabase Create() => _provider == "d1"
-        ? new D1LibrarianDatabase("account", "test-token", "database", new CloudflareD1Util(_clientUtil), NullLogger.Instance, "name'with-quotes")
-        : _provider == "kv"
-        ? new KvLibrarianDatabase("account", "test-token", "namespace", new CloudflareWorkersKvUtil(_clientUtil, NullLogger<CloudflareWorkersKvUtil>.Instance), NullLogger.Instance, "folder/librarian.json")
-        : new R2LibrarianDatabase("account", "bucket", "folder/librarian.json", new CloudflareR2Util(_clientUtil), NullLogger.Instance, "test-token");
-
-    public void Dispose()
-    {
-        _adapter.Dispose();
-        _http.Dispose();
-    }
-}
-
-public class CloudflareClientProxy : DispatchProxy
-{
-    public CloudflareOpenApiClient Client = null!;
-    public string? LastApiKey;
-
-    protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
-    {
-        if (targetMethod!.Name != "Get") throw new NotSupportedException(targetMethod.Name);
-        LastApiKey = args![0] as string;
-        ((CancellationToken)args[^1]!).ThrowIfCancellationRequested();
-        return ValueTask.FromResult(Client);
-    }
-}
-
-internal sealed class CloudflareHandler : HttpMessageHandler
-{
-    public string? Snapshot;
-    public bool FailWrites;
-    public bool FailStatement;
-    public bool DenyReads;
-    public int Writes;
-    public int SchemaAttempts;
-
-    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        if (DenyReads) return new HttpResponseMessage(HttpStatusCode.Forbidden) { Content = new StringContent("{}", Encoding.UTF8, "application/json") };
-        if (request.RequestUri!.AbsolutePath.Contains("/d1/", StringComparison.Ordinal))
-        {
-            using JsonDocument body = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(cancellationToken));
-            string sql = body.RootElement.GetProperty("sql").GetString()!;
-            if (sql.StartsWith("CREATE", StringComparison.Ordinal))
-            {
-                SchemaAttempts++;
-                return FailStatement
-                    ? Json("{\"success\":true,\"result\":[{\"success\":false,\"error\":\"failure\"}]}")
-                    : Json("{\"success\":true,\"result\":[{\"success\":true,\"results\":[]}]}");
-            }
-            JsonElement parameters = body.RootElement.GetProperty("params");
-            if (parameters[0].GetString() != "name'with-quotes" || sql.Contains("name'with-quotes", StringComparison.Ordinal))
-                throw new Exception("D1 logical name was not parameterized.");
-            if (sql.StartsWith("SELECT", StringComparison.Ordinal))
-                return Json("{\"success\":true,\"result\":[{\"success\":true,\"results\":" +
-                    (Snapshot is null ? "[]" : "[{\"value\":" + JsonSerializer.Serialize(Snapshot) + "}]") + "}]}");
-            if (FailWrites) return Json("{\"success\":false,\"errors\":[{\"message\":\"failure\"}]}");
-            if (FailStatement) return Json("{\"success\":true,\"result\":[{\"success\":false,\"error\":\"failure\"}]}");
-            Writes++;
-            Snapshot = parameters[1].GetString();
-            return Json("{\"success\":true,\"result\":[{\"success\":true,\"results\":[]}]}");
-        }
-        if (request.Method == HttpMethod.Get)
-            return Snapshot is null ? new HttpResponseMessage(HttpStatusCode.NotFound) { Content = new StringContent("{}", Encoding.UTF8, "application/json") } : Json(Snapshot);
-        if (request.Method != HttpMethod.Put) throw new Exception("Unexpected R2 method.");
-        if (FailWrites) return Json("{\"success\":false,\"errors\":[{\"message\":\"failure\"}]}");
-        if (request.RequestUri.AbsolutePath.Contains("/storage/kv/", StringComparison.Ordinal))
-        {
-            if (!request.RequestUri.AbsolutePath.EndsWith("/namespaces/namespace/bulk", StringComparison.Ordinal))
-                throw new Exception("Incorrect KV namespace or endpoint.");
-            using JsonDocument body = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(cancellationToken));
-            if (body.RootElement.GetArrayLength() != 1) throw new Exception("Expected one snapshot.");
-            JsonElement entry = body.RootElement[0];
-            if (entry.GetProperty("key").GetString() is not ("folder/librarian.json" or "librarian.json") ||
-                entry.GetProperty("base64").GetBoolean() || entry.TryGetProperty("expiration", out _) ||
-                entry.TryGetProperty("expiration_ttl", out _))
-                throw new Exception("Incorrect KV write settings.");
-            Snapshot = entry.GetProperty("value").GetString();
-            Writes++;
-            return Json("{\"success\":true,\"errors\":[],\"result\":{}}");
-        }
-        if (request.Content!.Headers.ContentType?.MediaType != "application/json") throw new Exception("Incorrect R2 content type.");
-        Writes++;
-        Snapshot = await request.Content.ReadAsStringAsync(cancellationToken);
-        return Json("{\"success\":true,\"errors\":[],\"result\":{}}");
-    }
-
-    private static HttpResponseMessage Json(string json) => new(HttpStatusCode.OK)
-    {
-        Content = new StringContent(json, Encoding.UTF8, "application/json")
-    };
 }

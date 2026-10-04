@@ -102,7 +102,7 @@ public sealed partial class RedisLibrarianContainer : ILibrarianContainer
         if (mode != "delete") ArgumentNullException.ThrowIfNull(document);
         IDatabase store = await Store(token).NoSync();
         RedisKey[] keys = [Version, Schema, Document(normalized)];
-        Soenneker.Librarian.Abstractions.Transactions.LibrarianWrite[] writes = [new("unused", id, document)];
+        Abstractions.Transactions.LibrarianWrite[] writes = [new("unused", id, document)];
         while (true)
         {
             token.ThrowIfCancellationRequested();
@@ -193,7 +193,7 @@ public sealed partial class RedisLibrarianContainer : ILibrarianContainer
     {
         RedisIndexValue.ValidatePath(fieldPath);
         IDatabase store = await Store(cancellationToken).NoSync();
-        for (int attempt = 0; ; attempt++)
+        for (var attempt = 0; ; attempt++)
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (await store.SetContainsAsync(Schema, fieldPath).WaitAsync(cancellationToken).NoSync()) return;
@@ -243,16 +243,16 @@ public sealed partial class RedisLibrarianContainer : ILibrarianContainer
         ArgumentOutOfRangeException.ThrowIfLessThan(take, 1);
         IDatabase store = await Store(token).NoSync();
         RedisIndexValue.ValidatePath(path);
-        for (int attempt = 0; ; attempt++)
+        for (var attempt = 0; ; attempt++)
         {
             token.ThrowIfCancellationRequested();
             RedisResult snapshot = await store.ScriptEvaluateAsync(IndexVersionScript, [Schema, Version], [path]).WaitAsync(token).NoSync();
             if (snapshot.IsNull) throw new InvalidOperationException($"Index '{path}' does not exist.");
-            RedisValue version = (RedisValue)((RedisResult[])snapshot!)[0];
+            var version = (RedisValue)((RedisResult[])snapshot!)[0];
             RedisResult[] members = (RedisResult[]?)await store.ExecuteAsync(descending ? "ZREVRANGEBYLEX" : "ZRANGEBYLEX",
                 RangeArguments(Index(path), min, max, descending, skip, take)).WaitAsync(token).NoSync() ?? [];
             var documents = new RedisValue[members.Length];
-            bool conflict = false;
+            var conflict = false;
             // Bound in-flight commands and observe cancellation between windows, including large backlogs.
             for (var start = 0; start < members.Length; start += 128)
             {
@@ -315,7 +315,7 @@ public sealed partial class RedisLibrarianContainer : ILibrarianContainer
         _ = LibrarianJson.Contract(typeof(T));
         ObjectDisposedException.ThrowIf(_disposed.Value, this);
         return (IQueryable<T>)_queryRoots.GetOrAdd(typeof(T), static (_, container) =>
-            new RedisQueryable<T>(new RedisQueryProvider<T>(container)), this);
+            new LibrarianQueryable<T>(new RedisQueryProvider<T>(container)), this);
     }
 
     internal async ValueTask<RedisResult> ExecuteQuery(RedisQueryPlan plan, CancellationToken cancellationToken = default)

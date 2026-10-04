@@ -11,6 +11,7 @@ internal sealed class MongoPersistenceFixture : IAsyncDisposable
     private readonly MongoClient _client;
     private readonly string _databaseName = "librarian_tests_" + Guid.NewGuid().ToString("N");
     internal MongoLibrarianDatabase Database { get; }
+    internal IMongoCollection<BsonDocument> Store(string name) => _client.GetDatabase(_databaseName).GetCollection<BsonDocument>("librarian.test." + name);
     internal MongoLibrarianDatabase CreateDatabase() => new(_client.GetDatabase(_databaseName), "test");
     private MongoPersistenceFixture(string connectionString)
     {
@@ -29,9 +30,9 @@ internal sealed class MongoPersistenceFixture : IAsyncDisposable
                 IMongoDatabase admin = fixture._client.GetDatabase("admin");
                 try { await admin.RunCommandAsync<BsonDocument>(new BsonDocument("replSetInitiate", new BsonDocument())); }
                 catch (MongoCommandException exception) when (exception.Code == 23) { }
-                for (int attempt = 0; attempt < 60; attempt++)
+                for (var attempt = 0; attempt < 60; attempt++)
                 {
-                    BsonDocument hello = await admin.RunCommandAsync<BsonDocument>(new BsonDocument("hello", 1));
+                    var hello = await admin.RunCommandAsync<BsonDocument>(new BsonDocument("hello", 1));
                     if (hello.GetValue("isWritablePrimary", false).ToBoolean()) return fixture;
                     await Task.Delay(250);
                 }

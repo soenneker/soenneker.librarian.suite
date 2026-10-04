@@ -56,10 +56,14 @@ public sealed class R2LibrarianDatabase : SnapshotLibrarianDatabase
         }
         // Only a 404 proves absence; an empty successful response must not erase existing data.
         if (stream is null) throw new InvalidDataException("R2 returned an empty object response.");
-        await using (stream.ConfigureAwait(false))
+        try
         {
             using var reader = new StreamReader(stream, new UTF8Encoding(false, true));
             return await reader.ReadToEndAsync(cancellationToken).NoSync();
+        }
+        finally
+        {
+            await stream.DisposeAsync().NoSync();
         }
     }
 

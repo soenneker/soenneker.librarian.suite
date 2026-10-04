@@ -22,6 +22,18 @@ jobs:
     runs-on: ubuntu-latest
 
     services:
+      couchdb:
+        image: couchdb:3.5.2
+        env:
+          COUCHDB_USER: librarian
+          COUCHDB_PASSWORD: librarian
+        ports:
+          - 5984:5984
+        options: >-
+          --health-cmd "curl --fail http://localhost:5984/_up"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
       postgres:
         image: postgres:18
         env:
@@ -46,6 +58,9 @@ jobs:
           --health-retries 10
 
     env:
+      LIBRARIAN_TEST_COUCHDB: http://localhost:5984
+      LIBRARIAN_TEST_COUCHDB_USERNAME: librarian
+      LIBRARIAN_TEST_COUCHDB_PASSWORD: librarian
       LIBRARIAN_TEST_POSTGRES: 'Host=localhost;Port=5432;Database=librarian;Username=librarian;Password=librarian'
       LIBRARIAN_TEST_REDIS: localhost:6379
       LIBRARIAN_TEST_MONGO: 'mongodb://localhost:27017/?replicaSet=librarian&directConnection=true'

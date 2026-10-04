@@ -31,10 +31,10 @@
 <Section Class="section shell" Id="providers">
     <Div Class="section-heading"><Div><Span Class="eyebrow">FLEXIBLE STORAGE</Span><H2>Storage that fits<br /><em>your application.</em></H2></Div><Paragraph>Use the storage your workload needs.<br />Keep a consistent API as your application grows.</Paragraph></Div>
     <Div Class="provider-grid">
-        @foreach ((string Id, string Name, string Symbol, string Description, string Tag) provider in Providers)
+        @foreach ((string Id, string Name, string Description, string Tag) provider in Providers)
         {
             <Anchor Href="@($"/providers/#{provider.Id}")" Class="provider-card">
-                <Div Class="provider-card-top"><Span Class="provider-symbol">@provider.Symbol</Span></Div>
+                <Div Class="provider-card-top"><img class="provider-logo" src="@($"/images/providers/{provider.Id}.svg")" alt="" width="42" height="42" /></Div>
                 <H3>@provider.Name</H3><Paragraph>@provider.Description</Paragraph><Div Class="provider-card-bottom"><Span>@provider.Tag</Span><span aria-hidden="true">↗</span></Div>
             </Anchor>
         }
@@ -55,13 +55,14 @@
 <BenchmarkComparison />
 <Section Class="closing shell"><Span Class="eyebrow">OPEN SOURCE. READY TO BUILD.</Span><H2>Build your next<br /><em>data layer.</em></H2><Div Class="hero-actions"><Anchor Href="/getting-started/" Class="button">Start building <span aria-hidden="true">↗</span></Anchor><Anchor Href="https://www.nuget.org/packages/Soenneker.Librarian.Memory" Class="text-link">Find it on NuGet ↗</Anchor></Div></Section>
 @code {
-    private static readonly (string Id, string Name, string Symbol, string Description, string Tag)[] Providers = [
-        ("memory", "Memory", "◈", "Fast, in-process storage for temporary data, tests, and getting started.", "START SIMPLE"),
-        ("filesystem", "FileSystem", "▤", "In-memory documents backed by a JSON file. Local persistence for a single process.", "KEEP IT LOCAL"),
-        ("redis", "Redis", "≋", "Share documents and indexes across instances. No Redis modules or Lua required.", "WORK TOGETHER"),
-        ("postgres", "PostgreSQL", "▥", "Persistent documents, SQL-backed queries, and atomic transactions.", "BUILD TO LAST"),
-        ("mongo", "MongoDB", "◈", "Native documents with server queries and atomic transactions.", "NATIVE DOCUMENTS"),
-        ("cosmos", "Cosmos DB", "◉", "Azure NoSQL documents with server queries and partition-scoped atomic batches.", "AZURE STORAGE")
+    private static readonly (string Id, string Name, string Description, string Tag)[] Providers = [
+        ("memory", "Memory", "Fast, in-process storage for temporary data, tests, and getting started.", "START SIMPLE"),
+        ("filesystem", "FileSystem", "In-memory documents backed by a JSON file. Local persistence for a single process.", "KEEP IT LOCAL"),
+        ("redis", "Redis", "Share documents and indexes across instances. No Redis modules or Lua required.", "WORK TOGETHER"),
+        ("postgres", "PostgreSQL", "Persistent documents, SQL-backed queries, and atomic transactions.", "BUILD TO LAST"),
+        ("mongo", "MongoDB", "Native documents with server queries and atomic transactions.", "NATIVE DOCUMENTS"),
+        ("cosmos", "Cosmos DB", "Azure NoSQL documents with server queries and partition-scoped atomic batches.", "AZURE STORAGE"),
+        ("couchdb", "CouchDB", "JSON documents over HTTP with revision checks and Mango indexes.", "HTTP DOCUMENTS")
     ];
     private const string Example = """"
         // Register your storage provider.

@@ -80,10 +80,4 @@ public class PostgresCompositionTests
     }
 
     private static void Check(bool condition, string message) { if (!condition) throw new InvalidOperationException(message); }
-
-    public sealed class TransformedDto
-    {
-        private decimal _value;
-        public decimal Value { get => _value * 2; set => _value = value; }
-    }
 }

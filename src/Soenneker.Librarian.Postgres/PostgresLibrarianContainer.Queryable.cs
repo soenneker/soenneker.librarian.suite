@@ -1,3 +1,4 @@
+using Soenneker.Librarian.Abstractions.Queries;
 using Soenneker.Librarian.Abstractions.Serialization;
 using System;
 using System.Collections.Concurrent;
@@ -19,7 +20,7 @@ public sealed partial class PostgresLibrarianContainer
     {
         _ = LibrarianJson.Contract(typeof(T));
         Check();
-        return (IQueryable<T>)_queryRoots.GetOrAdd(typeof(T), _ => new PostgresQueryable<T>(new PostgresQueryProvider<T>(this)));
+        return (IQueryable<T>)_queryRoots.GetOrAdd(typeof(T), _ => new LibrarianQueryable<T>(new PostgresQueryProvider<T>(this)));
     }
 
     internal async ValueTask<object?> ExecuteQuery(PostgresQueryPlan plan, CancellationToken cancellationToken = default)

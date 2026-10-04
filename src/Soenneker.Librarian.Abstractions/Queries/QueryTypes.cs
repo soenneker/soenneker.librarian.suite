@@ -63,14 +63,9 @@ public static class QueryTypes
         Register<System.Text.Json.JsonElement?>();
     }
 
-    public static QueryType Register<T>() => Cache<T>.Value;
+    public static QueryType Register<T>() => QueryTypeCache<T>.Value;
 
-    private static class Cache<T>
-    {
-        internal static readonly QueryType Value = Add<T>();
-    }
-
-    private static QueryType Add<T>()
+    internal static QueryType Add<T>()
     {
         QueryType entry = _types.GetOrAdd(typeof(T), static _ => new QueryType(
             static () => new List<T>(), default(T),

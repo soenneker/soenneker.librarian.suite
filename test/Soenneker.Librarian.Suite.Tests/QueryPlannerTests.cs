@@ -3,6 +3,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
 using Soenneker.Librarian.Abstractions;
+using Soenneker.Librarian.Abstractions.Queries;
 using Soenneker.Librarian.Memory;
 
 namespace Soenneker.Librarian.Suite.Tests;
@@ -13,7 +14,7 @@ public class QueryPlannerTests
 
     private static void Check(bool value, string message) { if (!value) throw new Exception(message); }
     private static MemoryLibrarianDatabase Database() => new(NullLogger<MemoryLibrarianDatabase>.Instance);
-    private static async Task<Soenneker.Librarian.Abstractions.ILibrarianContainer> Populate(MemoryLibrarianDatabase database)
+    private static async Task<ILibrarianContainer> Populate(MemoryLibrarianDatabase database)
     {
         ILibrarianContainer container = await database.GetContainer("planner");
         for (var i = 0; i < 2000; i++)
@@ -80,6 +81,7 @@ public class QueryPlannerTests
         Check(root.Where(row => row.Status == "target").Where(row => row.Name.StartsWith("ok")).Take(3).ToArray().Length == 3 && PlannerRow.Created == 7,
             "Separate residual Where abandoned the index");
         Check(combined.Concat(root).Count() == 2003, "Residual replacement leaked into another query branch");
+        Check(await combined.Concat(root).CountAsync() == 2003, "Async execution lost the unfiltered query branch");
         Check(root.Where(row => row.Score == 1 && row.Name.StartsWith("ok")).Count() == 0, "Residual predicate was skipped by Count");
     }
 

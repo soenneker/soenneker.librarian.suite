@@ -46,7 +46,7 @@ public sealed partial class RedisLibrarianContainer
         keys[1] = Schema;
         var arguments = new RedisValue[conditions.Count * 2 + 1];
         arguments[0] = writes.Count == 0 ? "0" : "1";
-        for (int i = 0; i < conditions.Count; i++)
+        for (var i = 0; i < conditions.Count; i++)
         {
             keys[i + 2] = BatchDocument(conditions[i].Id);
             string? expected = conditions[i].ExpectedValue;
@@ -56,7 +56,7 @@ public sealed partial class RedisLibrarianContainer
         RedisResult snapshot = await store.ScriptEvaluateAsync(PrepareBatchScript, keys, arguments).WaitAsync(token).NoSync();
         if (snapshot.IsNull) return false;
         var parts = (RedisResult[])snapshot!;
-        RedisValue version = (RedisValue)parts[0];
+        var version = (RedisValue)parts[0];
         var paths = (string[])parts[1]!;
         commands.Version(Version, version, writes.Count != 0);
         if (writes.Count == 0) return true;
@@ -69,20 +69,20 @@ public sealed partial class RedisLibrarianContainer
     {
         var documentKeys = new RedisKey[writes.Count];
         var ids = new string[writes.Count];
-        for (int i = 0; i < writes.Count; i++) documentKeys[i] = Document(ids[i] = Id(writes[i].Id));
+        for (var i = 0; i < writes.Count; i++) documentKeys[i] = Document(ids[i] = Id(writes[i].Id));
         var fields = new RedisValue[paths.Length];
         var sortFields = new string[paths.Length];
-        for (int i = 0; i < paths.Length; i++) { fields[i] = Field(paths[i]); sortFields[i] = SortField(paths[i]); }
+        for (var i = 0; i < paths.Length; i++) { fields[i] = Field(paths[i]); sortFields[i] = SortField(paths[i]); }
         RedisResult[] previous = paths.Length == 0 ? [] : (RedisResult[])(await store.ScriptEvaluateAsync(
             ReadIndexFieldsScript, documentKeys, fields).WaitAsync(token).NoSync())!;
-        for (int i = 0; i < writes.Count; i++)
+        for (var i = 0; i < writes.Count; i++)
         {
             token.ThrowIfCancellationRequested();
             LibrarianWrite write = writes[i];
             string id = ids[i];
             using JsonDocument? json = write.Value is not null && paths.Length > 0 ? JsonDocument.Parse(write.Value) : null;
             RedisResult[] oldValues = paths.Length == 0 ? [] : (RedisResult[])previous[i]!;
-            for (int j = 0; j < paths.Length; j++)
+            for (var j = 0; j < paths.Length; j++)
             {
                 string path = paths[j];
                 string? old = oldValues[j].IsNull ? null : (string?)oldValues[j];

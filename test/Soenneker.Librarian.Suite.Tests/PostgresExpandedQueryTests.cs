@@ -1,3 +1,4 @@
+using Soenneker.Utils.Json;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -46,7 +47,7 @@ public class PostgresExpandedQueryTests
         await using var fixture = new PostgresPersistenceFixture();
         ILibrarianContainer container = await fixture.Database.GetContainer("strings");
         string[] names = ["A%_\\B", "AB", "prefix-tail", "prefix-😀-tail", "' OR 1=1 --", "", "Prefix-tail"];
-        for (var i = 0; i < names.Length; i++) await container.AddItem(i.ToString(), JsonSerializer.Serialize(new { name = names[i] }));
+        for (var i = 0; i < names.Length; i++) await container.AddItem(i.ToString(), JsonUtil.Serialize(new { name = names[i] })!);
         await container.AddItem("null", "{\"name\":null}");
         await container.AddItem("missing", "{}");
         IQueryable<PostgresRow> query = container.BuildQueryable<PostgresRow>();
@@ -98,7 +99,7 @@ public class PostgresExpandedQueryTests
         NumericRow[] rows = [new() { Number = 1, Amount = 0.1m, Optional = 2, Fraction = 1.25 },
             new() { Number = 2, Amount = 0.2m, Optional = null, Fraction = 2.5 },
             new() { Number = 3, Amount = 0.3m, Optional = 4, Fraction = 3.75 }];
-        for (var i = 0; i < rows.Length; i++) await container.AddItem(i.ToString(), JsonSerializer.Serialize(rows[i], TestJsonContext.Default.PostgresExpandedQueryTestsNumericRow));
+        for (var i = 0; i < rows.Length; i++) await container.AddItem(i.ToString(), JsonUtil.Serialize(rows[i], TestJsonContext.Default.PostgresExpandedQueryTestsNumericRow));
         IQueryable<NumericRow> query = container.BuildQueryable<NumericRow>();
         Check(query.Sum(row => row.Number) == 6, "Integer Sum failed.");
         Check(query.Average(row => row.Number) == 2d, "Integer Average return type failed.");
@@ -130,22 +131,5 @@ public class PostgresExpandedQueryTests
     private static void Check(bool condition, string message)
     {
         if (!condition) throw new InvalidOperationException(message);
-    }
-
-    public sealed class ProjectionDto
-    {
-        public string? Label { get; set; }
-        public decimal Value { get; set; }
-    }
-
-    public sealed record ProjectionRecord(string Name, decimal Amount);
-
-    public sealed class NumericRow
-    {
-        [JsonPropertyName("integer_value")]
-        public int Number { get; set; }
-        public decimal Amount { get; set; }
-        public int? Optional { get; set; }
-        public double Fraction { get; set; }
     }
 }

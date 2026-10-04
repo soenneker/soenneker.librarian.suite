@@ -26,6 +26,7 @@ public sealed partial class RedisLibrarianDatabase
     public async ValueTask<bool> Execute(LibrarianBatch batch, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(batch);
+        batch.ValidateConcurrency(supportsVersions: false);
         using (await _gate.Lock(cancellationToken).NoSync())
         {
             IDatabase store = await GetStore(cancellationToken).NoSync();
@@ -38,7 +39,7 @@ public sealed partial class RedisLibrarianDatabase
             {
                 var keys = new RedisKey[batch.Conditions.Count];
                 var values = new RedisValue[keys.Length * 2];
-                for (int i = 0; i < keys.Length; i++)
+                for (var i = 0; i < keys.Length; i++)
                 {
                     LibrarianCondition condition = batch.Conditions[i];
                     keys[i] = ((RedisLibrarianContainer)_containers[condition.Container]).BatchDocument(condition.Id);
@@ -53,7 +54,7 @@ public sealed partial class RedisLibrarianDatabase
             ILookup<string, LibrarianCondition> conditionsByContainer = batch.Conditions.ToLookup(condition => condition.Container, StringComparer.Ordinal);
             var writes = new LibrarianWrite[names.Length][];
             var conditions = new LibrarianCondition[names.Length][];
-            for (int i = 0; i < names.Length; i++)
+            for (var i = 0; i < names.Length; i++)
             {
                 writes[i] = writesByContainer[names[i]].ToArray();
                 conditions[i] = conditionsByContainer[names[i]].ToArray();
@@ -62,7 +63,7 @@ public sealed partial class RedisLibrarianDatabase
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 var commands = new RedisBatchCommands();
-                for (int i = 0; i < names.Length; i++)
+                for (var i = 0; i < names.Length; i++)
                 {
                     var container = (RedisLibrarianContainer)_containers[names[i]];
                     if (!await container.PrepareBatch(store, conditions[i], writes[i], commands, cancellationToken).NoSync()) return false;

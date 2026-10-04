@@ -1,78 +1,88 @@
+using Soenneker.Atomics.ValueBools;
+using Soenneker.Extensions.ValueTask;
+using Soenneker.Extensions.Task;
+using Soenneker.Utils.Json;
+using Soenneker.Enums.JsonOptions;
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net;
+using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Azure.Cosmos;
 using Soenneker.Dtos.IdValuePair;
 using Soenneker.Librarian.Abstractions;
+using Soenneker.Librarian.Abstractions.Serialization;
 
 namespace Soenneker.Librarian.Cosmos;
 
-internal sealed partial class CosmosLibrarianContainer(CosmosLibrarianDatabase database, Container store, string name) : ILibrarianContainer
+internal sealed partial class CosmosLibrarianContainer(CosmosLibrarianDatabase database, Container store, string name, string? partition) : ILibrarianContainer
 {
-    private volatile bool _disposed;
-    private void Check(CancellationToken token = default) { ObjectDisposedException.ThrowIf(_disposed, this); database.Check(token); }
-    public void Dispose() => _disposed = true;
-    private QueryRequestOptions QueryOptions => new() { PartitionKey = database.Partition };
+    private ValueAtomicBool _disposed = new(false);
+    private void Check(CancellationToken token = default) { ObjectDisposedException.ThrowIf(_disposed.Value, this); database.Check(token); }
+    public void Dispose() => _disposed.TrySetTrue();
+    private QueryRequestOptions QueryOptions => new() { PartitionKey = partition is null ? null : new PartitionKey(partition) };
+    private (string Id, string Partition) Address(string id) => LibrarianDocumentJson.Address(id, partition);
+    private MemoryStream Content(string id, string document) => new(Encoding.UTF8.GetBytes(LibrarianDocumentJson.Parse(id, document, partition).GetRawText()));
+    private static string Json(JsonElement document)
+    {
+        JsonObject value = JsonNode.Parse(document.GetRawText())!.AsObject();
+        foreach (string field in new[] { "_rid", "_self", "_etag", "_attachments", "_ts" }) value.Remove(field);
+        return value.ToJsonString();
+    }
 
     public IQueryable<T> BuildQueryable<T>()
     {
         Check();
-        IQueryable<T> query = store.GetItemLinqQueryable<CosmosQueryDocument<T>>(allowSynchronousQueryExecution: true, requestOptions: QueryOptions)
-            .Where(item => item.ContainerName == name && item.Body != null).Select(item => item.Body);
-        return new CosmosQueryable<T>(query, () => Check());
+        IQueryable<T> query = store.GetItemLinqQueryable<T>(allowSynchronousQueryExecution: true, requestOptions: QueryOptions);
+        return new CosmosQueryable<T>(query, () => Check(), store, QueryOptions, JsonUtil.Serialize(new[] { database.Key, name, partition }, JsonOptionType.General)!);
     }
 
     public async ValueTask<string> AddItem(string id, string document, CancellationToken cancellationToken = default)
     {
         Check(cancellationToken);
-        using MemoryStream content = CosmosDocument.Create(database.Key, name, id, document).ToStream();
-        using ResponseMessage response = await store.CreateItemStreamAsync(content, database.Partition, cancellationToken: cancellationToken).ConfigureAwait(false);
+        using MemoryStream content = Content(id, document);
+        using ResponseMessage response = await store.CreateItemStreamAsync(content, new PartitionKey(Address(id).Partition), cancellationToken: cancellationToken).NoSync();
         if (response.StatusCode == HttpStatusCode.Conflict) throw new InvalidOperationException($"Document '{id}' already exists.");
         response.EnsureSuccessStatusCode();
         return document;
     }
-    private async ValueTask<(CosmosDocument? Document, string? ETag)> Read(string id, CancellationToken token)
+    private async ValueTask<(string? Document, string? ETag)> Read(string id, CancellationToken token)
     {
         Check(token);
-        using ResponseMessage response = await store.ReadItemStreamAsync(CosmosDocument.IdFor(name, id), database.Partition, cancellationToken: token).ConfigureAwait(false);
+        (string documentId, string partitionKey) = Address(id);
+        using ResponseMessage response = await store.ReadItemStreamAsync(documentId, new PartitionKey(partitionKey), cancellationToken: token).NoSync();
         if (response.StatusCode == HttpStatusCode.NotFound) return (null, null);
         response.EnsureSuccessStatusCode();
-        using JsonDocument content = await JsonDocument.ParseAsync(response.Content, cancellationToken: token).ConfigureAwait(false);
-        return (CosmosDocument.Read(content.RootElement), response.Headers.ETag);
+        using JsonDocument content = await JsonDocument.ParseAsync(response.Content, cancellationToken: token).NoSync();
+        return (Json(content.RootElement), response.Headers.ETag);
     }
     public async ValueTask<string?> GetItem(string id, CancellationToken cancellationToken = default) =>
-        (await Read(id, cancellationToken).ConfigureAwait(false)).Document?.RawJson;
+        (await Read(id, cancellationToken).NoSync()).Document;
     public async ValueTask<string> GetItemStrict(string id, CancellationToken cancellationToken = default) =>
-        await GetItem(id, cancellationToken).ConfigureAwait(false) ?? throw new KeyNotFoundException($"Document '{id}' does not exist.");
+        await GetItem(id, cancellationToken).NoSync() ?? throw new KeyNotFoundException($"Document '{id}' does not exist.");
 
     public async ValueTask<string?> UpdateItem(string id, string document, CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(document);
-        for (int attempt = 0; attempt < 5; attempt++)
-        {
-            (CosmosDocument? current, string? etag) = await Read(id, cancellationToken).ConfigureAwait(false);
-            if (current is null) return null;
-            using MemoryStream content = CosmosDocument.Create(database.Key, name, current.OriginalId, document).ToStream();
-            using ResponseMessage response = await store.ReplaceItemStreamAsync(content, current.Id, database.Partition,
-                new ItemRequestOptions { IfMatchEtag = etag }, cancellationToken).ConfigureAwait(false);
-            if (response.StatusCode == HttpStatusCode.NotFound) return null;
-            if (response.StatusCode == HttpStatusCode.PreconditionFailed) continue;
-            response.EnsureSuccessStatusCode();
-            return document;
-        }
-        throw new TimeoutException("Cosmos document update exceeded five concurrency retries.");
+        Check(cancellationToken);
+        using MemoryStream content = Content(id, document);
+        (string documentId, string partitionKey) = Address(id);
+        using ResponseMessage response = await store.ReplaceItemStreamAsync(content, documentId, new PartitionKey(partitionKey), cancellationToken: cancellationToken).NoSync();
+        if (response.StatusCode == HttpStatusCode.NotFound) return null;
+        response.EnsureSuccessStatusCode();
+        return document;
     }
     public async ValueTask<string> UpdateItemStrict(string id, string document, CancellationToken cancellationToken = default) =>
-        await UpdateItem(id, document, cancellationToken).ConfigureAwait(false) ?? throw new KeyNotFoundException($"Document '{id}' does not exist.");
+        await UpdateItem(id, document, cancellationToken).NoSync() ?? throw new KeyNotFoundException($"Document '{id}' does not exist.");
     public async ValueTask DeleteItem(string id, CancellationToken cancellationToken = default)
     {
         Check(cancellationToken);
-        using ResponseMessage response = await store.DeleteItemStreamAsync(CosmosDocument.IdFor(name, id), database.Partition, cancellationToken: cancellationToken).ConfigureAwait(false);
+        (string documentId, string partitionKey) = Address(id);
+        using ResponseMessage response = await store.DeleteItemStreamAsync(documentId, new PartitionKey(partitionKey), cancellationToken: cancellationToken).NoSync();
         if (response.StatusCode != HttpStatusCode.NotFound) response.EnsureSuccessStatusCode();
     }
 
@@ -80,23 +90,18 @@ internal sealed partial class CosmosLibrarianContainer(CosmosLibrarianDatabase d
     {
         Check(cancellationToken);
         ArgumentNullException.ThrowIfNull(ids);
-        var addresses = new List<(string, PartitionKey)>(ids.Count);
-        foreach (string id in ids) addresses.Add((CosmosDocument.IdFor(name, id), database.Partition));
+        (string Id, string Partition)[] addresses = ids.Select(Address).ToArray();
         if (ids.Count == 0) return [];
-        using ResponseMessage response = await store.ReadManyItemsStreamAsync(addresses.Distinct().ToList(), cancellationToken: cancellationToken).ConfigureAwait(false);
+        using ResponseMessage response = await store.ReadManyItemsStreamAsync(addresses.Distinct().Select(a => (a.Id, new PartitionKey(a.Partition))).ToList(), cancellationToken: cancellationToken).NoSync();
         response.EnsureSuccessStatusCode();
-        using JsonDocument body = await JsonDocument.ParseAsync(response.Content, cancellationToken: cancellationToken).ConfigureAwait(false);
-        var found = new Dictionary<string, string>(StringComparer.Ordinal);
+        using JsonDocument body = await JsonDocument.ParseAsync(response.Content, cancellationToken: cancellationToken).NoSync();
+        var found = new Dictionary<(string, string), string>();
         foreach (JsonElement item in body.RootElement.GetProperty("Documents").EnumerateArray())
-        {
-            CosmosDocument document = CosmosDocument.Read(item);
-            found.Add(document.Id, document.RawJson);
-        }
-        return addresses.Select(address => found.GetValueOrDefault(address.Item1)).ToArray();
+            found.Add((item.GetProperty("id").GetString()!, item.GetProperty("partitionKey").GetString()!), Json(item));
+        return addresses.Select(found.GetValueOrDefault).ToArray();
     }
 
-    private QueryDefinition Query(string select, string suffix = "") =>
-        new QueryDefinition($"SELECT VALUE {select} FROM c WHERE c.containerName = @container {suffix}").WithParameter("@container", name);
+    private static QueryDefinition Query(string select, string suffix = "") => new($"SELECT VALUE {select} FROM c WHERE true {suffix}");
     private async ValueTask<List<T>> Query<T>(QueryDefinition query, Func<JsonElement, T> materialize, CancellationToken token)
     {
         Check(token);
@@ -104,19 +109,23 @@ internal sealed partial class CosmosLibrarianContainer(CosmosLibrarianDatabase d
         var items = new List<T>();
         while (iterator.HasMoreResults)
         {
-            using ResponseMessage response = await iterator.ReadNextAsync(token).ConfigureAwait(false);
+            using ResponseMessage response = await iterator.ReadNextAsync(token).NoSync();
             response.EnsureSuccessStatusCode();
-            using JsonDocument page = await JsonDocument.ParseAsync(response.Content, cancellationToken: token).ConfigureAwait(false);
+            using JsonDocument page = await JsonDocument.ParseAsync(response.Content, cancellationToken: token).NoSync();
             foreach (JsonElement value in page.RootElement.GetProperty("Documents").EnumerateArray()) items.Add(materialize(value));
         }
         return items;
     }
     public async ValueTask<int> CountItems(CancellationToken cancellationToken = default) =>
-        (await Query(Query("COUNT(1)"), value => value.GetInt32(), cancellationToken).ConfigureAwait(false)).Single();
-    public ValueTask<List<string>> GetAllItems(CancellationToken cancellationToken = default) => Query(Query("c.rawJson"), value => value.GetString()!, cancellationToken);
-    public ValueTask<List<string>> GetAllIds(CancellationToken cancellationToken = default) => Query(Query("c.originalId"), value => value.GetString()!, cancellationToken);
+        (await Query(Query("COUNT(1)"), value => value.GetInt32(), cancellationToken).NoSync()).Single();
+    public ValueTask<List<string>> GetAllItems(CancellationToken cancellationToken = default) => Query(Query("c"), Json, cancellationToken);
+    public ValueTask<List<string>> GetAllIds(CancellationToken cancellationToken = default) => Query(Query("{\"id\":c.id,\"partitionKey\":c.partitionKey}"), LibrarianDocumentJson.Id, cancellationToken);
     public ValueTask<List<IdValuePair>> GetLibrarianItems(CancellationToken cancellationToken = default) =>
-        Query(Query("{\"id\": c.originalId, \"value\": c.rawJson}"), value => new IdValuePair { Id = value.GetProperty("id").GetString()!, Value = value.GetProperty("value").GetString()! }, cancellationToken);
+        Query(Query("c"), value => new IdValuePair { Id = LibrarianDocumentJson.Id(value), Value = Json(value) }, cancellationToken);
     public async ValueTask DeleteAllItems(CancellationToken cancellationToken = default)
-    { Check(cancellationToken); await database.Clear(name, cancellationToken).ConfigureAwait(false); }
+    {
+        Check(cancellationToken);
+        List<string> ids = await GetAllIds(cancellationToken).NoSync();
+        foreach (string id in ids) await DeleteItem(id, cancellationToken).NoSync();
+    }
 }

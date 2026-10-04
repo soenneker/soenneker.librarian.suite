@@ -1,3 +1,4 @@
+using Soenneker.Atomics.ValueBools;
 using Soenneker.Extensions.ValueTask;
 using System;
 using Soenneker.Utils.Json;
@@ -23,7 +24,7 @@ public abstract class SnapshotLibrarianDatabase(ILogger logger) : ILibrarianData
     private readonly Dictionary<string, LibrarianContainer> _containers = new(StringComparer.Ordinal);
     private Dictionary<string, List<IdValuePair>>? _snapshot;
     private string? _persistedJson;
-    private bool _disposed;
+    private ValueAtomicBool _disposed = new(false);
 
     /// <summary>Reads the persisted snapshot; null means the storage address does not exist yet.</summary>
     protected abstract ValueTask<string?> ReadSnapshot(CancellationToken cancellationToken);
@@ -66,7 +67,7 @@ public abstract class SnapshotLibrarianDatabase(ILogger logger) : ILibrarianData
         ArgumentException.ThrowIfNullOrWhiteSpace(containerName);
         using (await _gate.Lock(cancellationToken).NoSync())
         {
-            ObjectDisposedException.ThrowIf(_disposed, this);
+            ObjectDisposedException.ThrowIf(_disposed.Value, this);
             await Load(cancellationToken).NoSync();
             return GetOrCreate(containerName);
         }
@@ -75,7 +76,7 @@ public abstract class SnapshotLibrarianDatabase(ILogger logger) : ILibrarianData
     public ValueTask MarkDirty(string containerName, CancellationToken cancellationToken = default)
     {
         // Save captures every loaded container under the mutation gate, including mutations whose notification is delayed.
-        ObjectDisposedException.ThrowIf(_disposed, this);
+        ObjectDisposedException.ThrowIf(_disposed.Value, this);
         return ValueTask.CompletedTask;
     }
 
@@ -83,7 +84,7 @@ public abstract class SnapshotLibrarianDatabase(ILogger logger) : ILibrarianData
     {
         using (await _gate.Lock(cancellationToken).NoSync())
         {
-            ObjectDisposedException.ThrowIf(_disposed, this);
+            ObjectDisposedException.ThrowIf(_disposed.Value, this);
             await SavePending(cancellationToken).NoSync();
         }
     }
@@ -115,9 +116,10 @@ public abstract class SnapshotLibrarianDatabase(ILogger logger) : ILibrarianData
     public async ValueTask<bool> Execute(LibrarianBatch batch, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(batch);
+        batch.ValidateConcurrency(supportsVersions: false);
         using (await _gate.Lock(cancellationToken).NoSync())
         {
-            ObjectDisposedException.ThrowIf(_disposed, this);
+            ObjectDisposedException.ThrowIf(_disposed.Value, this);
             await Load(cancellationToken).NoSync();
             foreach (LibrarianWrite write in batch.Writes) GetOrCreate(write.Container);
             foreach (LibrarianCondition condition in batch.Conditions) GetOrCreate(condition.Container);
@@ -130,7 +132,7 @@ public abstract class SnapshotLibrarianDatabase(ILogger logger) : ILibrarianData
         ArgumentException.ThrowIfNullOrWhiteSpace(containerName);
         using (await _gate.Lock(cancellationToken).NoSync())
         {
-            ObjectDisposedException.ThrowIf(_disposed, this);
+            ObjectDisposedException.ThrowIf(_disposed.Value, this);
             if (!_containers.ContainsKey(containerName)) return false;
             await SavePending(cancellationToken).NoSync();
             _containers.Remove(containerName, out LibrarianContainer? container);
@@ -143,10 +145,10 @@ public abstract class SnapshotLibrarianDatabase(ILogger logger) : ILibrarianData
     {
         using (await _gate.Lock(CancellationToken.None).NoSync())
         {
-            if (_disposed) return;
+            if (_disposed.Value) return;
             // Keep state available for retry if flushing fails.
             await SavePending(CancellationToken.None).NoSync();
-            _disposed = true;
+            _disposed.TrySetTrue();
             foreach (LibrarianContainer container in _containers.Values) container.Dispose();
             _containers.Clear();
             _snapshot = null;

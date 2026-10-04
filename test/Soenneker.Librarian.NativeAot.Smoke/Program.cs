@@ -1,3 +1,5 @@
+using Soenneker.Librarian.CouchDb;
+using Soenneker.Utils.Json;
 using System.Linq.Expressions;
 using Microsoft.Extensions.Configuration;
 using Soenneker.Documents.Document;
@@ -21,6 +23,15 @@ using StackExchange.Redis;
 LibrarianJson.Register(SmokeJsonContext.Default.SmokeRow);
 LibrarianJson.Register(SmokeJsonContext.Default.SmokeStatus);
 LibrarianJson.Register(SmokeJsonContext.Default.SmokeDocument);
+using (var couchClient = new HttpClient(new CouchDbSmokeHandler()))
+await using (var couch = new CouchDbLibrarianDatabase(new CouchDbLibrarianOptions { Endpoint = new Uri("https://couch.invalid/") }, couchClient))
+{
+    ILibrarianContainer documents = await couch.GetContainer("documents");
+    await documents.AddItem("a", "{\"id\":\"a\",\"partitionKey\":\"a\",\"name\":\"generated\"}");
+    await documents.EnsureIndex("name");
+    var page = await documents.FindByIndex<SmokeDocument>("name", "generated");
+    Check(page.Items.Count == 1 && page.Items[0].Name == "generated", "CouchDB source-generated materialization");
+}
 await using (var memory = new MemoryLibrarianDatabase(NullLogger<MemoryLibrarianDatabase>.Instance))
 {
     await CheckDatabase(memory);
@@ -48,9 +59,9 @@ finally { await services.GetRequiredService<IFileUtil>().Delete(path); }
 
 // Exercise both remote translators and materializers without requiring live services.
 var redisProvider = new RedisQueryProvider<SmokeRow>(null!);
-var redis = new RedisQueryable<SmokeRow>(redisProvider);
+var redis = new LibrarianQueryable<SmokeRow>(redisProvider);
 IQueryable<SmokeProjection> selected = redis.OrderBy(row => row.Score).Take(2).Select(row => new SmokeProjection(row.Name, row.Score));
-RedisQueryPlan redisPlan = RedisQueryPlan.Create(selected.Expression, redisProvider);
+var redisPlan = RedisQueryPlan.Create(selected.Expression, redisProvider);
 object? projected = redisPlan.Projection!.FromDocument("{\"score\":2,\"name\":\"row-2\",\"status\":\"Active\"}");
 Check(projected is SmokeProjection { Name: "row-2", Score: 2 }, "Redis record projection");
 var missing = RedisQueryPlan.Create(redis.Take(1).Select(row => row.Score).Expression, redisProvider);
@@ -60,9 +71,9 @@ Check(Equals(enumProjection.Projection!.FromDocument("{\"status\":\"Inactive\"}"
 var set = new HashSet<int> { 1, 2 };
 RedisQueryPlan.Create(redis.Where(row => set.Contains(row.Score)).Expression, redisProvider);
 var postgresProvider = new PostgresQueryProvider<SmokeRow>(null!);
-var postgres = new PostgresQueryable<SmokeRow>(postgresProvider);
+var postgres = new LibrarianQueryable<SmokeRow>(postgresProvider);
 IQueryable<int> composed = postgres.Select(row => row.Score + 1).Where(score => score > 1).Take(2);
-PostgresQueryPlan postgresPlan = PostgresQueryPlan.Create(composed.Expression, postgresProvider);
+var postgresPlan = PostgresQueryPlan.Create(composed.Expression, postgresProvider);
 Check(Equals(postgresPlan.Projection!.Materialize(["2"]), 2), "Postgres composed scalar projection");
 PostgresQueryPlan.Create(postgres.Where(row => set.Contains(row.Score)).Expression, postgresProvider);
 if (Environment.GetEnvironmentVariable("LIBRARIAN_TEST_REDIS") is { Length: > 0 } redisConnection)
@@ -78,19 +89,19 @@ if (Environment.GetEnvironmentVariable("LIBRARIAN_TEST_POSTGRES") is { Length: >
     await CheckRemote(database);
     Console.WriteLine("Native PostgreSQL I/O passed.");
 }
-Console.WriteLine("Native AOT smoke passed: memory, filesystem, Redis/Postgres translation and projection.");
+Console.WriteLine("Native AOT smoke passed: memory, filesystem, CouchDB JSON, Redis/Postgres translation and projection.");
 
 static async Task CheckDatabase(ILibrarianDatabase database)
 {
     ILibrarianContainer container = await database.GetContainer("rows");
     for (var i = 0; i < 6; i++)
-        await container.AddItem(i.ToString(), JsonSerializer.Serialize(new SmokeRow { Score = i, Name = $"row-{i}", Status = SmokeStatus.Active }, SmokeJsonContext.Default.SmokeRow));
+        await container.AddItem(i.ToString(), JsonUtil.Serialize(new SmokeRow { Score = i, Name = $"row-{i}", Status = SmokeStatus.Active }, SmokeJsonContext.Default.SmokeRow));
     IQueryable<SmokeRow> root = container.BuildQueryable<SmokeRow>();
     Check(root.Count(row => row.Score >= 2) == 4, "Indexed count");
     Check(root.Count(row => row.LongScore == 0) == 6, "Long automatic index");
     Check(root.Count(row => row.Amount == 0m) == 6, "Decimal automatic index");
     Check(root.Count(row => !row.Active) == 6, "Boolean automatic index");
-    int minimum = 2;
+    var minimum = 2;
     IQueryable<SmokeRow> captured = root.Where(row => row.Score >= minimum);
     Check(captured.Count() == 4, "Captured field"); minimum = 4;
     Check(captured.Count() == 2, "Live captured field");
@@ -117,7 +128,7 @@ static async Task CheckRemote(ILibrarianDatabase database)
     try
     {
         for (var i = 0; i < 6; i++)
-            await container.AddItem(i.ToString(), JsonSerializer.Serialize(new SmokeRow { Score = i, Name = $"row-{i}", Status = SmokeStatus.Active }, SmokeJsonContext.Default.SmokeRow));
+            await container.AddItem(i.ToString(), JsonUtil.Serialize(new SmokeRow { Score = i, Name = $"row-{i}", Status = SmokeStatus.Active }, SmokeJsonContext.Default.SmokeRow));
         IQueryable<SmokeRow> root = container.BuildQueryable<SmokeRow>();
         List<SmokeProjection> page = await root.Where(row => row.Score >= 2).OrderBy(row => row.Score).Take(2)
                                                .Select(row => new SmokeProjection(row.Name, row.Score)).ToListAsync();
@@ -141,22 +152,3 @@ static void Check(bool condition, string message)
 {
     if (!condition) throw new InvalidOperationException(message);
 }
-
-public enum SmokeStatus { Active, Inactive }
-public sealed class SmokeRow
-{
-    public int Score { get; set; }
-    public string Name { get; set; } = "";
-    public SmokeStatus Status { get; set; }
-    public long LongScore { get; set; }
-    public decimal Amount { get; set; }
-    public bool Active { get; set; }
-}
-public sealed class SmokeDocument : Document { public string Name { get; set; } = ""; }
-public sealed record SmokeProjection(string Name, int Score);
-
-[JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase, UseStringEnumConverter = true)]
-[JsonSerializable(typeof(SmokeRow))]
-[JsonSerializable(typeof(SmokeStatus))]
-[JsonSerializable(typeof(SmokeDocument))]
-internal partial class SmokeJsonContext : JsonSerializerContext;

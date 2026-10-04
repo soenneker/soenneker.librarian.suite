@@ -1,5 +1,6 @@
 using Soenneker.Librarian.Abstractions.Serialization;
 using System;
+using Soenneker.Librarian.Abstractions.Queries;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
@@ -22,7 +23,7 @@ public sealed partial class LibrarianContainer : ILibrarianContainer
     private readonly ILogger _logger;
 
     // Every access is protected by _mutationGate, including batch publication and query snapshots.
-    private Dictionary<string, string> _items;
+    private readonly Dictionary<string, string> _items;
     private readonly ConcurrentDictionary<Type, object> _queryRoots = new();
 
     private ValueAtomicBool _disposed = new(false);
@@ -91,7 +92,7 @@ public sealed partial class LibrarianContainer : ILibrarianContainer
         _ = LibrarianJson.Contract(typeof(T));
         ThrowIfDisposed();
         return (IQueryable<T>)_queryRoots.GetOrAdd(typeof(T), static (_, container) =>
-            new Indexes.LibrarianQueryable<T>(new Indexes.LibrarianQueryProvider<T>(container)), this);
+            new LibrarianQueryable<T>(new LibrarianQueryProvider<T>(container)), this);
     }
 
     public async ValueTask<string?> GetItem(string id, CancellationToken cancellationToken = default)
@@ -224,7 +225,7 @@ public sealed partial class LibrarianContainer : ILibrarianContainer
         _automaticIndexGroups.Clear();
         _queryRoots.Clear();
         _queryScanSnapshot = null;
-        _preparedKeys = Array.Empty<Indexes.IndexKey?>();
+        _preparedKeys = Array.Empty<IndexKey?>();
 
         _items.Clear();
     }

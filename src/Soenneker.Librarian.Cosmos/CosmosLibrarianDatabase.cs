@@ -1,151 +1,96 @@
+using Soenneker.Atomics.ValueBools;
+using Soenneker.Asyncs.Semaphores;
+using Soenneker.Extensions.Task;
+using Soenneker.Extensions.ValueTask;
 using System;
 using System.Collections.Generic;
-using System.Net;
-using System.Text.Json;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Azure.Cosmos;
-using Microsoft.Azure.Cosmos.Scripts;
 using Microsoft.Extensions.Configuration;
 using Soenneker.Cosmos.Container.Abstract;
 using Soenneker.Librarian.Abstractions;
-using Soenneker.Librarian.Abstractions.Transactions;
 
 namespace Soenneker.Librarian.Cosmos;
 
-public sealed class CosmosLibrarianDatabase : ILibrarianDatabase
+public sealed partial class CosmosLibrarianDatabase : ILibrarianDatabase
 {
-    private readonly Func<CancellationToken, ValueTask<Container>> _getContainer;
-    private readonly SemaphoreSlim _gate = new(1, 1);
-    private readonly Dictionary<string, CosmosLibrarianContainer> _containers = new(StringComparer.Ordinal);
-    private Container? _store;
-    private bool _scriptReady;
-    private volatile bool _disposed;
+    private readonly Func<string, CancellationToken, ValueTask<Container>> _getContainer;
+    private readonly AsyncSemaphore _gate = new(1);
+    private readonly Dictionary<(string Name, string? Partition), CosmosLibrarianContainer> _containers = new();
+    private readonly Dictionary<string, Container> _stores = new(StringComparer.Ordinal);
+    private ValueAtomicBool _disposed = new(false);
     internal string Key { get; }
-    internal PartitionKey Partition => new(Key);
 
     public CosmosLibrarianDatabase(IConfiguration configuration, ICosmosContainerUtil containerUtil)
-        : this(containerUtil, configuration["Librarian:Cosmos:Key"] ?? "librarian",
-            configuration["Librarian:Cosmos:ContainerName"] ?? "librarian") { }
+        : this(containerUtil, configuration["Librarian:Cosmos:Key"] ?? "librarian", configuration["Librarian:Cosmos:ContainerName"] ?? "librarian") { }
 
-    /// <summary>Uses the shared Cosmos utilities to lazily ensure the configured database and physical container.</summary>
+    /// <summary>Lazily provisions one physical container per logical name using the shared Cosmos utilities. Names are prefix.key.name, with escaped segments.</summary>
     public CosmosLibrarianDatabase(ICosmosContainerUtil containerUtil, string key, string containerName = "librarian")
     {
         ArgumentNullException.ThrowIfNull(containerUtil);
         ArgumentException.ThrowIfNullOrWhiteSpace(key);
         ArgumentException.ThrowIfNullOrWhiteSpace(containerName);
         Key = key;
-        _getContainer = token => containerUtil.Get(containerName, token);
+        _getContainer = (name, token) => containerUtil.Get(Escape(containerName) + "." + Escape(key) + "." + Escape(name), token);
     }
-
-    /// <summary>Uses an already provisioned, caller-owned container partitioned by /partitionKey.</summary>
+    /// <summary>Uses a caller-owned container partitioned by /partitionKey. GetContainer must use that container's ID.</summary>
     public CosmosLibrarianDatabase(Container container, string key = "librarian")
     {
         ArgumentNullException.ThrowIfNull(container);
         ArgumentException.ThrowIfNullOrWhiteSpace(key);
         Key = key;
-        _getContainer = _ => ValueTask.FromResult(container);
+        _getContainer = (name, _) => name == container.Id ? ValueTask.FromResult(container) :
+            throw new ArgumentException("A caller-owned Cosmos container must be accessed using its physical ID.", nameof(name));
     }
-
-    internal void Check(CancellationToken token = default)
-    {
-        ObjectDisposedException.ThrowIf(_disposed, this);
-        token.ThrowIfCancellationRequested();
-    }
-    private async ValueTask<Container> EnsureStore(CancellationToken token)
+    private static string Escape(string value) => Uri.EscapeDataString(value).Replace(".", "%2E", StringComparison.Ordinal);
+    internal void Check(CancellationToken token = default) { ObjectDisposedException.ThrowIf(_disposed.Value, this); token.ThrowIfCancellationRequested(); }
+    private async ValueTask<Container> Store(string name, CancellationToken token)
     {
         Check(token);
-        return _store ??= await _getContainer(token).ConfigureAwait(false);
+        if (!_stores.TryGetValue(name, out Container? store)) _stores.Add(name, store = await _getContainer(name, token).NoSync());
+        return store;
     }
-    public async ValueTask<ILibrarianContainer> GetContainer(string containerName, CancellationToken cancellationToken = default)
+    public ValueTask<ILibrarianContainer> GetContainer(string containerName, CancellationToken cancellationToken = default) => GetPartitionContainer(containerName, null, cancellationToken);
+    public ValueTask<ILibrarianContainer> GetContainer(string containerName, string partitionKey, CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(containerName);
-        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
+        ArgumentException.ThrowIfNullOrWhiteSpace(partitionKey);
+        return GetPartitionContainer(containerName, partitionKey, cancellationToken);
+    }
+    private async ValueTask<ILibrarianContainer> GetPartitionContainer(string name, string? partition, CancellationToken token)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        using (await _gate.Acquire(token).NoSync())
         {
-            Container store = await EnsureStore(cancellationToken).ConfigureAwait(false);
-            if (!_containers.TryGetValue(containerName, out CosmosLibrarianContainer? container))
-                _containers.Add(containerName, container = new CosmosLibrarianContainer(this, store, containerName));
+            Container store = await Store(name, token).NoSync();
+            if (!_containers.TryGetValue((name, partition), out CosmosLibrarianContainer? container))
+                _containers.Add((name, partition), container = new CosmosLibrarianContainer(this, store, name, partition));
             return container;
         }
-        finally { _gate.Release(); }
     }
-
-    public ValueTask<bool> Execute(LibrarianBatch batch, CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(batch);
-        Check(cancellationToken);
-        var writes = new List<object>(batch.Writes.Count);
-        foreach (LibrarianWrite write in batch.Writes)
-            writes.Add(new { id = CosmosDocument.IdFor(write.Container, write.Id), document = write.Value is null ? null :
-                CosmosDocument.Create(Key, write.Container, write.Id, write.Value) });
-        var conditions = new List<object>(batch.Conditions.Count);
-        foreach (LibrarianCondition condition in batch.Conditions)
-            conditions.Add(new { id = CosmosDocument.IdFor(condition.Container, condition.Id), expected = condition.ExpectedValue });
-        return ExecuteScript(JsonSerializer.Serialize(new { partitionKey = Key, writes, conditions }), cancellationToken);
-    }
-    internal ValueTask<bool> Clear(string containerName, CancellationToken token) =>
-        ExecuteScript(JsonSerializer.Serialize(new { clear = containerName }), token);
-
-    private async ValueTask<bool> ExecuteScript(string request, CancellationToken token)
-    {
-        Container store;
-        await _gate.WaitAsync(token).ConfigureAwait(false);
-        try
-        {
-            store = await EnsureStore(token).ConfigureAwait(false);
-            if (!_scriptReady)
-            {
-                try
-                {
-                    await store.Scripts.CreateStoredProcedureAsync(new StoredProcedureProperties
-                    { Id = CosmosBatchScript.Id, Body = CosmosBatchScript.Body }, cancellationToken: token).ConfigureAwait(false);
-                }
-                catch (CosmosException exception) when (exception.StatusCode == HttpStatusCode.Conflict) { }
-                _scriptReady = true;
-            }
-        }
-        finally { _gate.Release(); }
-        for (int attempt = 0; ; attempt++)
-        {
-            try
-            {
-                StoredProcedureExecuteResponse<bool> result = await store.Scripts.ExecuteStoredProcedureAsync<bool>(
-                    CosmosBatchScript.Id, Partition, [request], cancellationToken: token).ConfigureAwait(false);
-                return result.Resource;
-            }
-            // These server responses confirm a rolled-back transaction. Never retry an uncertain transport outcome.
-            catch (CosmosException exception) when (attempt < 4 &&
-                (exception.StatusCode is HttpStatusCode.Conflict or HttpStatusCode.PreconditionFailed || (int)exception.StatusCode == 449)) { }
-        }
-    }
-
+    public async ValueTask<IQueryable<T>> BuildQueryableAcrossPartitions<T>(string containerName, CancellationToken cancellationToken = default) =>
+        (await GetContainer(containerName, cancellationToken).NoSync()).BuildQueryable<T>();
     public ValueTask Save(CancellationToken cancellationToken = default) { Check(cancellationToken); return ValueTask.CompletedTask; }
-    public ValueTask MarkDirty(string containerName, CancellationToken cancellationToken = default) { Check(); return ValueTask.CompletedTask; }
+    public ValueTask MarkDirty(string containerName, CancellationToken cancellationToken = default) { Check(cancellationToken); return ValueTask.CompletedTask; }
     public async ValueTask<bool> UnloadContainer(string containerName, CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(containerName);
-        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
+        using (await _gate.Acquire(cancellationToken).NoSync())
         {
             Check(cancellationToken);
-            if (!_containers.Remove(containerName, out CosmosLibrarianContainer? container)) return false;
-            container.Dispose();
-            return true;
+            (string Name, string? Partition)[] keys = _containers.Keys.Where(key => key.Name == containerName).ToArray();
+            foreach ((string Name, string? Partition) key in keys) { _containers[key].Dispose(); _containers.Remove(key); }
+            return keys.Length != 0;
         }
-        finally { _gate.Release(); }
     }
     public async ValueTask DisposeAsync()
     {
-        await _gate.WaitAsync().ConfigureAwait(false);
-        try
+        using (await _gate.Acquire().NoSync())
         {
-            if (_disposed) return;
-            _disposed = true;
+            if (!_disposed.TrySetTrue()) return;
             foreach (CosmosLibrarianContainer container in _containers.Values) container.Dispose();
             _containers.Clear();
-            _store = null;
+            _stores.Clear();
         }
-        finally { _gate.Release(); }
     }
 }

@@ -142,7 +142,7 @@ public class PersistenceTests
         {
             await using var fixture = new PersistenceFixture();
             // FileUtil writes UTF-8 without a BOM; this test requires explicit legacy encodings.
-            System.IO.File.WriteAllText(fixture.Path, "{\"items\":[{\"id\":\"one\",\"value\":\"payload\"}]}", encoding);
+            File.WriteAllText(fixture.Path, "{\"items\":[{\"id\":\"one\",\"value\":\"payload\"}]}", encoding);
             ILibrarianContainer container = await fixture.Database.GetContainer("items");
             Check((await container.GetItem("one")) == "payload", "Legacy encoding was not preserved.");
         }

@@ -44,10 +44,10 @@ public class BulkReadTests
         await fixture.Database.Execute(new LibrarianBatch([new LibrarianWrite("items", "a", "0"), new LibrarianWrite("items", "b", "0")]));
         Task writer = Task.Run(async () =>
         {
-            for (int i = 1; i <= 30; i++)
+            for (var i = 1; i <= 30; i++)
                 await fixture.Database.Execute(new LibrarianBatch([new LibrarianWrite("items", "a", i.ToString()), new LibrarianWrite("items", "b", i.ToString())]));
         });
-        for (int i = 0; i < 50; i++)
+        for (var i = 0; i < 50; i++)
         {
             string?[] values = await items.GetItems(["b", "a", "B"]);
             Check(values[0] == values[1] && values[1] == values[2]);

@@ -16,7 +16,7 @@ public class RedisQueryExpansionTests
     {
         await using var fixture = new RedisPersistenceFixture();
         ILibrarianContainer container = await fixture.Database.GetContainer("items");
-        var rows = Enumerable.Range(0, 350).Select(i => new RedisRow { Name = $"row-{i:D4}", Amount = i % 11 }).ToArray();
+        RedisRow[] rows = Enumerable.Range(0, 350).Select(i => new RedisRow { Name = $"row-{i:D4}", Amount = i % 11 }).ToArray();
         await fixture.Database.Execute(new LibrarianBatch(rows.Select(row => new LibrarianWrite("items", row.Name,
             $"{{\"name\":\"{row.Name}\",\"amount\":{row.Amount}}}"))));
         await container.AddItem("missing", "{\"name\":\"missing\"}");

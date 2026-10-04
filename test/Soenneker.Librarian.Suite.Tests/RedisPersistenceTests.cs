@@ -1,3 +1,4 @@
+using Soenneker.Utils.Json;
 using System;
 using System.Linq;
 using System.Text.Json;
@@ -210,7 +211,7 @@ public class RedisPersistenceTests
         await container.AddItem("longer", "{\"value\":\"aa\"}");
         await container.EnsureIndex("value");
         Check(await container.CountByIndex("value", null) == 1, "Missing and null values were conflated.");
-        LibrarianQueryResult<JsonElement> page = await container.FindRangeByIndex<System.Text.Json.JsonElement>("value", take: 20);
+        LibrarianQueryResult<JsonElement> page = await container.FindRangeByIndex<JsonElement>("value", take: 20);
         Check(page.Items.Select(item => item.GetProperty("value").GetRawText()).SequenceEqual(new[] { "null", "false", "true", "-1", "\"\"", "\"a\"", "\"aa\"" }), "Scalar ordering changed.");
     }
     [Test]
@@ -218,7 +219,7 @@ public class RedisPersistenceTests
     {
         await using var fixture = new RedisPersistenceFixture();
         ILibrarianContainer container = await fixture.Database.GetContainer("items");
-        string json = JsonSerializer.Serialize(new RedisRow { Status = RedisStatus.Active, DisplayName = "Visible" }, TestJsonContext.Default.RedisRow);
+        string json = JsonUtil.Serialize(new RedisRow { Status = RedisStatus.Active, DisplayName = "Visible" }, TestJsonContext.Default.RedisRow);
         await container.AddItem("one", json);
         await container.EnsureIndex("status");
         Check(await container.CountByIndex("status", RedisStatus.Active) == 1, "Enum query value did not match the generated string-enum encoding.");

@@ -32,7 +32,7 @@ public sealed partial class LibrarianContainer
             ThrowIfDisposed();
             cancellationToken.ThrowIfCancellationRequested();
             var result = new string?[ids.Count];
-            for (int i = 0; i < ids.Count; i++)
+            for (var i = 0; i < ids.Count; i++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 result[i] = _items.GetValueOrDefault(ids[i]);

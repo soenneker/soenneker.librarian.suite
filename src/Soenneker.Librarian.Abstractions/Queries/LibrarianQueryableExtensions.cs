@@ -11,6 +11,18 @@ namespace Soenneker.Librarian.Abstractions.Queries;
 /// <summary>Asynchronous terminal operations for Librarian queryables.</summary>
 public static class LibrarianQueryableExtensions
 {
+    /// <summary>Reads a native server page. Requires a provider implementing ILibrarianPagedQueryProvider.</summary>
+    /// <remarks>Continue until ContinuationToken is null, including after an empty page. Keep the query and partition unchanged.</remarks>
+    public static ValueTask<LibrarianPage<T>> ToPageAsync<T>(this IQueryable<T> query, int pageSize = 100,
+        string? continuationToken = null, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(pageSize);
+        return query.Provider is ILibrarianPagedQueryProvider provider
+            ? provider.ReadPage<T>(query.Expression, pageSize, continuationToken, cancellationToken)
+            : throw new NotSupportedException("This provider does not support continuation-token paging.");
+    }
+
     /// <summary>Materializes the query asynchronously, checking cancellation while collecting results.</summary>
     public static async ValueTask<List<T>> ToListAsync<T>(this IQueryable<T> query,
         CancellationToken cancellationToken = default)
@@ -91,7 +103,7 @@ public static class LibrarianQueryableExtensions
     {
         ArgumentNullException.ThrowIfNull(operation);
         ILibrarianAsyncQueryProvider provider = Provider(query);
-        Expression expression = new Replace(operation.Parameters[0], query.Expression).Visit(operation.Body)!;
+        Expression expression = new QueryExpressionReplacement(operation.Parameters[0], query.Expression).Visit(operation.Body)!;
         return provider.ExecuteAsync<TResult>(expression, cancellationToken);
     }
 
@@ -110,10 +122,5 @@ public static class LibrarianQueryableExtensions
         ArgumentNullException.ThrowIfNull(query);
         return query.Provider as ILibrarianAsyncQueryProvider ??
                throw new NotSupportedException("The query provider does not support Librarian asynchronous execution.");
-    }
-
-    private sealed class Replace(Expression source, Expression replacement) : ExpressionVisitor
-    {
-        public override Expression? Visit(Expression? node) => node == source ? replacement : base.Visit(node);
     }
 }

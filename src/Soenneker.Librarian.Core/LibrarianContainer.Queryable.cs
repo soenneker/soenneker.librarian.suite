@@ -25,13 +25,7 @@ public sealed partial class LibrarianContainer
         if (plan is not null)
         {
             using IndexPage page = await QueryPage<T>(plan, cancellationToken).NoSync();
-            if (page.Count == 0) return Array.Empty<T>();
-            // An owned raw snapshot preserves consistency and can be enumerated repeatedly without retaining a pool lease.
-            var json = new string[page.Count];
-            Array.Copy(page.Documents, json, page.Count);
-            IEnumerable<T> values = ScanValues<T>(json, cancellationToken);
-            return plan.ResidualPredicate is Expression<Func<T, bool>> predicate
-                ? values.Where(QueryFunction<T, bool>.Get(predicate)) : values;
+            return QueryValues<T>(page, plan, cancellationToken);
         }
         KeyValuePair<string, string>[] snapshot;
         using (await _mutationGate.Lock(cancellationToken).NoSync())
@@ -40,6 +34,33 @@ public sealed partial class LibrarianContainer
             snapshot = _queryScanSnapshot ??= _items.ToArray();
         }
         return Scan<T>(snapshot, cancellationToken);
+    }
+
+    internal IEnumerable<T> QuerySourceSync<T>(QueryPlan? plan, CancellationToken cancellationToken = default)
+    {
+        if (plan is not null)
+        {
+            using IndexPage page = QueryPageSync<T>(plan, cancellationToken);
+            return QueryValues<T>(page, plan, cancellationToken);
+        }
+        KeyValuePair<string, string>[] snapshot;
+        using (_mutationGate.LockSync(cancellationToken))
+        {
+            ThrowIfDisposed();
+            snapshot = _queryScanSnapshot ??= _items.ToArray();
+        }
+        return Scan<T>(snapshot, cancellationToken);
+    }
+
+    private static IEnumerable<T> QueryValues<T>(IndexPage page, QueryPlan plan, CancellationToken cancellationToken)
+    {
+        if (page.Count == 0) return Array.Empty<T>();
+        // An owned raw snapshot preserves consistency and can be enumerated repeatedly without retaining a pool lease.
+        var json = new string[page.Count];
+        Array.Copy(page.Documents, json, page.Count);
+        IEnumerable<T> values = ScanValues<T>(json, cancellationToken);
+        return plan.ResidualPredicate is Expression<Func<T, bool>> predicate
+            ? values.Where(QueryFunction<T, bool>.Get(predicate)) : values;
     }
 
     private static IEnumerable<T> ScanValues<T>(string[] json, CancellationToken cancellationToken)
@@ -74,32 +95,47 @@ public sealed partial class LibrarianContainer
         return DeserializePage<T>(page, cancellationToken);
     }
 
+    internal IReadOnlyList<T> QuerySnapshotSync<T>(QueryPlan plan, CancellationToken cancellationToken = default)
+    {
+        using IndexPage page = QueryPageSync<T>(plan, cancellationToken);
+        return DeserializePage<T>(page, cancellationToken);
+    }
+
+    private IndexPage QueryPageSync<T>(QueryPlan plan, CancellationToken cancellationToken)
+    {
+        using (_mutationGate.LockSync(cancellationToken))
+            return QueryPageLocked<T>(plan, cancellationToken);
+    }
+
     private async ValueTask<IndexPage> QueryPage<T>(QueryPlan plan, CancellationToken cancellationToken = default)
     {
-        IndexPage page;
         using (await _mutationGate.Lock(cancellationToken).NoSync())
+            return QueryPageLocked<T>(plan, cancellationToken);
+    }
+
+    private IndexPage QueryPageLocked<T>(QueryPlan plan, CancellationToken cancellationToken)
+    {
+        IndexPage page;
+        ThrowIfDisposed();
+        if (plan.Empty || plan.Take == 0) return IndexPage.Empty;
+        if (plan.AdditionalFilters is not null || plan.OrderProperty is { } order && order != plan.Property)
         {
-            ThrowIfDisposed();
-            if (plan.Empty || plan.Take == 0) return IndexPage.Empty;
-            if (plan.AdditionalFilters is not null || plan.OrderProperty is { } order && order != plan.Property)
+            page = QueryMultipleIndexes<T>(plan, cancellationToken);
+        }
+        else
+        {
+            AutomaticIndex automatic = GetAutomaticIndex<T>(plan.Property, cancellationToken);
+            bool equality = plan.Minimum is { } && plan.Minimum == plan.Maximum && plan.IncludeMinimum && plan.IncludeMaximum;
+            if (plan.CountOnly)
             {
-                page = QueryMultipleIndexes<T>(plan, cancellationToken);
+                int count = equality ? automatic.Index.Count(plan.Minimum!.Value)
+                    : automatic.Index.CountRange(plan.Minimum, plan.Maximum, plan.IncludeMinimum, plan.IncludeMaximum);
+                plan.Count = Math.Min(plan.Take, Math.Max(0, count - plan.Skip));
+                return IndexPage.Empty;
             }
-            else
-            {
-                AutomaticIndex automatic = GetAutomaticIndex<T>(plan.Property, cancellationToken);
-                bool equality = plan.Minimum is { } && plan.Minimum == plan.Maximum && plan.IncludeMinimum && plan.IncludeMaximum;
-                if (plan.CountOnly)
-                {
-                    int count = equality ? automatic.Index.Count(plan.Minimum!.Value)
-                        : automatic.Index.CountRange(plan.Minimum, plan.Maximum, plan.IncludeMinimum, plan.IncludeMaximum);
-                    plan.Count = Math.Min(plan.Take, Math.Max(0, count - plan.Skip));
-                    return IndexPage.Empty;
-                }
-                page = equality && !plan.Descending
-                    ? automatic.Index.Equal(plan.Minimum!.Value, _items, plan.Skip, plan.Take, default)
-                    : automatic.Index.Range(plan.Minimum, plan.Maximum, plan.Descending, _items, plan.Skip, plan.Take, default, plan.IncludeMinimum, plan.IncludeMaximum);
-            }
+            page = equality && !plan.Descending
+                ? automatic.Index.Equal(plan.Minimum!.Value, _items, plan.Skip, plan.Take, default)
+                : automatic.Index.Range(plan.Minimum, plan.Maximum, plan.Descending, _items, plan.Skip, plan.Take, default, plan.IncludeMinimum, plan.IncludeMaximum);
         }
         return page;
     }

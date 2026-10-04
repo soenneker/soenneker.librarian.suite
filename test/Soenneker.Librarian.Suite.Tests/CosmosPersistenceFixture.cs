@@ -23,7 +23,8 @@ internal sealed class CosmosPersistenceFixture : IAsyncDisposable
     private readonly ServiceProvider _services;
     private readonly string _name;
     internal CosmosLibrarianDatabase Database { get; }
-    internal CosmosLibrarianDatabase CreateDatabase() => new(_services.GetRequiredService<ICosmosContainerUtil>(), "test");
+    internal Container Store(string name) => _client.GetContainer(_name, "librarian.test." + name);
+    internal CosmosLibrarianDatabase CreateDatabase(string key = "test") => new(_services.GetRequiredService<ICosmosContainerUtil>(), key);
     private CosmosPersistenceFixture(CosmosClient client, ServiceProvider services, string name)
     {
         _client = client;

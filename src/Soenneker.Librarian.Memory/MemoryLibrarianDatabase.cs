@@ -46,6 +46,7 @@ public sealed class MemoryLibrarianDatabase(ILogger<MemoryLibrarianDatabase> log
     public async ValueTask<bool> Execute(LibrarianBatch batch, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(batch);
+        batch.ValidateConcurrency(supportsVersions: false);
         using (await _gate.Lock(cancellationToken).NoSync())
         {
             ObjectDisposedException.ThrowIf(_disposed.Value, this);

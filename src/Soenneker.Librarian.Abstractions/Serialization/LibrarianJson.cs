@@ -34,5 +34,6 @@ public static class LibrarianJson
     // JsonUtil has no non-generic metadata overload; retain the registered AOT contract here.
     public static object? Deserialize(string json, Type type) => JsonSerializer.Deserialize(json, Contract(type));
     public static string Serialize<T>(T value) => JsonUtil.Serialize(value, (JsonTypeInfo<T>)Contract(typeof(T)));
+    // JsonUtil only accepts generic metadata; this path must preserve the runtime-selected registered contract.
     public static JsonElement Element(object? value) => JsonSerializer.SerializeToElement(value, Contract(value?.GetType() ?? typeof(string)));
 }

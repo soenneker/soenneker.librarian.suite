@@ -8,16 +8,6 @@ namespace Soenneker.Librarian.Mongo;
 
 internal static class MongoJsonValue
 {
-    internal static BsonValue Parse(string json)
-    {
-        try
-        {
-            using JsonDocument document = JsonDocument.Parse(json);
-            return FromJson(document.RootElement);
-        }
-        catch (JsonException) { return BsonNull.Value; }
-    }
-
     internal static BsonValue FromJson(JsonElement value) => value.ValueKind switch
     {
         JsonValueKind.Object => Document(value),

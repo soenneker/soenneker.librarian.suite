@@ -24,7 +24,7 @@ public sealed class PostgresQueryProvider<T>(PostgresLibrarianContainer containe
         ArgumentNullException.ThrowIfNull(expression);
         if (!typeof(IQueryable<TElement>).IsAssignableFrom(expression.Type))
             throw new ArgumentException("Expression must represent a queryable sequence of the requested type.", nameof(expression));
-        return new PostgresQueryable<TElement>(this, expression);
+        return new LibrarianQueryable<TElement>(this, expression);
     }
 
     public object? Execute(Expression expression) => Execute<object?>(expression);

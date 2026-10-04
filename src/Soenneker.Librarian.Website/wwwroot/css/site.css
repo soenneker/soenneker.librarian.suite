@@ -402,16 +402,17 @@ em {
   display: flex;
   margin-bottom: 24px;
 }
-.provider-symbol {
-  display: flex;
-  align-items: center;
-  justify-content: center;
+.provider-logo {
+  display: block;
   width: 42px;
   height: 42px;
-  background: #edf2ff;
-  color: #4569e9;
-  border-radius: 10px;
-  font-size: 26px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+.provider-heading {
+  display: flex;
+  align-items: center;
+  gap: 14px;
 }
 .provider-card p {
   font-size: 13px;

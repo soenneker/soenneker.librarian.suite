@@ -97,14 +97,4 @@ public class QueryConformanceTests
     }
 
     private static void Check(bool condition, string message) { if (!condition) throw new InvalidOperationException(message); }
-
-    public sealed class ConformanceRow
-    {
-        public static readonly PostgresRow.ReadCounter Created = new();
-        public ConformanceRow() => Created.Value++;
-        public int Score { get; set; }
-        public decimal Amount { get; set; }
-        public string? Name { get; set; }
-        public bool Active { get; set; }
-    }
 }

@@ -125,10 +125,10 @@ internal sealed class RedisQueryCommands(string prefix)
         if (sources.Count > 128)
         {
             var groups = new List<RedisKey>((sources.Count + 127) / 128);
-            for (int start = 0; start < sources.Count; start += 128)
+            for (var start = 0; start < sources.Count; start += 128)
             {
                 var group = new RedisKey[Math.Min(128, sources.Count - start)];
-                for (int i = 0; i < group.Length; i++) group[i] = sources[start + i];
+                for (var i = 0; i < group.Length; i++) group[i] = sources[start + i];
                 groups.Add(Combine(operation, group));
             }
             return Combine(operation, groups);
@@ -137,7 +137,7 @@ internal sealed class RedisQueryCommands(string prefix)
         _operations.Add(operation);
         _operations.Add(Key(destination));
         _operations.Add(sources.Count);
-        for (int i = 0; i < sources.Count; i++) _operations.Add(Key(sources[i]));
+        for (var i = 0; i < sources.Count; i++) _operations.Add(Key(sources[i]));
         return destination;
     }
 
@@ -160,7 +160,7 @@ internal sealed class RedisQueryCommands(string prefix)
         arguments[5] = orderPattern;
         arguments[6] = documentPattern;
         arguments[7] = _temporary.Count;
-        for (int i = 0; i < _temporary.Count; i++) arguments[8 + i] = _temporary[i];
+        for (var i = 0; i < _temporary.Count; i++) arguments[8 + i] = _temporary[i];
         arguments[8 + _temporary.Count] = orderKey;
         arguments[9 + _temporary.Count] = selectedKey;
         _operations.CopyTo(arguments, 10 + _temporary.Count);

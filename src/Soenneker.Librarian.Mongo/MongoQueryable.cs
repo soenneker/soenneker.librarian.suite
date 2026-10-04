@@ -1,3 +1,4 @@
+using Soenneker.Extensions.Task;
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -13,57 +14,64 @@ using Soenneker.Librarian.Abstractions.Queries;
 namespace Soenneker.Librarian.Mongo;
 
 // Only adapts lifetime checks and asynchronous execution; the driver translates every expression.
-internal sealed class MongoQueryable<T>(IQueryable<T> native, Func<CancellationToken, ValueTask> prepare)
+internal sealed class MongoQueryable<T>
     : IOrderedQueryable<T>, ILibrarianAsyncQueryProvider, IMongoQueryProvider, IAsyncCursorSource<T>
 {
-    public BsonDocument[] LoggedStages => ((IMongoQueryProvider)native.Provider).LoggedStages;
+    private readonly IQueryable<T> _native;
+    private readonly Action<CancellationToken> _check;
+
+    internal MongoQueryable(IQueryable<T> native, Action<CancellationToken> check)
+    {
+        QueryTypes.Register<T>();
+        _native = native;
+        _check = check;
+    }
+
+    public BsonDocument[] LoggedStages => ((IMongoQueryProvider)_native.Provider).LoggedStages;
     public Type ElementType => typeof(T);
-    public Expression Expression => native.Expression;
+    public Expression Expression => _native.Expression;
     public IQueryProvider Provider => this;
     public IQueryable<TElement> CreateQuery<TElement>(Expression expression) =>
-        new MongoQueryable<TElement>(native.Provider.CreateQuery<TElement>(expression), prepare);
-    public IQueryable CreateQuery(Expression expression)
-    {
-        IQueryable query = native.Provider.CreateQuery(expression);
-        return (IQueryable)Activator.CreateInstance(typeof(MongoQueryable<>).MakeGenericType(query.ElementType), query, prepare)!;
-    }
+        new MongoQueryable<TElement>(_native.Provider.CreateQuery<TElement>(expression), _check);
+    public IQueryable CreateQuery(Expression expression) => QueryTypes.CreateQuery(this, expression);
+
     public IEnumerator<T> GetEnumerator()
     {
-        prepare(default).AsTask().GetAwaiter().GetResult();
-        return native.GetEnumerator();
+        _check(default);
+        return _native.GetEnumerator();
     }
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
     public object? Execute(Expression expression)
     {
-        prepare(default).AsTask().GetAwaiter().GetResult();
-        return native.Provider.Execute(expression);
+        _check(default);
+        return _native.Provider.Execute(expression);
     }
     public TResult Execute<TResult>(Expression expression)
     {
-        prepare(default).AsTask().GetAwaiter().GetResult();
-        return native.Provider.Execute<TResult>(expression);
+        _check(default);
+        return _native.Provider.Execute<TResult>(expression);
     }
     public async ValueTask<TResult> ExecuteAsync<TResult>(Expression expression, CancellationToken cancellationToken = default)
     {
-        await prepare(cancellationToken).ConfigureAwait(false);
+        _check(cancellationToken);
         if (typeof(IQueryable).IsAssignableFrom(expression.Type))
         {
-            using IAsyncCursor<T> cursor = await native.Provider.CreateQuery<T>(expression).ToCursorAsync(cancellationToken).ConfigureAwait(false);
-            return (TResult)(object)await cursor.ToListAsync(cancellationToken).ConfigureAwait(false);
+            using IAsyncCursor<T> cursor = await _native.Provider.CreateQuery<T>(expression).ToCursorAsync(cancellationToken).NoSync();
+            return (TResult)(object)await cursor.ToListAsync(cancellationToken).NoSync();
         }
-        return await ((IMongoQueryProvider)native.Provider).ExecuteAsync<TResult>(expression, cancellationToken).ConfigureAwait(false);
+        return await ((IMongoQueryProvider)_native.Provider).ExecuteAsync<TResult>(expression, cancellationToken).NoSync();
     }
     Task<TResult> IMongoQueryProvider.ExecuteAsync<TResult>(Expression expression, CancellationToken cancellationToken) =>
         ExecuteAsync<TResult>(expression, cancellationToken).AsTask();
     public IAsyncCursor<T> ToCursor(CancellationToken cancellationToken = default)
     {
-        prepare(cancellationToken).AsTask().GetAwaiter().GetResult();
-        return native.ToCursor(cancellationToken);
+        _check(cancellationToken);
+        return _native.ToCursor(cancellationToken);
     }
-    public async Task<IAsyncCursor<T>> ToCursorAsync(CancellationToken cancellationToken = default)
+    public Task<IAsyncCursor<T>> ToCursorAsync(CancellationToken cancellationToken = default)
     {
-        await prepare(cancellationToken).ConfigureAwait(false);
-        return await native.ToCursorAsync(cancellationToken).ConfigureAwait(false);
+        _check(cancellationToken);
+        return _native.ToCursorAsync(cancellationToken);
     }
-    public override string ToString() => native.ToString()!;
+    public override string ToString() => _native.ToString()!;
 }

@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -14,6 +15,25 @@ namespace Soenneker.Librarian.Abstractions;
 /// <typeparam name="TDocument">The type of document being handled.</typeparam>
 public interface ILibrarianRepository<TDocument> where TDocument : Document
 {
+    /// <summary>Reads a document and its provider-neutral version, or null when absent.</summary>
+    ValueTask<LibrarianItem<TDocument>?> GetItemWithVersion(string id, CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException("This repository does not support versioned reads.");
+
+    /// <summary>Replaces a document only if the version matches, returning its new version or null on conflict or absence.</summary>
+    ValueTask<LibrarianItem<TDocument>?> UpdateItemIfVersion(TDocument document, string version, CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException("This repository does not support versioned writes.");
+
+    /// <summary>Deletes a document only if its version matches. Returns false on conflict or absence.</summary>
+    ValueTask<bool> DeleteItemIfVersion(string id, string version, CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException("This repository does not support versioned deletes.");
+
+    /// <summary>Retries a read-modify-write operation on confirmed conflicts. The callback must be free of external side effects and preserve the ID.</summary>
+    ValueTask<LibrarianItem<TDocument>> MutateItem(string id, Func<TDocument, TDocument> mutation, int maxAttempts = 5,
+        CancellationToken cancellationToken = default) => throw new NotSupportedException("This repository does not support versioned mutations.");
+
+    /// <summary>Reads a server page with an opaque continuation token using the query's provider.</summary>
+    ValueTask<LibrarianPage<T>> GetItemsPaged<T>(IQueryable<T> query, int pageSize = 100, string? continuationToken = null,
+        CancellationToken cancellationToken = default) => query.ToPageAsync(pageSize, continuationToken, cancellationToken);
 
     /// <summary>Ensures a scalar JSON field index exists on this repository's container.</summary>
     /// <remarks>Uses serialized JSON property names. See ILibrarianContainer.EnsureIndex for value and lifetime rules.</remarks>

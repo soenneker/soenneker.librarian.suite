@@ -24,7 +24,7 @@ public class RedisContentionTests
         proxy.Inner = real;
         await using var database = new RedisLibrarianDatabase(fixture.Key, _ => ValueTask.FromResult(wrapped));
         ILibrarianContainer reader = await database.GetContainer("items");
-        int conflicts = 0;
+        var conflicts = 0;
         proxy.AfterRange = async () =>
         {
             conflicts++;
@@ -67,22 +67,5 @@ public class RedisContentionTests
             catch (OperationCanceledException) when (stop.IsCancellationRequested) { }
         }
         finally { release.TrySetResult(); }
-    }
-
-    public class ReadProxy : DispatchProxy
-    {
-        public IDatabase Inner = null!;
-        public Func<Task>? AfterRange;
-        protected override object? Invoke(MethodInfo? method, object?[]? args)
-        {
-            object? result = method!.Invoke(Inner, args);
-            return method.Name == "ExecuteAsync" && args?[0] is "ZRANGEBYLEX" ? After((Task<RedisResult>)result!) : result;
-        }
-        private async Task<RedisResult> After(Task<RedisResult> task)
-        {
-            RedisResult result = await task;
-            if (AfterRange is { } callback) await callback();
-            return result;
-        }
     }
 }

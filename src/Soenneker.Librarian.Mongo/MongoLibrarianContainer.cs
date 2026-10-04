@@ -1,137 +1,158 @@
+using Soenneker.Atomics.ValueBools;
+using Soenneker.Extensions.Task;
+using Soenneker.Extensions.ValueTask;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using MongoDB.Bson;
+using MongoDB.Driver;
 using Soenneker.Dtos.IdValuePair;
 using Soenneker.Librarian.Abstractions;
-using Soenneker.Librarian.Abstractions.Queries;
 using Soenneker.Librarian.Abstractions.Serialization;
 
 namespace Soenneker.Librarian.Mongo;
 
-internal sealed class MongoLibrarianContainer(string name, MongoLibrarianDatabase database) : ILibrarianContainer
+internal sealed partial class MongoLibrarianContainer(string name, MongoLibrarianDatabase database, string? partition)
+    : ILibrarianContainer
 {
-    private volatile bool _disposed;
-    private void Check(CancellationToken token = default) { ObjectDisposedException.ThrowIf(_disposed, this); database.Check(token); }
-    public void Dispose() => _disposed = true;
+    private ValueAtomicBool _disposed = new(false);
+    private IMongoCollection<BsonDocument> Store => database.Collection(name);
 
-    public ValueTask EnsureIndex(string fieldPath, CancellationToken cancellationToken = default)
-    { Check(cancellationToken); return database.EnsureIndex(name, fieldPath, cancellationToken); }
-
-    private async ValueTask RequireIndex(string path, CancellationToken token)
+    private void Check(CancellationToken token = default)
     {
-        Check(token);
-        MongoIndexValue.ValidatePath(path);
-        if (!(await database.ReadMetadata(token).ConfigureAwait(false)).Paths(name).Contains(path))
-            throw new InvalidOperationException($"Index '{path}' does not exist.");
+        ObjectDisposedException.ThrowIf(_disposed.Value, this);
+        database.Check(token);
     }
 
-    private static MongoQueryFilter Equality(string path, object? value)
+    public void Dispose() => _disposed.TrySetTrue();
+
+    private FilterDefinition<BsonDocument> Scope => partition is null
+        ? FilterDefinition<BsonDocument>.Empty
+        : Builders<BsonDocument>.Filter.Eq("partitionKey", partition);
+
+    internal static string Identity(string id, string? partition = null)
     {
-        string encoded = MongoIndexValue.Encode(value);
-        return new MongoQueryFilter("term", path, "[" + encoded + "!", "[" + encoded + "!~");
+        (string Id, string Partition) address = LibrarianDocumentJson.Address(id, partition);
+        return address.Partition == address.Id ? address.Id : address.Partition + ":" + address.Id;
     }
 
-    private static MongoQueryFilter Range(string path, object? minimum, object? maximum)
+    private FilterDefinition<BsonDocument> Filter(string id) =>
+        Builders<BsonDocument>.Filter.Eq("_id", Identity(id, partition));
+
+    internal static BsonDocument Encode(string id, string json, string? partition = null)
     {
-        string? lower = minimum is null ? null : MongoIndexValue.Encode(minimum);
-        string? upper = maximum is null ? null : MongoIndexValue.Encode(maximum);
-        if (lower is not null && upper is not null && (lower[0] != upper[0] || string.CompareOrdinal(lower, upper) > 0))
-            throw new ArgumentException("Range bounds must share a scalar type and be in ascending order.");
-        return new MongoQueryFilter("term", path, lower is null ? "-" : "[" + lower + "!", upper is null ? "+" : "[" + upper + "!~");
+        BsonDocument document =
+            MongoJsonValue.FromJson(LibrarianDocumentJson.Parse(id, json, partition)).AsBsonDocument;
+        document["_id"] = Identity(id, partition);
+        document["_librarianVersion"] = Guid.NewGuid().ToString("N");
+        return document;
     }
 
-    private async ValueTask<LibrarianQueryResult<T>> Page<T>(string path, MongoQueryFilter filter, string? order,
-        bool descending, int skip, int take, CancellationToken token)
+    internal static string Json(BsonDocument document)
     {
-        if (skip < 0) throw new ArgumentOutOfRangeException(nameof(skip));
-        if (take <= 0) throw new ArgumentOutOfRangeException(nameof(take));
-        await RequireIndex(path, token).ConfigureAwait(false);
-        List<MongoDocument> rows = await database.Consistent(t => database.Select(new MongoSelection(name, filter, order, descending, skip, take), t), token).ConfigureAwait(false);
-        var items = new List<T>(rows.Count);
-        foreach (MongoDocument row in rows) { token.ThrowIfCancellationRequested(); items.Add(LibrarianJson.Deserialize<T>(row.Json)!); }
-        return new LibrarianQueryResult<T> { Items = items, Index = path, IndexEntriesExamined = rows.Count, DocumentsDeserialized = rows.Count };
-    }
-
-    public ValueTask<LibrarianQueryResult<T>> FindByIndex<T>(string fieldPath, object? value, int skip = 0, int take = 100, CancellationToken cancellationToken = default) =>
-        Page<T>(fieldPath, Equality(fieldPath, value), null, false, skip, take, cancellationToken);
-
-    public ValueTask<LibrarianQueryResult<T>> FindRangeByIndex<T>(string fieldPath, object? minimum = null, object? maximum = null,
-        bool descending = false, int skip = 0, int take = 100, CancellationToken cancellationToken = default) =>
-        Page<T>(fieldPath, Range(fieldPath, minimum, maximum), fieldPath, descending, skip, take, cancellationToken);
-
-    public async ValueTask<int> CountByIndex(string fieldPath, object? value, CancellationToken cancellationToken = default)
-    {
-        await RequireIndex(fieldPath, cancellationToken).ConfigureAwait(false);
-        return checked((int)await database.Count(new MongoSelection(name, Equality(fieldPath, value)), cancellationToken).ConfigureAwait(false));
-    }
-    public async ValueTask<bool> ExistsByIndex(string fieldPath, object? value, CancellationToken cancellationToken = default)
-    {
-        await RequireIndex(fieldPath, cancellationToken).ConfigureAwait(false);
-        return await database.Count(new MongoSelection(name, Equality(fieldPath, value), Take: 1), cancellationToken).ConfigureAwait(false) != 0;
-    }
-    public async ValueTask<int> CountRangeByIndex(string fieldPath, object? minimum = null, object? maximum = null, CancellationToken cancellationToken = default)
-    {
-        await RequireIndex(fieldPath, cancellationToken).ConfigureAwait(false);
-        return checked((int)await database.Count(new MongoSelection(name, Range(fieldPath, minimum, maximum)), cancellationToken).ConfigureAwait(false));
+        var copy = (BsonDocument)document.DeepClone();
+        copy.Remove("_id");
+        copy.Remove("_librarianVersion");
+        return MongoJsonValue.ToJson(copy)!.ToJsonString();
     }
 
     public IQueryable<T> BuildQueryable<T>()
     {
         Check();
-        return new MongoQueryable<T>(database.BuildQueryable<T>(name), token =>
-        {
-            Check(token);
-            return database.Initialize(token);
-        });
+        return new MongoQueryable<T>(database.BuildQueryable<T>(name, partition), Check);
     }
 
     public async ValueTask<string> AddItem(string id, string document, CancellationToken cancellationToken = default)
     {
         Check(cancellationToken);
-        if (!await database.Mutate(name, id, document, "add", cancellationToken).ConfigureAwait(false)) throw new InvalidOperationException($"Document '{id}' already exists.");
+        try
+        {
+            await Store.InsertOneAsync(Encode(id, document, partition), cancellationToken: cancellationToken)
+                       .NoSync();
+        }
+        catch (MongoWriteException e) when (e.WriteError.Category == ServerErrorCategory.DuplicateKey)
+        {
+            throw new InvalidOperationException($"Document '{id}' already exists.", e);
+        }
+
         return document;
     }
-    public async ValueTask<string?> UpdateItem(string id, string document, CancellationToken cancellationToken = default)
+
+    public async ValueTask<string?> UpdateItem(string id, string document,
+        CancellationToken cancellationToken = default)
     {
         Check(cancellationToken);
-        return await database.Mutate(name, id, document, "update", cancellationToken).ConfigureAwait(false) ? document : null;
+        BsonDocument next = Encode(id, document, partition);
+        ReplaceOneResult result = await Store.ReplaceOneAsync(Filter(id), next, cancellationToken: cancellationToken)
+                                             .NoSync();
+        return result.MatchedCount == 0 ? null : document;
     }
-    public async ValueTask<string> UpdateItemStrict(string id, string document, CancellationToken cancellationToken = default) =>
-        await UpdateItem(id, document, cancellationToken).ConfigureAwait(false) ?? throw new KeyNotFoundException($"Document '{id}' does not exist.");
+
+    public async ValueTask<string> UpdateItemStrict(string id, string document,
+        CancellationToken cancellationToken = default) =>
+        await UpdateItem(id, document, cancellationToken).NoSync() ??
+        throw new KeyNotFoundException($"Document '{id}' does not exist.");
+
     public async ValueTask DeleteItem(string id, CancellationToken cancellationToken = default)
-    { Check(cancellationToken); await database.Mutate(name, id, null, "delete", cancellationToken).ConfigureAwait(false); }
+    {
+        Check(cancellationToken);
+        await Store.DeleteOneAsync(Filter(id), cancellationToken).NoSync();
+    }
+
     public async ValueTask<string?> GetItem(string id, CancellationToken cancellationToken = default)
     {
         Check(cancellationToken);
-        ArgumentNullException.ThrowIfNull(id);
-        return (await database.ReadDocument(MongoDocument.Address(name, id), cancellationToken).ConfigureAwait(false))?.Json;
+        BsonDocument? value = await Store.Find(Filter(id)).FirstOrDefaultAsync(cancellationToken).NoSync();
+        return value is null ? null : Json(value);
     }
+
     public async ValueTask<string> GetItemStrict(string id, CancellationToken cancellationToken = default) =>
-        await GetItem(id, cancellationToken).ConfigureAwait(false) ?? throw new KeyNotFoundException($"Document '{id}' does not exist.");
-    public ValueTask<string?[]> GetItems(IReadOnlyList<string> ids, CancellationToken cancellationToken = default)
+        await GetItem(id, cancellationToken).NoSync() ??
+        throw new KeyNotFoundException($"Document '{id}' does not exist.");
+
+    public async ValueTask<string?[]> GetItems(IReadOnlyList<string> ids, CancellationToken cancellationToken = default)
     {
         Check(cancellationToken);
         ArgumentNullException.ThrowIfNull(ids);
-        foreach (string id in ids) ArgumentNullException.ThrowIfNull(id);
-        return database.Consistent(async token =>
-        {
-            var result = new string?[ids.Count];
-            for (int i = 0; i < ids.Count; i++) result[i] = await GetItem(ids[i], token).ConfigureAwait(false);
-            return result;
-        }, cancellationToken);
+        string[] addresses = ids.Select(id => Identity(id, partition)).ToArray();
+        if (addresses.Length == 0)
+            return [];
+        List<BsonDocument> values = await Store.Find(Builders<BsonDocument>.Filter.In("_id", addresses))
+                                               .ToListAsync(cancellationToken).NoSync();
+        Dictionary<string, string> found =
+            values.ToDictionary(value => value["_id"].AsString, Json, StringComparer.Ordinal);
+        return addresses.Select(address => found.GetValueOrDefault(address)).ToArray();
     }
+
     public async ValueTask<int> CountItems(CancellationToken cancellationToken = default)
-    { Check(cancellationToken); return checked((int)await database.Count(new MongoSelection(name, new MongoQueryFilter("all")), cancellationToken).ConfigureAwait(false)); }
-    private ValueTask<List<MongoDocument>> All(CancellationToken token)
-    { Check(token); return database.Consistent(t => database.Select(new MongoSelection(name, new MongoQueryFilter("all")), t), token); }
+    {
+        Check(cancellationToken);
+        return checked((int)await Store.CountDocumentsAsync(Scope, cancellationToken: cancellationToken)
+                                       .NoSync());
+    }
+
+    private Task<List<BsonDocument>> All(CancellationToken token)
+    {
+        Check(token);
+        return Store.Find(Scope).ToListAsync(token);
+    }
+
     public async ValueTask<List<string>> GetAllItems(CancellationToken cancellationToken = default) =>
-        (await All(cancellationToken).ConfigureAwait(false)).Select(x => x.Json).ToList();
+        (await All(cancellationToken).NoSync()).Select(Json).ToList();
+
     public async ValueTask<List<string>> GetAllIds(CancellationToken cancellationToken = default) =>
-        (await All(cancellationToken).ConfigureAwait(false)).Select(x => x.OriginalId).ToList();
+        (await All(cancellationToken).NoSync()).Select(value => value["_id"].AsString).ToList();
+
     public async ValueTask<List<IdValuePair>> GetLibrarianItems(CancellationToken cancellationToken = default) =>
-        (await All(cancellationToken).ConfigureAwait(false)).Select(x => new IdValuePair { Id = x.OriginalId, Value = x.Json }).ToList();
-    public ValueTask DeleteAllItems(CancellationToken cancellationToken = default)
-    { Check(cancellationToken); return database.DeleteAll(name, cancellationToken); }
+        (await All(cancellationToken).NoSync())
+        .Select(value => new IdValuePair { Id = value["_id"].AsString, Value = Json(value) }).ToList();
+
+    public async ValueTask DeleteAllItems(CancellationToken cancellationToken = default)
+    {
+        Check(cancellationToken);
+        await Store.DeleteManyAsync(Scope, cancellationToken).NoSync();
+    }
 }

@@ -1,3 +1,4 @@
+using Soenneker.Asyncs.Semaphores;
 using System;
 using Soenneker.Utils.AsyncInitializers;
 using System.Collections.Generic;
@@ -17,7 +18,7 @@ public sealed class PostgresLibrarianDatabase : ILibrarianDatabase
 {
     private readonly NpgsqlDataSource _source;
     private readonly bool _ownsSource;
-    private readonly SemaphoreSlim _gate = new(1, 1);
+    private readonly AsyncSemaphore _gate = new(1);
     private readonly Dictionary<string, PostgresLibrarianContainer> _containers = new(StringComparer.Ordinal);
     private readonly AsyncInitializer _initializer;
     private ValueAtomicBool _disposed = new(false);
@@ -92,20 +93,19 @@ public sealed class PostgresLibrarianDatabase : ILibrarianDatabase
     public async ValueTask<ILibrarianContainer> GetContainer(string containerName, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(containerName);
-        await _gate.WaitAsync(cancellationToken).NoSync();
-        try
+        using (await _gate.Acquire(cancellationToken).NoSync())
         {
             Check();
             if (!_containers.TryGetValue(containerName, out PostgresLibrarianContainer? container))
                 _containers.Add(containerName, container = new PostgresLibrarianContainer(containerName, this));
             return container;
         }
-        finally { _gate.Release(); }
     }
 
     public async ValueTask<bool> Execute(LibrarianBatch batch, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(batch);
+        batch.ValidateConcurrency(supportsVersions: false);
         await using NpgsqlConnection connection = await Open(cancellationToken).NoSync();
         await using NpgsqlTransaction transaction = await connection.BeginTransactionAsync(cancellationToken).NoSync();
         await LockWrites(connection, cancellationToken).NoSync();
@@ -141,21 +141,18 @@ public sealed class PostgresLibrarianDatabase : ILibrarianDatabase
     public async ValueTask<bool> UnloadContainer(string containerName, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(containerName);
-        await _gate.WaitAsync(cancellationToken).NoSync();
-        try
+        using (await _gate.Acquire(cancellationToken).NoSync())
         {
             Check();
             if (!_containers.Remove(containerName, out PostgresLibrarianContainer? container)) return false;
             container.Dispose();
             return true;
         }
-        finally { _gate.Release(); }
     }
 
     public async ValueTask DisposeAsync()
     {
-        await _gate.WaitAsync().NoSync();
-        try
+        using (await _gate.Acquire().NoSync())
         {
             if (!_disposed.TrySetTrue()) return;
             foreach (PostgresLibrarianContainer container in _containers.Values) container.Dispose();
@@ -163,7 +160,6 @@ public sealed class PostgresLibrarianDatabase : ILibrarianDatabase
             await _initializer.DisposeAsync().NoSync();
             if (_ownsSource) await _source.DisposeAsync().NoSync();
         }
-        finally { _gate.Release(); }
     }
 
     private const string Schema = """

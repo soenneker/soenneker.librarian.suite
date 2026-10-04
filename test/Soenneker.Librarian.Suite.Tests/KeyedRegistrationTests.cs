@@ -23,8 +23,8 @@ public sealed class KeyedRegistrationTests
         // Duplicate keys preserve the original registration.
         services.AddMemoryLibrarianDatabaseAsSingleton("first", _ => throw new Exception("Duplicate replaced original."));
         await using ServiceProvider provider = services.BuildServiceProvider();
-        ILibrarianDatabase first = provider.GetRequiredKeyedService<ILibrarianDatabase>("first");
-        ILibrarianDatabase second = provider.GetRequiredKeyedService<ILibrarianDatabase>("second");
+        var first = provider.GetRequiredKeyedService<ILibrarianDatabase>("first");
+        var second = provider.GetRequiredKeyedService<ILibrarianDatabase>("second");
         if (!ReferenceEquals(first, provider.GetRequiredKeyedService<ILibrarianDatabase>("first")))
             throw new Exception("Singleton was not reused.");
         if (ReferenceEquals(first, provider.GetRequiredService<ILibrarianDatabase>()))
@@ -45,7 +45,7 @@ public sealed class KeyedRegistrationTests
         await using ServiceProvider provider = services.BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true });
         await using AsyncServiceScope first = provider.CreateAsyncScope();
         await using AsyncServiceScope second = provider.CreateAsyncScope();
-        ILibrarianDatabase database = first.ServiceProvider.GetRequiredKeyedService<ILibrarianDatabase>("scoped");
+        var database = first.ServiceProvider.GetRequiredKeyedService<ILibrarianDatabase>("scoped");
         if (!ReferenceEquals(database, first.ServiceProvider.GetRequiredKeyedService<ILibrarianDatabase>("scoped")) ||
             ReferenceEquals(database, second.ServiceProvider.GetRequiredKeyedService<ILibrarianDatabase>("scoped")))
             throw new Exception("Scoped lifetime was not respected.");

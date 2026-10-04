@@ -78,9 +78,4 @@ public class AotContractTests
         {
         }
     }
-
-    public sealed class UnregisteredRow
-    {
-        public int Score { get; set; }
-    }
 }

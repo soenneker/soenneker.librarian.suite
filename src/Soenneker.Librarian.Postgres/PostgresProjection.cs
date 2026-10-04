@@ -73,41 +73,7 @@ public sealed class PostgresProjection
 
     internal PostgresLambda Rewrite(PostgresLambda expression)
     {
-        Expression body = new RewriteProjection(expression.Parameters[0], _selector.Body).Visit(expression.Body)!;
+        Expression body = new PostgresProjectionRewriter(expression.Parameters[0], _selector.Body).Visit(expression.Body)!;
         return new PostgresLambda(body, _selector.Parameters);
-    }
-
-    private sealed class RewriteProjection(ParameterExpression parameter, Expression selected) : ExpressionVisitor
-    {
-        protected override Expression VisitMember(MemberExpression node)
-        {
-            if (node.Expression == parameter)
-            {
-                if (selected is NewExpression { Members: not null } constructor)
-                {
-                    int index = constructor.Members.IndexOf(node.Member);
-                    if (index >= 0) return constructor.Arguments[index];
-                }
-                if (selected is MemberInitExpression initializer)
-                    foreach (MemberBinding binding in initializer.Bindings)
-                        if (binding.Member == node.Member && binding is MemberAssignment assignment)
-                        {
-                            if (binding.Member is PropertyInfo property &&
-                                (property.GetMethod is not { IsVirtual: false } getter || property.SetMethod is not { IsVirtual: false } setter ||
-                                 !getter.IsDefined(typeof(CompilerGeneratedAttribute), false) || !setter.IsDefined(typeof(CompilerGeneratedAttribute), false)))
-                                throw PostgresQueryPlan.Unsupported();
-                            return assignment.Expression;
-                        }
-                if (selected is NewExpression or MemberInitExpression) throw PostgresQueryPlan.Unsupported();
-            }
-            return base.VisitMember(node);
-        }
-
-        protected override Expression VisitParameter(ParameterExpression node)
-        {
-            if (node != parameter) return node;
-            if (selected is NewExpression or MemberInitExpression) throw PostgresQueryPlan.Unsupported();
-            return selected;
-        }
     }
 }

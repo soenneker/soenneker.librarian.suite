@@ -19,8 +19,8 @@ public sealed partial class RedisLibrarianContainer
     {
         RedisIndexValue.ValidatePath(path);
         IDatabase store = await Store(token).NoSync();
-        long count = (long)await store.ScriptEvaluateAsync(CountIndexScript, [Schema, Index(path)], [path, minimum, maximum])
-            .WaitAsync(token).NoSync();
+        var count = (long)await store.ScriptEvaluateAsync(CountIndexScript, [Schema, Index(path)], [path, minimum, maximum])
+                                     .WaitAsync(token).NoSync();
         if (count < 0) throw new InvalidOperationException($"Index '{path}' does not exist.");
         return checked((int)count);
     }
@@ -67,11 +67,11 @@ public sealed partial class RedisLibrarianContainer
         IDatabase store = await Store(cancellationToken).NoSync();
         if (ids.Count == 0) return [];
         var keys = new RedisKey[ids.Count];
-        for (int i = 0; i < ids.Count; i++) keys[i] = Document(Id(ids[i]));
+        for (var i = 0; i < ids.Count; i++) keys[i] = Document(Id(ids[i]));
         cancellationToken.ThrowIfCancellationRequested();
         var values = (RedisResult[])(await store.ScriptEvaluateAsync(ReadItemsScript, keys).WaitAsync(cancellationToken).NoSync())!;
         var result = new string?[values.Length];
-        for (int i = 0; i < values.Length; i++) result[i] = values[i].IsNull ? null : (string?)values[i];
+        for (var i = 0; i < values.Length; i++) result[i] = values[i].IsNull ? null : (string?)values[i];
         return result;
     }
 

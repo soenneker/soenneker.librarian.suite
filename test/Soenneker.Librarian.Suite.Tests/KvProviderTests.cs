@@ -18,7 +18,7 @@ public class KvProviderTests
         await using ILibrarianDatabase db = fixture.Create();
         ILibrarianContainer items = await db.GetContainer("items");
         await items.AddItem("large", new string('x', 25 * 1024 * 1024));
-        bool rejected = false;
+        var rejected = false;
         try { await db.Save(); }
         catch (InvalidOperationException) { rejected = true; }
         if (!rejected || fixture.Handler.Writes != 0)
@@ -65,7 +65,7 @@ public class KvProviderTests
         services.AddKvLibrarianDatabaseAsSingleton("kv", _ => (KvLibrarianDatabase)fixture.Create());
         services.AddKvLibrarianDatabaseAsSingleton("kv", _ => throw new Exception("Registration was replaced."));
         await using ServiceProvider provider = services.BuildServiceProvider();
-        ILibrarianDatabase db = provider.GetRequiredKeyedService<ILibrarianDatabase>("kv");
+        var db = provider.GetRequiredKeyedService<ILibrarianDatabase>("kv");
         if (!ReferenceEquals(db, provider.GetRequiredKeyedService<ILibrarianDatabase>("kv")))
             throw new Exception("Keyed registration is not a singleton.");
         await (await db.GetContainer("items")).AddItem("a", "keyed");

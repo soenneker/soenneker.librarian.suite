@@ -22,7 +22,7 @@ public sealed class RedisQueryProvider<T>(RedisLibrarianContainer container) : I
     {
         ArgumentNullException.ThrowIfNull(expression);
         if (!typeof(IQueryable<TElement>).IsAssignableFrom(expression.Type)) throw new ArgumentException("Invalid query element type.", nameof(expression));
-        return new RedisQueryable<TElement>(this, expression);
+        return new LibrarianQueryable<TElement>(this, expression);
     }
     public object? Execute(Expression expression) => Execute<object?>(expression);
     public TResult Execute<TResult>(Expression expression) => ExecuteAsync<TResult>(expression).AsTask().GetAwaiter().GetResult();
