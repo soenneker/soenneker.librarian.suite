@@ -278,12 +278,12 @@ em {
   color: #d6b6ff;
 }
 .connector {
-  height: 49px;
+  height: 64px;
   display: flex;
   align-items: center;
   justify-content: center;
   position: relative;
-  font: 9px var(--mono);
+  font: 600 14px var(--mono);
 }
 .connector:before {
   content: "";
@@ -298,32 +298,43 @@ em {
   padding: 5px 10px;
   color: #9fb3d3;
 }
-.file-stack {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 9px;
+.storage-choice {
+  margin: 0 0 14px;
+  text-align: center;
+  color: #aabbd5;
+  font-size: 12px;
 }
-.file-row {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 8px;
-  padding: 14px;
+.storage-options {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+}
+.storage-option {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 13px;
   border: 1px solid #30405b;
   border-radius: 8px;
   background: #19263d;
+  color: #edf3ff;
   font-size: 12px;
-  font-weight: 600;
+  transition: border-color 150ms, background 150ms;
 }
-.file-tag {
-  grid-column: 1;
-  grid-row: 2;
-  font: 8px var(--mono);
-  color: #899dbd;
+.storage-option:hover,
+.storage-option:focus-visible {
+  border-color: #85a4fc;
+  background: #243653;
 }
-.file-row > span:last-child {
-  grid-column: 2;
-  grid-row: 1;
-  color: #7d9ffc;
+.storage-option img {
+  object-fit: contain;
+  width: 24px;
+  height: 24px;
+}
+.storage-option img[src$="memory.svg"],
+.storage-option img[src$="filesystem.svg"] {
+  filter: invert(1);
 }
 .catalog-bottom {
   display: flex;

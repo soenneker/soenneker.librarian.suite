@@ -73,7 +73,7 @@ public sealed class PostgresLibrarianDatabase : ILibrarianDatabase
         await transaction.CommitAsync(token).NoSync();
     }
 
-    internal NpgsqlCommand Command(NpgsqlConnection connection, string sql, params object[] values)
+    internal NpgsqlCommand Command(NpgsqlConnection connection, string sql, params ReadOnlySpan<object> values)
     {
         var command = new NpgsqlCommand(sql, connection);
         foreach (object value in values) command.Parameters.Add(new NpgsqlParameter { Value = value });

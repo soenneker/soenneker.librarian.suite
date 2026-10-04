@@ -16,6 +16,39 @@ namespace Soenneker.Librarian.Suite.Tests;
 
 public sealed class CouchDbProviderTests
 {
+    [Test]
+    [Arguments("items")]
+    [Arguments("ids")]
+    [Arguments("pairs")]
+    [Arguments("count")]
+    public async Task Full_reads_consume_multiple_pages_and_exclude_other_partitions(string operation)
+    {
+        using var handler = new CouchDbTestHandler();
+        using var client = new HttpClient(handler);
+        await using var database = new CouchDbLibrarianDatabase(Options(), client);
+        handler.Expect(HttpMethod.Head, Db);
+        ILibrarianContainer container = await database.GetContainer("items", "org");
+        string first = "{\"rows\":[" + string.Join(',', Enumerable.Range(0, 256).Select(i =>
+            "{\"id\":\"d-" + i.ToString("D4") + "\",\"doc\":{\"id\":\"" + i + "\",\"partitionKey\":\"org\",\"nested\":{\"_id\":\"keep\"}}}")) + "]}";
+        handler.Expect(HttpMethod.Get, Db + "/_all_docs?include_docs=true&limit=256", first);
+        handler.Expect(HttpMethod.Get, Db + "/_all_docs?include_docs=true&limit=256&skip=1&startkey=" + Uri.EscapeDataString("\"d-0255\""),
+            "{\"rows\":[{\"id\":\"_design/index\",\"doc\":{}},{\"id\":\"d-other\",\"doc\":{\"id\":\"other\",\"partitionKey\":\"other\"}},{\"id\":\"d-last\",\"doc\":" + Stored + "}]}");
+        if (operation == "items")
+        {
+            var items = await container.GetAllItems();
+            using JsonDocument json = JsonDocument.Parse(items[0]);
+            Check(items.Count == 257 && json.RootElement.GetProperty("nested").GetProperty("_id").GetString() == "keep", "Page data expired or nested metadata was removed.");
+        }
+        else if (operation == "ids")
+        {
+            var ids = await container.GetAllIds();
+            Check(ids.Count == 257 && ids[0] == "org:0" && ids[^1] == "org:a", "ID scope or paging changed.");
+        }
+        else if (operation == "pairs") Check((await container.GetLibrarianItems()).Count == 257, "Pairs lost a page.");
+        else Check(await container.CountItems() == 257, "Count includes another partition or misses a page.");
+        handler.Verify();
+    }
+
     private const string Db = "/librarian-74657374-6974656d73";
     private const string Id = "/d-6f7267-61";
     private const string Document = "{\"id\":\"a\",\"partitionKey\":\"org\",\"score_value\":1}";

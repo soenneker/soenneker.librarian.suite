@@ -8,6 +8,7 @@ using Soenneker.Librarian.Memory;
 
 Soenneker.Librarian.Abstractions.Serialization.LibrarianJson.Register(BenchmarkJsonContext.Default.Row);
 CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;
+if (args.Contains("--providers")) { ProviderQueryBenchmarks.Run(); return; }
 if (args.Contains("--hotpaths")) { await HotPathBenchmarks.Run(); return; }
 if (args.Contains("--encoding")) { RedisBenchmarks.Encoding(); return; }
 if (args.Contains("--redis")) { await RedisBenchmarks.Run(); return; }

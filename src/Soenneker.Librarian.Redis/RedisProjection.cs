@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
+using Soenneker.Librarian.Abstractions.Queries;
 using System.Text.Json;
 using Soenneker.Librarian.Abstractions.Serialization;
 
@@ -31,6 +32,7 @@ public sealed class RedisProjection
                 throw RedisQueryPlan.Unsupported();
             int index = projection.Columns.Count;
             projection.Columns.Add((path, value.Type));
+            if (projection.Scalar) return value;
             Expression column = Expression.ArrayIndex(row, Expression.Constant(index));
             Expression<Func<string, Type, object?>> read = (json, resultType) => Read(json, resultType);
             var call = (MethodCallExpression)read.Body;
@@ -54,12 +56,14 @@ public sealed class RedisProjection
         }
         else
         {
-            body = Column(selector.Body);
             projection.Scalar = true;
+            body = Column(selector.Body);
         }
         if (projection.Columns.Count == 0) throw RedisQueryPlan.Unsupported();
-        // Construction is materialization only: each leaf is fetched as a SQL column, never a full document.
-        projection.Materialize = Expression.Lambda<Func<string?[], object?>>(Expression.Convert(body, typeof(object)), row).Compile(preferInterpretation: true);
+        // Compile only object construction; Redis returns document JSON for the bounded page.
+        projection.Materialize = projection.Scalar
+            ? values => values[0] is { } json ? Read(json, projection.ResultType) : QueryTypes.Get(projection.ResultType).Default
+            : Expression.Lambda<Func<string?[], object?>>(Expression.Convert(body, typeof(object)), row).Compile(preferInterpretation: true);
         return projection;
     }
 
@@ -69,15 +73,17 @@ public sealed class RedisProjection
     public object? FromDocument(string document)
     {
         using JsonDocument json = JsonDocument.Parse(document);
-        var fields = new string?[Columns.Count];
-        for (var i = 0; i < fields.Length; i++)
+        string?[]? fields = Scalar ? null : new string?[Columns.Count];
+        for (var i = 0; i < Columns.Count; i++)
         {
             JsonElement value = json.RootElement;
             var found = true;
-            foreach (string segment in Columns[i].Path.Split('.'))
-                if (value.ValueKind != JsonValueKind.Object || !value.TryGetProperty(segment, out value)) { found = false; break; }
-            if (found) fields[i] = value.GetRawText();
+            ReadOnlySpan<char> path = Columns[i].Path.AsSpan();
+            foreach (Range segment in path.Split('.'))
+                if (value.ValueKind != JsonValueKind.Object || !value.TryGetProperty(path[segment], out value)) { found = false; break; }
+            if (Scalar) return found ? JsonSerializer.Deserialize(value, LibrarianJson.Contract(ResultType)) : QueryTypes.Get(ResultType).Default;
+            if (found) fields![i] = value.GetRawText();
         }
-        return Materialize(fields);
+        return Materialize(fields!);
     }
 }

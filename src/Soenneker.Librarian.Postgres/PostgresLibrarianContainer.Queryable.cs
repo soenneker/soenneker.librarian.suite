@@ -20,7 +20,8 @@ public sealed partial class PostgresLibrarianContainer
     {
         _ = LibrarianJson.Contract(typeof(T));
         Check();
-        return (IQueryable<T>)_queryRoots.GetOrAdd(typeof(T), _ => new LibrarianQueryable<T>(new PostgresQueryProvider<T>(this)));
+        return (IQueryable<T>)_queryRoots.GetOrAdd(typeof(T), static (_, container) =>
+            new LibrarianQueryable<T>(new PostgresQueryProvider<T>(container)), this);
     }
 
     internal async ValueTask<object?> ExecuteQuery(PostgresQueryPlan plan, CancellationToken cancellationToken = default)

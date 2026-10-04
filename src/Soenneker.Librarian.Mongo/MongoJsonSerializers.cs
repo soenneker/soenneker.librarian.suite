@@ -16,7 +16,7 @@ internal static class MongoJsonSerializers
     private static readonly ConditionalWeakTable<JsonSerializerOptions, ConcurrentDictionary<Type, IBsonSerializer>> _serializers = new();
 
     internal static IBsonSerializer Create(Type type, JsonSerializerOptions options) =>
-        _serializers.GetOrCreateValue(options).GetOrAdd(type, type => Build(type, options));
+        _serializers.GetOrCreateValue(options).GetOrAdd(type, static (key, state) => Build(key, state), options);
 
     private static IBsonSerializer Build(Type type, JsonSerializerOptions options)
     {

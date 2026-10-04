@@ -30,12 +30,8 @@ internal class MongoJsonSerializer<T>(JsonTypeInfo typeInfo) : SerializerBase<T>
     public override T Deserialize(BsonDeserializationContext context, BsonDeserializationArgs args)
     {
         BsonValue value = BsonValueSerializer.Instance.Deserialize(context);
-        if (value is BsonDocument document && typeof(Soenneker.Documents.Document.Document).IsAssignableFrom(typeof(T)))
-        {
-            document.Remove("_id");
-            document.Remove("_librarianVersion");
-        }
-        return JsonUtil.Deserialize(MongoJsonValue.ToJson(value)?.ToJsonString() ?? "null", TypeInfo)!;
+        bool excludeMetadata = typeof(Soenneker.Documents.Document.Document).IsAssignableFrom(typeof(T));
+        return JsonUtil.Deserialize(MongoJsonValue.ToJson(value, excludeMetadata), TypeInfo)!;
     }
 
     public override void Serialize(BsonSerializationContext context, BsonSerializationArgs args, T value) =>

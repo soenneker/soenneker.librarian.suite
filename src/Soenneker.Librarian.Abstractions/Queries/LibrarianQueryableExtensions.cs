@@ -29,7 +29,7 @@ public static class LibrarianQueryableExtensions
     {
         IEnumerable<T> source = await Provider(query).ExecuteAsync<IEnumerable<T>>(query.Expression, cancellationToken)
                                                      .NoSync();
-        var results = new List<T>();
+        var results = new List<T>(source.TryGetNonEnumeratedCount(out int count) ? count : 0);
         foreach (T item in source)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -42,13 +42,29 @@ public static class LibrarianQueryableExtensions
 
     /// <summary>Materializes the query into an array asynchronously.</summary>
     public static async ValueTask<T[]> ToArrayAsync<T>(this IQueryable<T> query,
-        CancellationToken cancellationToken = default) =>
-        (await query.ToListAsync(cancellationToken).NoSync()).ToArray();
+        CancellationToken cancellationToken = default)
+    {
+        IEnumerable<T> source = await Provider(query).ExecuteAsync<IEnumerable<T>>(query.Expression, cancellationToken).NoSync();
+        cancellationToken.ThrowIfCancellationRequested();
+        T[] result = (source is ICollection<T> || !cancellationToken.CanBeCanceled
+            ? source : WithCancellation(source, cancellationToken)).ToArray();
+        cancellationToken.ThrowIfCancellationRequested();
+        return result;
+    }
+
+    private static IEnumerable<T> WithCancellation<T>(IEnumerable<T> source, CancellationToken token)
+    {
+        foreach (T item in source)
+        {
+            token.ThrowIfCancellationRequested();
+            yield return item;
+        }
+    }
 
     /// <summary>Counts query results asynchronously.</summary>
     public static ValueTask<int>
         CountAsync<T>(this IQueryable<T> query, CancellationToken cancellationToken = default) =>
-        query.ExecuteAsync(q => q.Count(), cancellationToken);
+        query.ExecuteAsync(QueryTerminals<T>.Count, cancellationToken);
 
     /// <summary>Counts matches asynchronously.</summary>
     public static ValueTask<int> CountAsync<T>(this IQueryable<T> query, Expression<Func<T, bool>> predicate,
@@ -56,12 +72,12 @@ public static class LibrarianQueryableExtensions
 
     /// <summary>Counts query results as a 64-bit integer asynchronously.</summary>
     public static ValueTask<long> LongCountAsync<T>(this IQueryable<T> query,
-        CancellationToken cancellationToken = default) => query.ExecuteAsync(q => q.LongCount(), cancellationToken);
+        CancellationToken cancellationToken = default) => query.ExecuteAsync(QueryTerminals<T>.LongCount, cancellationToken);
 
     /// <summary>Checks whether the query has any results asynchronously.</summary>
     public static ValueTask<bool>
         AnyAsync<T>(this IQueryable<T> query, CancellationToken cancellationToken = default) =>
-        query.ExecuteAsync(q => q.Any(), cancellationToken);
+        query.ExecuteAsync(QueryTerminals<T>.Any, cancellationToken);
 
     /// <summary>Checks whether the predicate matches any results asynchronously.</summary>
     public static ValueTask<bool> AnyAsync<T>(this IQueryable<T> query, Expression<Func<T, bool>> predicate,
@@ -74,7 +90,7 @@ public static class LibrarianQueryableExtensions
 
     /// <summary>Returns the first query result asynchronously, throwing if empty.</summary>
     public static ValueTask<T> FirstAsync<T>(this IQueryable<T> query, CancellationToken cancellationToken = default) =>
-        query.ExecuteAsync(q => q.First(), cancellationToken);
+        query.ExecuteAsync(QueryTerminals<T>.First, cancellationToken);
 
     /// <summary>Returns the first matching result asynchronously, throwing if empty.</summary>
     public static ValueTask<T> FirstAsync<T>(this IQueryable<T> query, Expression<Func<T, bool>> predicate,
@@ -83,17 +99,17 @@ public static class LibrarianQueryableExtensions
     /// <summary>Returns the first result or its default value asynchronously.</summary>
     public static ValueTask<T?> FirstOrDefaultAsync<T>(this IQueryable<T> query,
         CancellationToken cancellationToken = default) =>
-        query.ExecuteAsync(q => q.FirstOrDefault(), cancellationToken);
+        query.ExecuteAsync(QueryTerminals<T>.FirstOrDefault, cancellationToken);
 
     /// <summary>Returns the only result asynchronously, throwing unless exactly one result exists.</summary>
     public static ValueTask<T>
         SingleAsync<T>(this IQueryable<T> query, CancellationToken cancellationToken = default) =>
-        query.ExecuteAsync(q => q.Single(), cancellationToken);
+        query.ExecuteAsync(QueryTerminals<T>.Single, cancellationToken);
 
     /// <summary>Returns the only result or its default asynchronously, throwing when multiple results exist.</summary>
     public static ValueTask<T?> SingleOrDefaultAsync<T>(this IQueryable<T> query,
         CancellationToken cancellationToken = default) =>
-        query.ExecuteAsync(q => q.SingleOrDefault(), cancellationToken);
+        query.ExecuteAsync(QueryTerminals<T>.SingleOrDefault, cancellationToken);
 
     /// <summary>Executes a supported terminal expression asynchronously, including numeric aggregates.</summary>
     /// <example><code>await query.ExecuteAsync(q => q.Sum(row => row.Amount), cancellationToken);</code></example>
@@ -111,8 +127,7 @@ public static class LibrarianQueryableExtensions
         CancellationToken token)
     {
         ArgumentNullException.ThrowIfNull(predicate);
-        Expression<Func<IQueryable<T>, bool>> operation = source => source.All(item => true);
-        var call = (MethodCallExpression)operation.Body;
+        var call = (MethodCallExpression)QueryTerminals<T>.All.Body;
         return Provider(query)
             .ExecuteAsync<bool>(call.Update(null, [query.Expression, Expression.Quote(predicate)]), token);
     }

@@ -29,7 +29,7 @@ public sealed partial class MongoLibrarianDatabase
         {
             if (!addresses.Add((write.Container, MongoLibrarianContainer.Identity(write.Id, partition))))
                 throw new ArgumentException("Duplicate document identity in the batch.", nameof(batch));
-            if (write.Value is not null) LibrarianDocumentJson.Parse(write.Id, write.Value, partition);
+            if (write.Value is not null) LibrarianDocumentJson.Validate(write.Id, write.Value, partition);
         }
         using IClientSessionHandle session = await _client.StartSessionAsync(cancellationToken: token).NoSync();
         session.StartTransaction(new TransactionOptions(ReadConcern.Snapshot, ReadPreference.Primary, WriteConcern.WMajority));

@@ -4,6 +4,7 @@ using Soenneker.Extensions.Task;
 using Soenneker.Extensions.ValueTask;
 using System;
 using System.Collections.Generic;
+using System.Collections.Concurrent;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -20,6 +21,7 @@ public sealed partial class MongoLibrarianDatabase : ILibrarianDatabase
 {
     private readonly AsyncSemaphore _gate = new(1);
     private readonly Dictionary<(string Name, string? Partition), MongoLibrarianContainer> _containers = new();
+    private readonly ConcurrentDictionary<string, IMongoCollection<BsonDocument>> _collections = new(StringComparer.Ordinal);
     private readonly IMongoDatabase _database;
     private readonly IMongoClient _client;
     private readonly bool _ownsClient;
@@ -44,8 +46,9 @@ public sealed partial class MongoLibrarianDatabase : ILibrarianDatabase
     private static string Escape(string value) => Uri.EscapeDataString(value).Replace(".", "%2E", StringComparison.Ordinal);
     private static string Required(IConfiguration configuration, string name) => configuration[$"Librarian:Mongo:{name}"] ?? throw new InvalidOperationException($"Missing configuration: Librarian:Mongo:{name}");
     internal void Check(CancellationToken token = default) { ObjectDisposedException.ThrowIf(_disposed.Value, this); token.ThrowIfCancellationRequested(); }
-    internal IMongoCollection<BsonDocument> Collection(string name) => _database.GetCollection<BsonDocument>(_prefix + Escape(name))
-        .WithReadConcern(ReadConcern.Majority).WithReadPreference(ReadPreference.Primary).WithWriteConcern(WriteConcern.WMajority);
+    internal IMongoCollection<BsonDocument> Collection(string name) => _collections.GetOrAdd(name, static (key, owner) =>
+        owner._database.GetCollection<BsonDocument>(owner._prefix + Escape(key))
+            .WithReadConcern(ReadConcern.Majority).WithReadPreference(ReadPreference.Primary).WithWriteConcern(WriteConcern.WMajority), this);
     internal IQueryable<T> BuildQueryable<T>(string name, string? partition)
     {
         IQueryable<BsonDocument> query = Collection(name).AsQueryable(new AggregateOptions { Collation = Collation.Simple,
@@ -81,6 +84,7 @@ public sealed partial class MongoLibrarianDatabase : ILibrarianDatabase
             Check(cancellationToken);
             (string Name, string? Partition)[] keys = _containers.Keys.Where(key => key.Name == containerName).ToArray();
             foreach ((string Name, string? Partition) key in keys) { _containers[key].Dispose(); _containers.Remove(key); }
+            _collections.TryRemove(containerName, out _);
             return keys.Length != 0;
         }
     }
@@ -91,6 +95,7 @@ public sealed partial class MongoLibrarianDatabase : ILibrarianDatabase
             if (!_disposed.TrySetTrue()) return;
             foreach (MongoLibrarianContainer container in _containers.Values) container.Dispose();
             _containers.Clear();
+            _collections.Clear();
             if (_ownsClient) _client.Dispose();
         }
     }

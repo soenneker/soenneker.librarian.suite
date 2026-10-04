@@ -167,19 +167,12 @@ public class LibrarianRepository<TDocument> : ILibrarianRepository<TDocument> wh
 
     public virtual async ValueTask<string> AddItem(TDocument document, CancellationToken cancellationToken = default)
     {
-        if (_log && Logger.IsEnabled(LogLevel.Debug))
-        {
-            string? serialized = LibrarianJson.Serialize(document);
-            Logger.LogDebug("-- LIBRARIAN: {method} ({type}): {document}", nameof(AddItem), typeof(TDocument).Name, serialized);
-        }
-
         ILibrarianContainer container = await GetContainer(cancellationToken).NoSync();
 
         ArgumentException.ThrowIfNullOrEmpty(document.Id);
-        string? docSerialized = LibrarianJson.Serialize(document);
-
-        if (docSerialized == null)
-            throw new Exception("Failed to serialize document");
+        string docSerialized = LibrarianJson.Serialize(document);
+        if (_log && Logger.IsEnabled(LogLevel.Debug))
+            Logger.LogDebug("-- LIBRARIAN: {method} ({type}): {document}", nameof(AddItem), typeof(TDocument).Name, docSerialized);
 
         _ = await container.AddItem(document.Id, docSerialized, cancellationToken).NoSync();
 
@@ -199,10 +192,7 @@ public class LibrarianRepository<TDocument> : ILibrarianRepository<TDocument> wh
         {
             cancellationToken.ThrowIfCancellationRequested();
             ArgumentException.ThrowIfNullOrEmpty(document.Id);
-            string? docSerialized = LibrarianJson.Serialize(document);
-
-            if (docSerialized == null)
-                throw new Exception("Failed to serialize document");
+            string docSerialized = LibrarianJson.Serialize(document);
 
             _ = await container.AddItem(document.Id, docSerialized, cancellationToken).NoSync();
         }
@@ -212,19 +202,12 @@ public class LibrarianRepository<TDocument> : ILibrarianRepository<TDocument> wh
 
     public virtual async ValueTask<string> UpdateItem(TDocument document, CancellationToken cancellationToken = default)
     {
-        if (_log && Logger.IsEnabled(LogLevel.Debug))
-        {
-            string? serialized = LibrarianJson.Serialize(document);
-            Logger.LogDebug("-- LIBRARIAN: {method} ({type}): {document}", nameof(UpdateItem), typeof(TDocument).Name, serialized);
-        }
-
         ILibrarianContainer container = await GetContainer(cancellationToken).NoSync();
 
         ArgumentException.ThrowIfNullOrEmpty(document.Id);
-        string? docSerialized = LibrarianJson.Serialize(document);
-
-        if (docSerialized == null)
-            throw new Exception("Failed to serialize document");
+        string docSerialized = LibrarianJson.Serialize(document);
+        if (_log && Logger.IsEnabled(LogLevel.Debug))
+            Logger.LogDebug("-- LIBRARIAN: {method} ({type}): {document}", nameof(UpdateItem), typeof(TDocument).Name, docSerialized);
 
         _ = await container.UpdateItemStrict(document.Id, docSerialized, cancellationToken).NoSync();
 
@@ -245,10 +228,7 @@ public class LibrarianRepository<TDocument> : ILibrarianRepository<TDocument> wh
             cancellationToken.ThrowIfCancellationRequested();
             TDocument document = documents[i];
             ArgumentException.ThrowIfNullOrEmpty(document.Id);
-            string? docSerialized = LibrarianJson.Serialize(document);
-
-            if (docSerialized == null)
-                throw new Exception("Failed to serialize document");
+            string docSerialized = LibrarianJson.Serialize(document);
 
             _ = await container.UpdateItemStrict(document.Id, docSerialized, cancellationToken).NoSync();
         }

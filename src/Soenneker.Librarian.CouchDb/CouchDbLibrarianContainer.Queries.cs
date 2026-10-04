@@ -152,8 +152,9 @@ internal sealed partial class CouchDbLibrarianContainer
         _ = LibrarianJson.Contract(typeof(T));
         using JsonDocument result =
             await Find(Query(path, minimum, maximum, equality, descending, skip, take, false), token).NoSync();
-        var items = new List<T>();
-        foreach (JsonElement document in result.RootElement.GetProperty("docs").EnumerateArray())
+        JsonElement documents = result.RootElement.GetProperty("docs");
+        var items = new List<T>(documents.GetArrayLength());
+        foreach (JsonElement document in documents.EnumerateArray())
         {
             token.ThrowIfCancellationRequested();
             items.Add(LibrarianJson.Deserialize<T>(Decode(document))!);

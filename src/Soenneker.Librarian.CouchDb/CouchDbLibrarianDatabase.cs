@@ -130,7 +130,8 @@ public sealed class CouchDbLibrarianDatabase : ILibrarianDatabase
     internal static async ValueTask<JsonDocument> Read(HttpResponseMessage response, CancellationToken token)
     {
         response.EnsureSuccessStatusCode();
-        return JsonDocument.Parse(await response.Content.ReadAsByteArrayAsync(token).NoSync());
+        using var stream = await response.Content.ReadAsStreamAsync(token).NoSync();
+        return await JsonDocument.ParseAsync(stream, cancellationToken: token).NoSync();
     }
 
     public ValueTask<ILibrarianContainer> GetContainer(string containerName,
@@ -148,12 +149,13 @@ public sealed class CouchDbLibrarianDatabase : ILibrarianDatabase
         CancellationToken token)
     {
         Check(token);
-        string physical = DatabaseName(name);
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
         using (await _gate.Acquire(token).NoSync())
         {
             Check(token);
             if (_containers.TryGetValue((name, partition), out CouchDbLibrarianContainer? existing))
                 return existing;
+            string physical = DatabaseName(name);
             if (!_databases.Contains(physical))
             {
                 using HttpResponseMessage head = await Send(HttpMethod.Head, physical, null, token).NoSync();

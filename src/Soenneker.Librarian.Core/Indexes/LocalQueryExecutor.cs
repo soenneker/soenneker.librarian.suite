@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
+using System.Runtime.CompilerServices;
 using Soenneker.Librarian.Abstractions.Queries;
 
 namespace Soenneker.Librarian.Core.Indexes;
@@ -10,6 +11,8 @@ namespace Soenneker.Librarian.Core.Indexes;
 // Explicit Enumerable dispatch avoids EnumerableQuery's runtime generic rebinding.
 internal sealed class LocalQueryExecutor(Func<Expression, IEnumerable<object?>?> source)
 {
+    private static readonly ConditionalWeakTable<LambdaExpression, Func<object?, int, object?>> Functions = new();
+
     internal object? Execute(Expression expression)
     {
         object? result = Evaluate(expression);
@@ -153,7 +156,9 @@ internal sealed class LocalQueryExecutor(Func<Expression, IEnumerable<object?>?>
         throw Unsupported(name);
     }
 
-    private static Func<object?, int, object?> Function(LambdaExpression lambda)
+    private static Func<object?, int, object?> Function(LambdaExpression lambda) => Functions.GetValue(lambda, static expression => Compile(expression));
+
+    private static Func<object?, int, object?> Compile(LambdaExpression lambda)
     {
         if (lambda.Parameters.Count is < 1 or > 2) throw Unsupported("lambda");
         ParameterExpression value = Expression.Parameter(typeof(object));
@@ -163,6 +168,6 @@ internal sealed class LocalQueryExecutor(Func<Expression, IEnumerable<object?>?>
         return Expression.Lambda<Func<object?, int, object?>>(Expression.Convert(QueryExpression.Prepare(body), typeof(object)), value, index).Compile(preferInterpretation: true);
     }
 
-    private static object? Value(Expression expression) => Expression.Lambda<Func<object?>>(Expression.Convert(expression, typeof(object))).Compile(preferInterpretation: true)();
+    private static object? Value(Expression expression) => expression is ConstantExpression constant ? constant.Value : Expression.Lambda<Func<object?>>(Expression.Convert(expression, typeof(object))).Compile(preferInterpretation: true)();
     private static NotSupportedException Unsupported(string name) => new($"Local query operator {name} is not supported. Use AsEnumerable() for additional client-side LINQ operations.");
 }

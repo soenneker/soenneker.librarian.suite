@@ -51,13 +51,7 @@ internal sealed partial class MongoLibrarianContainer(string name, MongoLibraria
         return document;
     }
 
-    internal static string Json(BsonDocument document)
-    {
-        var copy = (BsonDocument)document.DeepClone();
-        copy.Remove("_id");
-        copy.Remove("_librarianVersion");
-        return MongoJsonValue.ToJson(copy)!.ToJsonString();
-    }
+    internal static string Json(BsonDocument document) => MongoJsonValue.ToJson(document, excludeMetadata: true);
 
     public IQueryable<T> BuildQueryable<T>()
     {
@@ -143,8 +137,16 @@ internal sealed partial class MongoLibrarianContainer(string name, MongoLibraria
     public async ValueTask<List<string>> GetAllItems(CancellationToken cancellationToken = default) =>
         (await All(cancellationToken).NoSync()).Select(Json).ToList();
 
-    public async ValueTask<List<string>> GetAllIds(CancellationToken cancellationToken = default) =>
-        (await All(cancellationToken).NoSync()).Select(value => value["_id"].AsString).ToList();
+    public async ValueTask<List<string>> GetAllIds(CancellationToken cancellationToken = default)
+    {
+        Check(cancellationToken);
+        using IAsyncCursor<BsonDocument> cursor = await Store.Find(Scope)
+            .Project(Builders<BsonDocument>.Projection.Include("_id")).ToCursorAsync(cancellationToken).NoSync();
+        var ids = new List<string>();
+        while (await cursor.MoveNextAsync(cancellationToken).NoSync())
+            foreach (BsonDocument document in cursor.Current) ids.Add(document["_id"].AsString);
+        return ids;
+    }
 
     public async ValueTask<List<IdValuePair>> GetLibrarianItems(CancellationToken cancellationToken = default) =>
         (await All(cancellationToken).NoSync())

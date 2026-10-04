@@ -39,7 +39,8 @@ public interface ILibrarianContainer : IDisposable
 
     /// <summary>Replaces a document only if its current version matches. Returns the new version, or null on conflict or absence.</summary>
     /// <remarks>Never retries an uncertain commit. A transport failure after dispatch requires authoritative reconciliation.</remarks>
-    ValueTask<LibrarianItem<string>?> UpdateItemIfVersion(string id, string document, string version, CancellationToken cancellationToken = default) =>
+    ValueTask<LibrarianItem<string>?> UpdateItemIfVersion(string id, string document, string version,
+        CancellationToken cancellationToken = default) =>
         throw new NotSupportedException("This provider does not support versioned writes.");
 
     /// <summary>Deletes only if the version matches. Returns false on conflict or absence.</summary>
@@ -93,8 +94,9 @@ public interface ILibrarianContainer : IDisposable
     /// Cosmos uses its native policy and orders only by the requested field; equal values have no guaranteed order.
     /// </remarks>
     /// <exception cref="TimeoutException">Redis could not obtain a consistent index snapshot within its bounded conflict retries.</exception>
-    ValueTask<LibrarianQueryResult<T>> FindRangeByIndex<T>(string fieldPath, object? minimum = null, object? maximum = null,
-        bool descending = false, int skip = 0, int take = 100, CancellationToken cancellationToken = default);
+    ValueTask<LibrarianQueryResult<T>> FindRangeByIndex<T>(string fieldPath, object? minimum = null,
+        object? maximum = null, bool descending = false, int skip = 0, int take = 100,
+        CancellationToken cancellationToken = default);
 
     /// <summary>Counts an inclusive range directly from an existing index without fetching documents.</summary>
     /// <remarks>Null bounds are unbounded. Bound types must match and minimum must not exceed maximum.
@@ -165,8 +167,10 @@ public interface ILibrarianContainer : IDisposable
         ArgumentNullException.ThrowIfNull(ids);
         cancellationToken.ThrowIfCancellationRequested();
         var result = new string?[ids.Count];
-        for (var i = 0; i < ids.Count; i++) ArgumentNullException.ThrowIfNull(ids[i]);
-        for (var i = 0; i < ids.Count; i++) result[i] = await GetItem(ids[i], cancellationToken).NoSync();
+        for (var i = 0; i < ids.Count; i++)
+            ArgumentNullException.ThrowIfNull(ids[i]);
+        for (var i = 0; i < ids.Count; i++)
+            result[i] = await GetItem(ids[i], cancellationToken).NoSync();
         return result;
     }
 

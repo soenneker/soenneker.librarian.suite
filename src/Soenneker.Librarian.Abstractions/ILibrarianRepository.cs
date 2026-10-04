@@ -20,7 +20,8 @@ public interface ILibrarianRepository<TDocument> where TDocument : Document
         throw new NotSupportedException("This repository does not support versioned reads.");
 
     /// <summary>Replaces a document only if the version matches, returning its new version or null on conflict or absence.</summary>
-    ValueTask<LibrarianItem<TDocument>?> UpdateItemIfVersion(TDocument document, string version, CancellationToken cancellationToken = default) =>
+    ValueTask<LibrarianItem<TDocument>?> UpdateItemIfVersion(TDocument document, string version,
+        CancellationToken cancellationToken = default) =>
         throw new NotSupportedException("This repository does not support versioned writes.");
 
     /// <summary>Deletes a document only if its version matches. Returns false on conflict or absence.</summary>
@@ -29,19 +30,21 @@ public interface ILibrarianRepository<TDocument> where TDocument : Document
 
     /// <summary>Retries a read-modify-write operation on confirmed conflicts. The callback must be free of external side effects and preserve the ID.</summary>
     ValueTask<LibrarianItem<TDocument>> MutateItem(string id, Func<TDocument, TDocument> mutation, int maxAttempts = 5,
-        CancellationToken cancellationToken = default) => throw new NotSupportedException("This repository does not support versioned mutations.");
+        CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException("This repository does not support versioned mutations.");
 
     /// <summary>Reads a server page with an opaque continuation token using the query's provider.</summary>
-    ValueTask<LibrarianPage<T>> GetItemsPaged<T>(IQueryable<T> query, int pageSize = 100, string? continuationToken = null,
-        CancellationToken cancellationToken = default) => query.ToPageAsync(pageSize, continuationToken, cancellationToken);
+    ValueTask<LibrarianPage<T>> GetItemsPaged<T>(IQueryable<T> query, int pageSize = 100,
+        string? continuationToken = null, CancellationToken cancellationToken = default) =>
+        query.ToPageAsync(pageSize, continuationToken, cancellationToken);
 
     /// <summary>Ensures a scalar JSON field index exists on this repository's container.</summary>
     /// <remarks>Uses serialized JSON property names. See ILibrarianContainer.EnsureIndex for value and lifetime rules.</remarks>
     ValueTask EnsureIndex(string fieldPath, CancellationToken cancellationToken = default);
 
     /// <summary>Returns a page of equality matches using an existing index, deserializing only returned documents.</summary>
-    ValueTask<LibrarianQueryResult<TDocument>> FindByIndex(string fieldPath, object? value, int skip = 0, int take = 100,
-        CancellationToken cancellationToken = default);
+    ValueTask<LibrarianQueryResult<TDocument>> FindByIndex(string fieldPath, object? value, int skip = 0,
+        int take = 100, CancellationToken cancellationToken = default);
 
     /// <summary>Counts indexed equality matches without deserializing documents.</summary>
     ValueTask<int> CountByIndex(string fieldPath, object? value, CancellationToken cancellationToken = default);
@@ -51,8 +54,9 @@ public interface ILibrarianRepository<TDocument> where TDocument : Document
 
     /// <summary>Returns an inclusive range page ordered by indexed value and document ID.</summary>
     /// <remarks>Null bounds are unbounded. See ILibrarianContainer.FindRangeByIndex for comparison and paging rules.</remarks>
-    ValueTask<LibrarianQueryResult<TDocument>> FindRangeByIndex(string fieldPath, object? minimum = null, object? maximum = null,
-        bool descending = false, int skip = 0, int take = 100, CancellationToken cancellationToken = default);
+    ValueTask<LibrarianQueryResult<TDocument>> FindRangeByIndex(string fieldPath, object? minimum = null,
+        object? maximum = null, bool descending = false, int skip = 0, int take = 100,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Obtains a deferred queryable collection of a specified type. Use LibrarianQueryableExtensions for asynchronous execution.

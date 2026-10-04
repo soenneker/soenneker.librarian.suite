@@ -21,21 +21,27 @@ public sealed class LibrarianBatch
         {
             ArgumentNullException.ThrowIfNull(write);
             Validate(write.Container, write.Id, addresses);
-            if (write.ExpectedVersion is not null) ArgumentException.ThrowIfNullOrWhiteSpace(write.ExpectedVersion);
+            if (write.ExpectedVersion is not null)
+                ArgumentException.ThrowIfNullOrWhiteSpace(write.ExpectedVersion);
             if (write.CreateOnly && (write.Value is null || write.ExpectedVersion is not null))
-                throw new ArgumentException("Create-only writes require a document and cannot specify a version.", nameof(writes));
+                throw new ArgumentException("Create-only writes require a document and cannot specify a version.",
+                    nameof(writes));
         }
+
         addresses.Clear();
         foreach (LibrarianCondition condition in conditionArray)
         {
             ArgumentNullException.ThrowIfNull(condition);
             Validate(condition.Container, condition.Id, addresses);
         }
+
         Writes = Array.AsReadOnly(writeArray);
         Conditions = Array.AsReadOnly(conditionArray);
     }
+
     /// <summary>Writes to apply after every condition succeeds.</summary>
     public IReadOnlyList<LibrarianWrite> Writes { get; }
+
     /// <summary>Raw-value conditions. Native MongoDB/Cosmos batches use ExpectedVersion or CreateOnly on writes instead.</summary>
     public IReadOnlyList<LibrarianCondition> Conditions { get; }
 
@@ -43,15 +49,19 @@ public sealed class LibrarianBatch
     public void ValidateConcurrency(bool supportsVersions)
     {
         if (supportsVersions && Conditions.Count != 0)
-            throw new NotSupportedException("Native batches use ExpectedVersion or CreateOnly on each write, not raw-value conditions.");
+            throw new NotSupportedException(
+                "Native batches use ExpectedVersion or CreateOnly on each write, not raw-value conditions.");
         if (!supportsVersions && Writes.Any(write => write.ExpectedVersion is not null || write.CreateOnly))
             throw new NotSupportedException("This provider does not support versioned or create-only batch writes.");
     }
+
     private static void Validate(string container, string id, Dictionary<string, HashSet<string>> addresses)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(container);
         ArgumentNullException.ThrowIfNull(id);
-        if (!addresses.TryGetValue(container, out HashSet<string>? ids)) addresses.Add(container, ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase));
-        if (!ids.Add(id)) throw new ArgumentException($"Duplicate document '{id}' in container '{container}'.");
+        if (!addresses.TryGetValue(container, out HashSet<string>? ids))
+            addresses.Add(container, ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+        if (!ids.Add(id))
+            throw new ArgumentException($"Duplicate document '{id}' in container '{container}'.");
     }
 }

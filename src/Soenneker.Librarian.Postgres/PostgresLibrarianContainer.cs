@@ -37,8 +37,12 @@ public sealed partial class PostgresLibrarianContainer : ILibrarianContainer
         return PostgresIndexValue.Hex(id.ToUpperInvariant());
     }
 
-    private NpgsqlCommand Command(NpgsqlConnection connection, string sql, params object[] values) =>
-        _database.Command(connection, sql, [_database.Key, _name, .. values]);
+    private NpgsqlCommand Command(NpgsqlConnection connection, string sql, params ReadOnlySpan<object> values)
+    {
+        NpgsqlCommand command = _database.Command(connection, sql, _database.Key, _name);
+        foreach (object value in values) command.Parameters.Add(new NpgsqlParameter { Value = value });
+        return command;
+    }
 
     internal async ValueTask<string?> Read(NpgsqlConnection connection, string id, CancellationToken token)
     {
@@ -76,6 +80,7 @@ public sealed partial class PostgresLibrarianContainer : ILibrarianContainer
             string? existing = await Read(connection, id, token).NoSync();
             if (mode == "add" && existing is not null) throw new InvalidOperationException($"Document '{id}' already exists.");
             if (mode == "update" && existing is null) return false;
+            if (mode == "update" && string.Equals(existing, document, StringComparison.Ordinal)) return true;
         }
         if (document is null)
         {

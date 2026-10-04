@@ -46,7 +46,7 @@ public sealed partial class CosmosLibrarianDatabase
             if (!addresses.Add(address.Id))
                 throw new ArgumentException("Duplicate document identity in the batch.", nameof(batch));
             if (write.Value is not null)
-                LibrarianDocumentJson.Parse(write.Id, write.Value, partition);
+                LibrarianDocumentJson.Validate(write.Id, write.Value, partition);
         }
 
         Container store;

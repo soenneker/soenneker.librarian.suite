@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using Soenneker.Librarian.Abstractions;
+using Soenneker.Librarian.Abstractions.Queries;
 
 internal static class AuditBenchmarks
 {
@@ -20,9 +21,15 @@ internal static class AuditBenchmarks
             || !root.Where(row => row.Score >= 50000).Where(row => row.Score < 50100).OrderBy(row => row.Score).Take(10).Select(row => row.Score)
                 .SequenceEqual(Enumerable.Range(50000, 10))) throw new Exception("Audit benchmark result mismatch");
         Measure("BuildQueryable", _ => container.BuildQueryable<Row>().GetHashCode(), 100000);
+        var page = root.Where(row => row.Score >= 50000).Take(100);
+        Measure("Async-indexed-list-100", _ => page.ToListAsync().GetAwaiter().GetResult().Count, 200);
+        Measure("Async-indexed-array-100", _ => page.ToArrayAsync().GetAwaiter().GetResult().Length, 200);
+        Measure("Async-indexed-count", _ => page.CountAsync().GetAwaiter().GetResult(), 2000);
         Measure("Compose-Where-OrderBy-Skip-Take", _ => root.Where(row => row.Score >= 50000).OrderBy(row => row.Score).Skip(5).Take(10).GetHashCode(), 10000);
         Measure("Indexed-page-Select-fresh", _ => root.Where(row => row.Score >= 50000 && row.Score < 50100).OrderBy(row => row.Score).Take(10).Select(row => row.Score).ToArray().Length, 200);
         Measure("Indexed-page-Select-reused", _ => reusable.ToArray().Length, 200);
+        var fallbackOrder = root.Take(10).OrderBy(row => row.Score % 2);
+        Measure("Fallback-OrderBy-reused", _ => fallbackOrder.ToArray().Length, 200);
         Measure("Unindexed-Take-10", _ => root.Take(10).ToList().Count, 30);
         // Match every document so hash/insertion enumeration order does not change the amount of fallback work.
         Measure("Fallback-Where-Take-10", _ => root.Where(row => row.Score % 1 == 0).Take(10).ToList().Count, 30);

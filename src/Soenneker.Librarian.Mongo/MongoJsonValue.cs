@@ -1,7 +1,8 @@
 using System;
+using System.Buffers;
 using System.Linq;
+using System.Text;
 using System.Text.Json;
-using System.Text.Json.Nodes;
 using MongoDB.Bson;
 
 namespace Soenneker.Librarian.Mongo;
@@ -28,18 +29,40 @@ internal static class MongoJsonValue
         return document;
     }
 
-    internal static JsonNode? ToJson(BsonValue value) => value.BsonType switch
+    internal static string ToJson(BsonValue value, bool excludeMetadata = false)
     {
-        BsonType.Document => new JsonObject(value.AsBsonDocument.Select(element =>
-            new System.Collections.Generic.KeyValuePair<string, JsonNode?>(element.Name, ToJson(element.Value)))),
-        BsonType.Array => new JsonArray(value.AsBsonArray.Select(ToJson).ToArray()),
-        BsonType.String => JsonValue.Create(value.AsString),
-        BsonType.Boolean => JsonValue.Create(value.AsBoolean),
-        BsonType.Int32 => JsonValue.Create(value.AsInt32),
-        BsonType.Int64 => JsonValue.Create(value.AsInt64),
-        BsonType.Double => JsonValue.Create(value.AsDouble),
-        BsonType.Decimal128 => JsonValue.Create(Decimal128.ToDecimal(value.AsDecimal128)),
-        BsonType.Null => null,
-        _ => throw new NotSupportedException($"BSON {value.BsonType} is not a Librarian JSON value.")
-    };
+        var buffer = new ArrayBufferWriter<byte>();
+        using (var writer = new Utf8JsonWriter(buffer)) Write(writer, value, excludeMetadata);
+        return Encoding.UTF8.GetString(buffer.WrittenSpan);
+    }
+
+    private static void Write(Utf8JsonWriter writer, BsonValue value, bool excludeMetadata = false)
+    {
+        switch (value.BsonType)
+        {
+            case BsonType.Document:
+                writer.WriteStartObject();
+                foreach (BsonElement element in value.AsBsonDocument)
+                {
+                    if (excludeMetadata && element.Name is "_id" or "_librarianVersion") continue;
+                    writer.WritePropertyName(element.Name);
+                    Write(writer, element.Value);
+                }
+                writer.WriteEndObject();
+                break;
+            case BsonType.Array:
+                writer.WriteStartArray();
+                foreach (BsonValue item in value.AsBsonArray) Write(writer, item);
+                writer.WriteEndArray();
+                break;
+            case BsonType.String: writer.WriteStringValue(value.AsString); break;
+            case BsonType.Boolean: writer.WriteBooleanValue(value.AsBoolean); break;
+            case BsonType.Int32: writer.WriteNumberValue(value.AsInt32); break;
+            case BsonType.Int64: writer.WriteNumberValue(value.AsInt64); break;
+            case BsonType.Double: writer.WriteNumberValue(value.AsDouble); break;
+            case BsonType.Decimal128: writer.WriteNumberValue(Decimal128.ToDecimal(value.AsDecimal128)); break;
+            case BsonType.Null: writer.WriteNullValue(); break;
+            default: throw new NotSupportedException($"BSON {value.BsonType} is not a Librarian JSON value.");
+        }
+    }
 }

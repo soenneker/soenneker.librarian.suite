@@ -9,22 +9,26 @@
         <Div Class="hero-note"><Span>Open source</Span><span aria-hidden="true">/</span><Span>MIT licensed</Span><span aria-hidden="true">/</span><Span>Made for .NET</Span></Div>
     </Div>
     <Div Class="catalog" aria-label="Interchangeable document storage">
-        <Div Class="catalog-top"><Span>Application data</Span><Span>JSON DOCUMENTS</Span></Div>
+        <Div Class="catalog-top"><Span>Your application</Span><Span>ONE DOCUMENT API</Span></Div>
         <Div Class="catalog-body">
-            <Div Class="document-card"><Div Class="document-heading"><Span Class="document-icon">{ }</Span><Span>customers / alex.json</Span><span class="document-status">STORED</span></Div><pre><code><span class="muted">{</span>
+            <Div Class="document-card"><Div Class="document-heading"><Span Class="document-icon">{ }</Span><Span>customers / customer-1</Span></Div><pre><code><span class="muted">{</span>
   <span class="code-key">"id"</span>: <span class="code-value">"customer-1"</span>,
   <span class="code-key">"name"</span>: <span class="code-value">"Alex"</span>,
   <span class="code-key">"active"</span>: <span class="code-bool">true</span>
 <span class="muted">}</span></code></pre></Div>
-            <Div Class="connector"><Span>ILibrarianDatabase</Span></Div>
-            <Div Class="file-stack">
-                <Div Class="file-row file-memory"><Span>Memory</Span><Span Class="file-tag">IN PROCESS</Span><span aria-hidden="true">↗</span></Div>
-                <Div Class="file-row file-system"><Span>FileSystem</Span><Span Class="file-tag">LOCAL JSON</Span><span aria-hidden="true">↗</span></Div>
-                <Div Class="file-row file-redis"><Span>Redis</Span><Span Class="file-tag">SHARED STORAGE</Span><span aria-hidden="true">↗</span></Div>
-                <Div Class="file-row file-postgres"><Span>PostgreSQL</Span><Span Class="file-tag">PERSISTENT SQL</Span><span aria-hidden="true">↗</span></Div>
+            <Div Class="connector"><Span>Librarian</Span></Div>
+            <Paragraph Class="storage-choice">Choose your storage</Paragraph>
+            <Div Class="storage-options">
+                @foreach (var provider in Providers)
+                {
+                    <Anchor Href="@($"/providers/#{provider.Id}")" Class="storage-option">
+                        <img src="@($"/images/providers/{provider.Id}.svg")" alt="" width="24" height="24" />
+                        <Span>@provider.Name</Span>
+                    </Anchor>
+                }
             </Div>
         </Div>
-        <Div Class="catalog-bottom"><span aria-hidden="true">✳</span><Span>ASYNC · TYPED · INDEXED</Span><Span>LIBRARIAN</Span></Div>
+        <Div Class="catalog-bottom"><Span>Same API. Storage that fits your application.</Span></Div>
     </Div>
 </Section>
 <Div Class="capabilities-strip"><Div Class="shell"><Span>Async document operations</Span><span aria-hidden="true">✳</span><Span>Typed repositories</Span><span aria-hidden="true">✳</span><Span>Indexed queries</Span><span aria-hidden="true">✳</span><Span>Atomic batches</Span></Div></Div>

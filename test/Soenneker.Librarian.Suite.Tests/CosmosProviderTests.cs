@@ -19,6 +19,20 @@ namespace Soenneker.Librarian.Suite.Tests;
 
 public sealed class CosmosProviderTests
 {
+    [Test]
+    public async Task Raw_reads_strip_only_top_level_metadata_and_preserve_json_values()
+    {
+        var store = new Mock<Container>(MockBehavior.Strict);
+        store.SetupGet(c => c.Id).Returns("items");
+        store.Setup(c => c.ReadItemStreamAsync("one", new PartitionKey("org"), It.IsAny<ItemRequestOptions>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => Response(HttpStatusCode.OK, "{\"id\":\"one\",\"partitionKey\":\"org\",\"_etag\":\"remove\",\"nested\":{\"_etag\":\"keep\"},\"amount\":79228162514264337593543950335,\"text\":\"é😀\"}"));
+        await using var database = new CosmosLibrarianDatabase(store.Object);
+        string json = (await (await database.GetContainer("items")).GetItem("org:one"))!;
+        using JsonDocument parsed = JsonDocument.Parse(json);
+        Check(!parsed.RootElement.TryGetProperty("_etag", out _) && parsed.RootElement.GetProperty("nested").GetProperty("_etag").GetString() == "keep" &&
+            parsed.RootElement.GetProperty("amount").GetDecimal() == decimal.MaxValue && parsed.RootElement.GetProperty("text").GetString() == "é😀", "Native JSON conversion changed data.");
+    }
+
     private static ResponseMessage Response(HttpStatusCode status, string? json = null)
     {
         var response = new ResponseMessage(status);

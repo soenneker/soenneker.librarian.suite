@@ -31,17 +31,30 @@ public static class LibrarianDocumentJson
     public static JsonElement Parse(string id, string json, string? partition = null)
     {
         ArgumentNullException.ThrowIfNull(json);
-        (string documentId, string partitionKey) = Address(id, partition);
         using JsonDocument parsed = JsonDocument.Parse(json);
         JsonElement root = parsed.RootElement;
+        Validate(id, root, partition);
+        return root.Clone();
+    }
+
+    /// <summary>Validates native document JSON without retaining a copy of its parsed contents.</summary>
+    public static void Validate(string id, string json, string? partition = null)
+    {
+        ArgumentNullException.ThrowIfNull(json);
+        using JsonDocument parsed = JsonDocument.Parse(json);
+        Validate(id, parsed.RootElement, partition);
+    }
+
+    private static void Validate(string id, JsonElement root, string? partition)
+    {
+        (string documentId, string partitionKey) = Address(id, partition);
         if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("id", out JsonElement actualId) ||
             actualId.ValueKind != JsonValueKind.String || actualId.GetString() != documentId ||
             !root.TryGetProperty("partitionKey", out JsonElement actualPartition) ||
             actualPartition.ValueKind != JsonValueKind.String || actualPartition.GetString() != partitionKey)
-            throw new ArgumentException("Native providers require Document JSON with id and partitionKey matching Document.Id and the selected partition.", nameof(json));
+            throw new ArgumentException("Native providers require Document JSON with id and partitionKey matching Document.Id and the selected partition.", "json");
         foreach (JsonProperty property in root.EnumerateObject())
             if (property.Name is "_id" or "_librarianVersion" or "_etag" or "_rid" or "_self" or "_attachments" or "_ts")
-                throw new ArgumentException($"'{property.Name}' is reserved for provider metadata.", nameof(json));
-        return root.Clone();
+                throw new ArgumentException($"'{property.Name}' is reserved for provider metadata.", "json");
     }
 }

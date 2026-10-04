@@ -1,8 +1,10 @@
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -42,10 +44,15 @@ internal sealed partial class CouchDbLibrarianContainer(CouchDbLibrarianDatabase
 
     private static string Decode(JsonElement document)
     {
-        var result = new JsonObject();
-        foreach (JsonProperty property in document.EnumerateObject())
-            if (!property.Name.StartsWith('_')) result[property.Name] = JsonNode.Parse(property.Value.GetRawText());
-        return result.ToJsonString();
+        var buffer = new ArrayBufferWriter<byte>();
+        using (var writer = new Utf8JsonWriter(buffer))
+        {
+            writer.WriteStartObject();
+            foreach (JsonProperty property in document.EnumerateObject())
+                if (!property.Name.StartsWith('_')) property.WriteTo(writer);
+            writer.WriteEndObject();
+        }
+        return Encoding.UTF8.GetString(buffer.WrittenSpan);
     }
 
     public IQueryable<T> BuildQueryable<T>()
@@ -149,10 +156,9 @@ internal sealed partial class CouchDbLibrarianContainer(CouchDbLibrarianDatabase
         return ids.Select(id => found.GetValueOrDefault(Identity(id))).ToArray();
     }
 
-    private async ValueTask<List<JsonElement>> All(CancellationToken token)
+    private async IAsyncEnumerable<JsonElement> All([EnumeratorCancellation] CancellationToken token)
     {
         Check(token);
-        var documents = new List<JsonElement>();
         string? after = null;
         do
         {
@@ -167,27 +173,48 @@ internal sealed partial class CouchDbLibrarianContainer(CouchDbLibrarianDatabase
                 token.ThrowIfCancellationRequested();
                 string id = row.GetProperty("id").GetString()!;
                 if (id.StartsWith("d-", StringComparison.Ordinal) && row.TryGetProperty("doc", out JsonElement doc) && doc.ValueKind == JsonValueKind.Object &&
-                    (partition is null || doc.GetProperty("partitionKey").GetString() == partition)) documents.Add(doc.Clone());
+                    (partition is null || doc.GetProperty("partitionKey").GetString() == partition)) yield return doc;
             }
             string next = rows[rows.GetArrayLength() - 1].GetProperty("id").GetString()!;
             if (next == after) throw new HttpRequestException("CouchDB pagination did not advance.");
             after = next;
             if (rows.GetArrayLength() < 256) break;
         } while (true);
-        return documents;
     }
 
-    public async ValueTask<List<string>> GetAllItems(CancellationToken cancellationToken = default) =>
-        (await All(cancellationToken).NoSync()).Select(Decode).ToList();
-    public async ValueTask<List<string>> GetAllIds(CancellationToken cancellationToken = default) =>
-        (await All(cancellationToken).NoSync()).Select(LibrarianDocumentJson.Id).ToList();
-    public async ValueTask<List<IdValuePair>> GetLibrarianItems(CancellationToken cancellationToken = default) =>
-        (await All(cancellationToken).NoSync()).Select(document => new IdValuePair { Id = LibrarianDocumentJson.Id(document), Value = Decode(document) }).ToList();
-    public async ValueTask<int> CountItems(CancellationToken cancellationToken = default) => (await All(cancellationToken).NoSync()).Count;
+    public async ValueTask<List<string>> GetAllItems(CancellationToken cancellationToken = default)
+    {
+        var items = new List<string>();
+        await foreach (JsonElement document in All(cancellationToken).ConfigureAwait(false)) items.Add(Decode(document));
+        return items;
+    }
+    public async ValueTask<List<string>> GetAllIds(CancellationToken cancellationToken = default)
+    {
+        var ids = new List<string>();
+        await foreach (JsonElement document in All(cancellationToken).ConfigureAwait(false)) ids.Add(LibrarianDocumentJson.Id(document));
+        return ids;
+    }
+    public async ValueTask<List<IdValuePair>> GetLibrarianItems(CancellationToken cancellationToken = default)
+    {
+        var items = new List<IdValuePair>();
+        await foreach (JsonElement document in All(cancellationToken).ConfigureAwait(false))
+            items.Add(new IdValuePair { Id = LibrarianDocumentJson.Id(document), Value = Decode(document) });
+        return items;
+    }
+    public async ValueTask<int> CountItems(CancellationToken cancellationToken = default)
+    {
+        int count = 0;
+        await foreach (JsonElement document in All(cancellationToken).ConfigureAwait(false)) count = checked(count + 1);
+        return count;
+    }
     public async ValueTask DeleteAllItems(CancellationToken cancellationToken = default)
     {
-        foreach (JsonElement document in await All(cancellationToken).NoSync())
-            if (!await DeleteItemIfVersion(LibrarianDocumentJson.Id(document), document.GetProperty("_rev").GetString()!, cancellationToken).NoSync())
+        // Finish keyset paging before deleting its boundary documents.
+        var revisions = new List<(string Id, string Version)>();
+        await foreach (JsonElement document in All(cancellationToken).ConfigureAwait(false))
+            revisions.Add((LibrarianDocumentJson.Id(document), document.GetProperty("_rev").GetString()!));
+        foreach ((string id, string version) in revisions)
+            if (!await DeleteItemIfVersion(id, version, cancellationToken).NoSync())
                 throw new LibrarianConcurrencyException("A document changed during the clear operation; some documents may already have been deleted.");
     }
 }

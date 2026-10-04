@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
+using Soenneker.Librarian.Abstractions.Queries;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using Soenneker.Librarian.Abstractions.Serialization;
@@ -36,6 +37,7 @@ public sealed class PostgresProjection
             int index = projection.Columns.Count;
             projection.Columns.Add((path, value.Type));
             projection.Expressions.Add(scalar);
+            if (projection.Scalar) return value;
             Expression column = Expression.ArrayIndex(row, Expression.Constant(index));
             Expression<Func<string, Type, object?>> read = (json, resultType) => Read(json, resultType);
             var call = (MethodCallExpression)read.Body;
@@ -59,12 +61,14 @@ public sealed class PostgresProjection
         }
         else
         {
-            body = Column(selector.Body);
             projection.Scalar = true;
+            body = Column(selector.Body);
         }
         if (projection.Columns.Count == 0) throw PostgresQueryPlan.Unsupported();
         // Construction is materialization only: each leaf is fetched as a SQL column, never a full document.
-        projection.Materialize = Expression.Lambda<Func<string?[], object?>>(Expression.Convert(body, typeof(object)), row).Compile(preferInterpretation: true);
+        projection.Materialize = projection.Scalar
+            ? values => values[0] is { } json ? Read(json, projection.ResultType) : QueryTypes.Get(projection.ResultType).Default
+            : Expression.Lambda<Func<string?[], object?>>(Expression.Convert(body, typeof(object)), row).Compile(preferInterpretation: true);
         return projection;
     }
 

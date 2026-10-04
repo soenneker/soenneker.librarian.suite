@@ -4,13 +4,13 @@ using Soenneker.Extensions.Task;
 using Soenneker.Utils.Json;
 using Soenneker.Enums.JsonOptions;
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net;
 using System.Text;
 using System.Text.Json;
-using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Azure.Cosmos;
@@ -27,12 +27,23 @@ internal sealed partial class CosmosLibrarianContainer(CosmosLibrarianDatabase d
     public void Dispose() => _disposed.TrySetTrue();
     private QueryRequestOptions QueryOptions => new() { PartitionKey = partition is null ? null : new PartitionKey(partition) };
     private (string Id, string Partition) Address(string id) => LibrarianDocumentJson.Address(id, partition);
-    private MemoryStream Content(string id, string document) => new(Encoding.UTF8.GetBytes(LibrarianDocumentJson.Parse(id, document, partition).GetRawText()));
+    private MemoryStream Content(string id, string document)
+    {
+        LibrarianDocumentJson.Validate(id, document, partition);
+        return new MemoryStream(Encoding.UTF8.GetBytes(document));
+    }
     private static string Json(JsonElement document)
     {
-        JsonObject value = JsonNode.Parse(document.GetRawText())!.AsObject();
-        foreach (string field in new[] { "_rid", "_self", "_etag", "_attachments", "_ts" }) value.Remove(field);
-        return value.ToJsonString();
+        var buffer = new ArrayBufferWriter<byte>();
+        using (var writer = new Utf8JsonWriter(buffer))
+        {
+            writer.WriteStartObject();
+            foreach (JsonProperty property in document.EnumerateObject())
+                if (!property.NameEquals("_rid") && !property.NameEquals("_self") && !property.NameEquals("_etag") &&
+                    !property.NameEquals("_attachments") && !property.NameEquals("_ts")) property.WriteTo(writer);
+            writer.WriteEndObject();
+        }
+        return Encoding.UTF8.GetString(buffer.WrittenSpan);
     }
 
     public IQueryable<T> BuildQueryable<T>()
