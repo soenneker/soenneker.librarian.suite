@@ -65,7 +65,7 @@ public sealed partial class RedisLibrarianContainer
     }
 
     private async ValueTask PrepareWrites(IDatabase store, IReadOnlyList<LibrarianWrite> writes, string[] paths,
-        RedisBatchCommands commands, CancellationToken token)
+        RedisBatchCommands commands, CancellationToken token, string? revision = null)
     {
         var documentKeys = new RedisKey[writes.Count];
         var ids = new string[writes.Count];
@@ -92,7 +92,7 @@ public sealed partial class RedisLibrarianContainer
                     old is null ? default : Bucket(path, old), next is null ? default : Bucket(path, next),
                     fields[j].ToString(), sortFields[j], id, old, next);
             }
-            commands.Write(documentKeys[i], Ids, id, write.Id, write.Value);
+            commands.Write(documentKeys[i], Ids, id, write.Id, write.Value, revision);
         }
     }
 }

@@ -109,7 +109,7 @@ public sealed partial class RedisLibrarianContainer : ILibrarianContainer
             var snapshot = (RedisResult[])(await store.ScriptEvaluateAsync(MutationSnapshotScript, keys).WaitAsync(token).NoSync())!;
             string? existing = snapshot[2].IsNull ? null : (string?)snapshot[2];
             if ((mode == "add" && existing is not null) || (mode == "update" && existing is null)) return false;
-            if ((mode == "delete" && existing is null) || (mode != "delete" && string.Equals(existing, document, StringComparison.Ordinal))) return true;
+            if (mode == "delete" && existing is null) return true;
             var commands = new RedisBatchCommands();
             commands.Version(Version, (RedisValue)snapshot[0], changed: true);
             await PrepareWrites(store, writes, (string[])snapshot[1]!, commands, token).NoSync();

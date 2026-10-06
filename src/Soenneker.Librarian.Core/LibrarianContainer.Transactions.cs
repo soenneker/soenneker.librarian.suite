@@ -35,7 +35,7 @@ public sealed partial class LibrarianContainer
     {
         ThrowIfDisposed();
         token.ThrowIfCancellationRequested();
-        if (string.Equals(_items.GetValueOrDefault(write.Id), write.Value, StringComparison.Ordinal)) return;
+        if (write.Value is null && !_items.ContainsKey(write.Id)) return;
         IndexKey?[] keys = [];
         IndexKey?[] automaticKeys = [];
         if (write.Value is not null)
@@ -69,12 +69,14 @@ public sealed partial class LibrarianContainer
             if (write.Value is null)
             {
                 _items.Remove(id);
+                _versions.Remove(id);
                 foreach (DocumentIndex index in _indexes.Values) index.Remove(id);
                 foreach (AutomaticIndex index in _automaticIndexes.Values) index.Index.Remove(id);
             }
             else
             {
                 _items[id] = write.Value;
+                _versions[id] = Guid.NewGuid().ToString();
                 ApplyIndexKeys(id, write.Keys);
                 var i = 0;
                 foreach (AutomaticIndexGroup group in _automaticIndexGroups.Values)

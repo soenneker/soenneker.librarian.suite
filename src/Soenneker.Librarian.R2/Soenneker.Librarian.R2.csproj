@@ -10,7 +10,7 @@
     </PropertyGroup>
 
     <PropertyGroup>
-        <Description>Librarian document storage backed by Cloudflare R2 snapshots.</Description>
+        <Description>Librarian document storage backed by Cloudflare R2 snapshots or conditional per-document objects.</Description>
         <Version Condition="'$(BUILD_VERSION)' == ''">4.0.0</Version>
         <Version Condition="'$(BUILD_VERSION)' != ''">$(BUILD_VERSION)</Version>
         <AssemblyName>Soenneker.Librarian.R2</AssemblyName>
@@ -44,7 +44,7 @@
     </ItemGroup>
 
     <ItemGroup>
-        <PackageReference Include="Soenneker.Cloudflare.R2" Version="4.0.78" />
+        <PackageReference Include="Soenneker.Cloudflare.R2" Version="4.0.79-consent.3" />
         <ProjectReference Include="../Soenneker.Librarian.Core/Soenneker.Librarian.Core.csproj" />
     </ItemGroup>
 </Project>

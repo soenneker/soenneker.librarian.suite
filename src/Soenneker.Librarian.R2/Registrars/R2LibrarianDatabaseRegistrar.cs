@@ -3,12 +3,23 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Soenneker.Cloudflare.R2.Registrars;
 using Soenneker.Librarian.Abstractions;
+using Soenneker.Librarian.R2.Abstract;
 
 namespace Soenneker.Librarian.R2.Registrars;
 
 /// <summary>Registers the single-owner Cloudflare R2 snapshot provider.</summary>
 public static class R2LibrarianDatabaseRegistrar
 {
+    /// <summary>Registers the multi-owner, per-document R2 provider. Register IR2LibrarianObjectStore first.</summary>
+    /// <remarks>The database key isolates object prefixes. Writes are immediate and conditional; deletes retain tombstones.
+    /// This provider supports versioned mutations, but not secondary indexes, LINQ or multi-document transactions.</remarks>
+    public static IServiceCollection AddR2ObjectLibrarianDatabaseAsSingleton(this IServiceCollection services, string key = "librarian")
+    {
+        services.TryAddSingleton<ILibrarianDatabase>(provider => new R2ObjectLibrarianDatabase(
+            provider.GetRequiredService<IR2LibrarianObjectStore>(), key));
+        return services;
+    }
+
     /// <summary>Adds the R2 database and its Soenneker Cloudflare client as singleton services.</summary>
     /// <remarks>Requires Librarian:R2:AccountId and BucketName. ObjectKey defaults to librarian.json.
     /// Librarian:R2:ApiKey overrides Cloudflare:ApiKey. The bucket must exist; only one owner may use each object key.</remarks>

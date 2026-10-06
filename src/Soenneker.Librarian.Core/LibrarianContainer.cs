@@ -24,6 +24,7 @@ public sealed partial class LibrarianContainer : ILibrarianContainer
 
     // Every access is protected by _mutationGate, including batch publication and query snapshots.
     private readonly Dictionary<string, string> _items;
+    private readonly Dictionary<string, string> _versions = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<Type, object> _queryRoots = new();
 
     private ValueAtomicBool _disposed = new(false);
@@ -77,6 +78,7 @@ public sealed partial class LibrarianContainer : ILibrarianContainer
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 _items[id] = item;
+                _versions[id] = Guid.NewGuid().ToString();
                 _queryScanSnapshot = null;
                 ApplyIndexKeys(id, keys);
                 UpdateAutomaticIndexes(id, item);
@@ -131,13 +133,12 @@ public sealed partial class LibrarianContainer : ILibrarianContainer
                     throw new KeyNotFoundException($"Could not find item ({id})");
                 return null;
             }
-            if (string.Equals(existing, item, StringComparison.Ordinal))
-                return item;
             IndexKey?[] keys = PrepareIndexKeys(item);
             try
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 _items[id] = item;
+                _versions[id] = Guid.NewGuid().ToString();
                 _queryScanSnapshot = null;
                 ApplyIndexKeys(id, keys);
                 UpdateAutomaticIndexes(id, item);
@@ -157,6 +158,7 @@ public sealed partial class LibrarianContainer : ILibrarianContainer
             cancellationToken.ThrowIfCancellationRequested();
             if (!_items.Remove(id))
                 throw new KeyNotFoundException($"Failed to delete item ({id})");
+            _versions.Remove(id);
             _queryScanSnapshot = null;
             foreach (DocumentIndex index in _indexes.Values)
                 index.Remove(id);
@@ -203,6 +205,7 @@ public sealed partial class LibrarianContainer : ILibrarianContainer
             ThrowIfDisposed();
             cancellationToken.ThrowIfCancellationRequested();
             _items.Clear();
+            _versions.Clear();
             _queryScanSnapshot = null;
             foreach (DocumentIndex index in _indexes.Values)
                 index.Clear();
@@ -228,5 +231,6 @@ public sealed partial class LibrarianContainer : ILibrarianContainer
         _preparedKeys = Array.Empty<IndexKey?>();
 
         _items.Clear();
+        _versions.Clear();
     }
 }

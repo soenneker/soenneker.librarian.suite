@@ -33,7 +33,9 @@ namespace Soenneker.Librarian.Abstractions;
 public interface ILibrarianContainer : IDisposable
 {
     /// <summary>Reads a document with an opaque version, or null when absent. Requires versioning support.</summary>
-    /// <remarks>Currently supported by Cosmos, MongoDB, and CouchDB. Other providers throw NotSupportedException.</remarks>
+    /// <remarks>Supported by Cosmos, MongoDB, CouchDB, Redis, PostgreSQL and the R2 object provider across instances.
+    /// Memory, FileSystem and snapshot providers coordinate only within their single owning database instance;
+    /// their tokens are invalidated when containers reload. Snapshot providers still require Save for persistence.</remarks>
     ValueTask<LibrarianItem<string>?> GetItemWithVersion(string id, CancellationToken cancellationToken = default) =>
         throw new NotSupportedException("This provider does not support versioned reads.");
 

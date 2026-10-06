@@ -80,7 +80,6 @@ public sealed partial class PostgresLibrarianContainer : ILibrarianContainer
             string? existing = await Read(connection, id, token).NoSync();
             if (mode == "add" && existing is not null) throw new InvalidOperationException($"Document '{id}' already exists.");
             if (mode == "update" && existing is null) return false;
-            if (mode == "update" && string.Equals(existing, document, StringComparison.Ordinal)) return true;
         }
         if (document is null)
         {
@@ -101,7 +100,7 @@ public sealed partial class PostgresLibrarianContainer : ILibrarianContainer
         await using (NpgsqlCommand command = Command(connection, """
             INSERT INTO public.librarian_postgres_documents (database_key,container,id_key,original_id,document,body)
             VALUES ($1,$2,$3,$4,$5,(CASE WHEN pg_input_is_valid($5,'jsonb') THEN $5 ELSE NULL END)::jsonb)
-            ON CONFLICT (database_key,container,id_key) DO UPDATE SET document=EXCLUDED.document,body=EXCLUDED.body
+            ON CONFLICT (database_key,container,id_key) DO UPDATE SET document=EXCLUDED.document,body=EXCLUDED.body,revision=gen_random_uuid()
             """, normalized, id, document))
             await command.ExecuteNonQueryAsync(token).NoSync();
         await using (NpgsqlCommand command = Command(connection,

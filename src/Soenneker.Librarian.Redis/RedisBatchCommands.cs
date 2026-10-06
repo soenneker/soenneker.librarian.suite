@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using StackExchange.Redis;
@@ -25,10 +26,10 @@ internal sealed class RedisBatchCommands
             p = p + 1
             if op == 'put' then
                 local document, ids = KEYS[tonumber(ARGV[p])], KEYS[tonumber(ARGV[p + 1])]
-                redis.call('HSET', document, 'json', ARGV[p + 4])
+                redis.call('HSET', document, 'json', ARGV[p + 4], 'revision', ARGV[p + 5])
                 redis.call('HSETNX', document, 'id', ARGV[p + 3])
                 redis.call('SADD', ids, ARGV[p + 2])
-                p = p + 5
+                p = p + 6
             elseif op == 'delete' then
                 redis.call('DEL', KEYS[tonumber(ARGV[p])])
                 redis.call('SREM', KEYS[tonumber(ARGV[p + 1])], ARGV[p + 2])
@@ -86,13 +87,13 @@ internal sealed class RedisBatchCommands
         if (changed) { _commands.Add("version"); _commands.Add(index); }
     }
 
-    internal void Write(RedisKey document, RedisKey ids, string normalized, string id, string? value)
+    internal void Write(RedisKey document, RedisKey ids, string normalized, string id, string? value, string? revision = null)
     {
         _commands.Add(value is null ? "delete" : "put");
         _commands.Add(Key(document));
         _commands.Add(Key(ids));
         _commands.Add(normalized);
-        if (value is not null) { _commands.Add(id); _commands.Add(value); }
+        if (value is not null) { _commands.Add(id); _commands.Add(value); _commands.Add(revision ?? Guid.NewGuid().ToString()); }
     }
 
     internal void Index(RedisKey document, RedisKey index, RedisKey distinct, RedisKey present,

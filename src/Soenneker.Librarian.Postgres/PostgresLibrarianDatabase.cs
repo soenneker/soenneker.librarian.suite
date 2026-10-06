@@ -173,8 +173,10 @@ public sealed class PostgresLibrarianDatabase : ILibrarianDatabase
             original_id text NOT NULL,
             document text NOT NULL,
             body jsonb,
+            revision uuid NOT NULL DEFAULT gen_random_uuid(),
             PRIMARY KEY (database_key, container, id_key)
         );
+        ALTER TABLE public.librarian_postgres_documents ADD COLUMN IF NOT EXISTS revision uuid NOT NULL DEFAULT gen_random_uuid();
         CREATE TABLE IF NOT EXISTS public.librarian_postgres_indexes (
             database_key text COLLATE "C" NOT NULL,
             container text COLLATE "C" NOT NULL,
