@@ -1,10 +1,10 @@
 @page "/"
-<LibrarianSeoHead Title="Librarian — Your documents. Your choice of storage." Description="Open-source document storage for .NET 10. One familiar API for Memory, FileSystem, Redis, PostgreSQL, MongoDB, and Cosmos DB, with indexed queries and atomic batches." />
+<LibrarianSeoHead Title="Librarian — Your documents. Your choice of storage." Description="Open-source document storage for .NET 10. One familiar API for Memory, FileSystem, localStorage, sessionStorage, IndexedDB, Redis, PostgreSQL, MongoDB, and Cosmos DB." />
 <Section Class="hero shell">
     <Div Class="hero-copy">
         <Span Class="eyebrow"><span class="status-dot"></span> DOCUMENT STORAGE FOR .NET 10</Span>
         <H1>Your documents.<br /><em>Your stack.</em></H1>
-        <Paragraph Class="hero-description">A consistent .NET API for documents, indexed queries, and atomic writes. Run in memory, on disk, or with Redis, PostgreSQL, MongoDB, and Cosmos DB.</Paragraph>
+        <Paragraph Class="hero-description">A consistent .NET API for documents, indexed queries, and atomic writes. Run in memory, on disk, in the browser with localStorage, sessionStorage, or IndexedDB, or with Redis, PostgreSQL, MongoDB, and Cosmos DB.</Paragraph>
         <Div Class="hero-actions"><Anchor Href="/getting-started/" Class="button">Get started <span aria-hidden="true">↗</span></Anchor><Anchor Href="#performance" Class="text-link">View benchmarks <span aria-hidden="true">↓</span></Anchor></Div>
         <Div Class="hero-note"><Span>Open source</Span><span aria-hidden="true">/</span><Span>MIT licensed</Span><span aria-hidden="true">/</span><Span>Made for .NET</Span></Div>
     </Div>
@@ -66,7 +66,10 @@
         ("postgres", "PostgreSQL", "Persistent documents, SQL-backed queries, and atomic transactions.", "BUILD TO LAST"),
         ("mongo", "MongoDB", "Native documents with server queries and atomic transactions.", "NATIVE DOCUMENTS"),
         ("cosmos", "Cosmos DB", "Azure NoSQL documents with server queries and partition-scoped atomic batches.", "AZURE STORAGE"),
-        ("couchdb", "CouchDB", "JSON documents over HTTP with revision checks and Mango indexes.", "HTTP DOCUMENTS")
+        ("couchdb", "CouchDB", "JSON documents over HTTP with revision checks and Mango indexes.", "HTTP DOCUMENTS"),
+        ("localstorage", "localStorage", "Small browser snapshots that persist across sessions, with in-memory queries.", "BROWSER PERSISTENCE"),
+        ("sessionstorage", "sessionStorage", "Small browser snapshots scoped to the current tab session, surviving reloads.", "TAB SESSION"),
+        ("indexeddb", "IndexedDB", "Browser snapshots committed through IndexedDB transactions, with in-memory queries.", "BROWSER TRANSACTIONS")
     ];
     private const string Example = """"
         // Register your storage provider.
