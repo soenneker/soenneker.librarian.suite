@@ -1,6 +1,4 @@
 using Soenneker.Extensions.ValueTask;
-using Soenneker.Utils.Json;
-using Soenneker.Enums.JsonOptions;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -22,7 +20,7 @@ internal sealed partial class CosmosLibrarianContainer
         if (segments.Any(string.IsNullOrEmpty)) throw new ArgumentException("Index paths cannot contain empty segments.", nameof(path));
         return segments;
     }
-    private static string Field(string path) => "c" + string.Concat(Segments(path).Select(segment => "[" + JsonUtil.Serialize(segment, JsonOptionType.General) + "]"));
+    private static string Field(string path) => "c" + string.Concat(Segments(path).Select(segment => "[" + System.Text.Json.JsonSerializer.Serialize(segment, CosmosInternalJsonContext.Default.String) + "]"));
     public ValueTask EnsureIndex(string fieldPath, CancellationToken cancellationToken = default)
     {
         Check(cancellationToken);

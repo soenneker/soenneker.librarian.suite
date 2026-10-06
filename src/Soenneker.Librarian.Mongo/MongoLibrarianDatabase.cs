@@ -1,3 +1,5 @@
+using System.Text.Json;
+using MongoDB.Bson.Serialization;
 using Soenneker.Atomics.ValueBools;
 using Soenneker.Asyncs.Semaphores;
 using Soenneker.Extensions.Task;
@@ -22,20 +24,36 @@ public sealed partial class MongoLibrarianDatabase : ILibrarianDatabase
     private readonly AsyncSemaphore _gate = new(1);
     private readonly Dictionary<(string Name, string? Partition), MongoLibrarianContainer> _containers = new();
     private readonly ConcurrentDictionary<string, IMongoCollection<BsonDocument>> _collections = new(StringComparer.Ordinal);
+    private readonly Func<Type, JsonSerializerOptions, IBsonSerializer> _serializer;
     private readonly IMongoDatabase _database;
     private readonly IMongoClient _client;
     private readonly bool _ownsClient;
     private readonly string _prefix;
     private ValueAtomicBool _disposed = new(false);
 
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode("Runtime BSON serializer discovery requires preserved document members. Supply explicit serializer factories instead.")]
+    [System.Diagnostics.CodeAnalysis.RequiresDynamicCode("Runtime BSON serializer discovery constructs generic types. Supply explicit serializer factories instead.")]
     public MongoLibrarianDatabase(IConfiguration configuration) : this(Required(configuration, "ConnectionString"), Required(configuration, "DatabaseName"),
         Required(configuration, "Key"), configuration["Librarian:Mongo:CollectionName"] ?? "librarian") { }
     /// <summary>Creates a client and uses one native collection per logical container. Transactions require a replica set.</summary>
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode("Runtime BSON serializer discovery requires preserved document members. Supply explicit serializer factories instead.")]
+    [System.Diagnostics.CodeAnalysis.RequiresDynamicCode("Runtime BSON serializer discovery constructs generic types. Supply explicit serializer factories instead.")]
     public MongoLibrarianDatabase(string connectionString, string databaseName, string key, string collectionName = "librarian")
         : this(new MongoClient(connectionString).GetDatabase(databaseName), key, collectionName) { _ownsClient = true; }
     /// <summary>Uses a caller-owned database. Collection names are prefix.key.name, with escaped segments.</summary>
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode("Runtime BSON serializer discovery requires preserved document members. Supply explicit serializer factories instead.")]
+    [System.Diagnostics.CodeAnalysis.RequiresDynamicCode("Runtime BSON serializer discovery constructs generic types. Supply explicit serializer factories instead.")]
     public MongoLibrarianDatabase(IMongoDatabase database, string key, string collectionName = "librarian")
+        : this(database, key, collectionName, MongoJsonSerializers.Create) { }
+
+    /// <summary>Uses explicit BSON serializer factories for typed queries.</summary>
+    public MongoLibrarianDatabase(IMongoDatabase database, string key, MongoJsonSerializerRegistry serializers, string collectionName = "librarian")
+        : this(database, key, collectionName, (serializers ?? throw new ArgumentNullException(nameof(serializers))).Create) { }
+
+    private MongoLibrarianDatabase(IMongoDatabase database, string key, string collectionName,
+        Func<Type, JsonSerializerOptions, IBsonSerializer> serializer)
     {
+        _serializer = serializer;
         ArgumentNullException.ThrowIfNull(database);
         ArgumentException.ThrowIfNullOrWhiteSpace(key);
         ArgumentException.ThrowIfNullOrWhiteSpace(collectionName);
@@ -54,7 +72,7 @@ public sealed partial class MongoLibrarianDatabase : ILibrarianDatabase
         IQueryable<BsonDocument> query = Collection(name).AsQueryable(new AggregateOptions { Collation = Collation.Simple,
             TranslationOptions = new ExpressionTranslationOptions { EnableClientSideProjections = false } });
         if (partition is not null) query = query.Where(document => document["partitionKey"] == partition);
-        return query.As<BsonDocument, T>((MongoDB.Bson.Serialization.IBsonSerializer<T>)MongoJsonSerializers.Create(typeof(T), LibrarianJson.Contract(typeof(T)).Options));
+        return query.As<BsonDocument, T>((MongoDB.Bson.Serialization.IBsonSerializer<T>)_serializer(typeof(T), LibrarianJson.Contract(typeof(T)).Options));
     }
     public ValueTask<ILibrarianContainer> GetContainer(string containerName, CancellationToken cancellationToken = default) => GetPartitionContainer(containerName, null, cancellationToken);
     public ValueTask<ILibrarianContainer> GetContainer(string containerName, string partitionKey, CancellationToken cancellationToken = default)

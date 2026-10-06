@@ -15,9 +15,13 @@ internal static class MongoJsonSerializers
 {
     private static readonly ConditionalWeakTable<JsonSerializerOptions, ConcurrentDictionary<Type, IBsonSerializer>> _serializers = new();
 
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode("Runtime BSON serializer discovery requires preserved document members. Supply explicit serializer factories instead.")]
+    [System.Diagnostics.CodeAnalysis.RequiresDynamicCode("Runtime BSON serializer discovery constructs generic types. Supply explicit serializer factories instead.")]
     internal static IBsonSerializer Create(Type type, JsonSerializerOptions options) =>
         _serializers.GetOrCreateValue(options).GetOrAdd(type, static (key, state) => Build(key, state), options);
 
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode("Runtime BSON serializer discovery requires preserved document members. Supply explicit serializer factories instead.")]
+    [System.Diagnostics.CodeAnalysis.RequiresDynamicCode("Runtime BSON serializer discovery constructs generic types. Supply explicit serializer factories instead.")]
     private static IBsonSerializer Build(Type type, JsonSerializerOptions options)
     {
         if (Nullable.GetUnderlyingType(type) is { } underlying)
@@ -41,6 +45,8 @@ internal static class MongoJsonSerializers
         return New((info.Kind == JsonTypeInfoKind.Object ? typeof(MongoJsonDocumentSerializer<>) : typeof(MongoJsonSerializer<>)).MakeGenericType(type), info);
     }
 
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode("Runtime BSON serializer discovery requires preserved document members. Supply explicit serializer factories instead.")]
     private static IEnumerable<Type> Interfaces(Type type) => type.GetInterfaces().Prepend(type);
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode("Runtime BSON serializer discovery requires preserved document members. Supply explicit serializer factories instead.")]
     private static IBsonSerializer New(Type type, params object[] arguments) => (IBsonSerializer)Activator.CreateInstance(type, arguments)!;
 }

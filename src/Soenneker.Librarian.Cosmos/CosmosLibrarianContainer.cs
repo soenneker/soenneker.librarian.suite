@@ -1,8 +1,6 @@
 using Soenneker.Atomics.ValueBools;
 using Soenneker.Extensions.ValueTask;
 using Soenneker.Extensions.Task;
-using Soenneker.Utils.Json;
-using Soenneker.Enums.JsonOptions;
 using System;
 using System.Buffers;
 using System.Collections.Generic;
@@ -50,7 +48,7 @@ internal sealed partial class CosmosLibrarianContainer(CosmosLibrarianDatabase d
     {
         Check();
         IQueryable<T> query = store.GetItemLinqQueryable<T>(allowSynchronousQueryExecution: true, requestOptions: QueryOptions);
-        return new CosmosQueryable<T>(query, () => Check(), store, QueryOptions, JsonUtil.Serialize(new[] { database.Key, name, partition }, JsonOptionType.General)!);
+        return new CosmosQueryable<T>(query, () => Check(), store, QueryOptions, JsonSerializer.Serialize(new[] { database.Key, name, partition }, CosmosInternalJsonContext.Default.StringArray));
     }
 
     public async ValueTask<string> AddItem(string id, string document, CancellationToken cancellationToken = default)

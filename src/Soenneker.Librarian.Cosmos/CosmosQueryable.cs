@@ -1,7 +1,6 @@
+using Soenneker.Librarian.Abstractions.Serialization;
 using Soenneker.Extensions.Task;
 using Soenneker.Extensions.ValueTask;
-using Soenneker.Utils.Json;
-using Soenneker.Enums.JsonOptions;
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -56,17 +55,16 @@ internal sealed class CosmosQueryable<T>
         cancellationToken.ThrowIfCancellationRequested();
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(pageSize);
         QueryDefinition query = _native.Provider.CreateQuery<TElement>(expression).ToQueryDefinition() ?? new QueryDefinition("SELECT VALUE c FROM c");
-        string fingerprint = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonUtil.Serialize(new
-        {
-            scope = _scope, Database = _store.Database.Id, Container = _store.Id, Type = typeof(TElement).FullName,
-            Sql = query.QueryText, Parameters = query.GetQueryParameters()?.Select(parameter => new { parameter.Name, parameter.Value })
-        }, JsonOptionType.General)!)));
+        string fingerprint = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new CosmosQueryFingerprint(
+            _scope, _store.Database.Id, _store.Id, typeof(TElement).FullName, query.QueryText,
+            query.GetQueryParameters()?.Select(parameter => new CosmosQueryParameter(parameter.Name, LibrarianJson.Element(parameter.Value))).ToArray()),
+            CosmosInternalJsonContext.Default.CosmosQueryFingerprint))));
         string? token = null;
         if (continuationToken is not null)
         {
             try
             {
-                CosmosContinuation saved = JsonUtil.Deserialize<CosmosContinuation>(Convert.FromBase64String(continuationToken))
+                CosmosContinuation saved = JsonSerializer.Deserialize(Convert.FromBase64String(continuationToken), CosmosInternalJsonContext.Default.CosmosContinuation)
                     ?? throw new FormatException();
                 if (saved.Query != fingerprint || string.IsNullOrEmpty(saved.Token)) throw new FormatException();
                 token = saved.Token;
@@ -80,7 +78,7 @@ internal sealed class CosmosQueryable<T>
             new QueryRequestOptions { PartitionKey = _options.PartitionKey, MaxItemCount = pageSize });
         FeedResponse<TElement> page = await iterator.ReadNextAsync(cancellationToken).NoSync();
         string? next = string.IsNullOrEmpty(page.ContinuationToken) ? null
-            : Convert.ToBase64String(JsonUtil.SerializeToUtf8Bytes(new CosmosContinuation(fingerprint, page.ContinuationToken), JsonOptionType.General));
+            : Convert.ToBase64String(JsonSerializer.SerializeToUtf8Bytes(new CosmosContinuation(fingerprint, page.ContinuationToken), CosmosInternalJsonContext.Default.CosmosContinuation));
         return new LibrarianPage<TElement>(page.ToList(), next);
     }
 
@@ -92,7 +90,9 @@ internal sealed class CosmosQueryable<T>
             return (TResult)(object)await Read(_native.Provider.CreateQuery<T>(expression), cancellationToken).NoSync();
         // Cosmos translates Count, but not LongCount. Materialize its _native COUNT result directly as Int64.
         if (expression is MethodCallExpression { Method.Name: nameof(Queryable.LongCount) } longCount && longCount.Method.DeclaringType == typeof(Queryable))
-            expression = Expression.Call(typeof(Queryable), nameof(Queryable.Count), [typeof(T)], longCount.Arguments.ToArray());
+            expression = Expression.Call(longCount.Arguments.Count == 1
+                ? ((Func<IQueryable<T>, int>)Queryable.Count<T>).Method
+                : ((Func<IQueryable<T>, Expression<Func<T, bool>>, int>)Queryable.Count<T>).Method, longCount.Arguments.ToArray());
         if (expression is MethodCallExpression call && call.Method.DeclaringType == typeof(Queryable) &&
             call.Method.Name is nameof(Queryable.First) or nameof(Queryable.FirstOrDefault) or nameof(Queryable.Single) or nameof(Queryable.SingleOrDefault) or nameof(Queryable.Any) or nameof(Queryable.All))
         {

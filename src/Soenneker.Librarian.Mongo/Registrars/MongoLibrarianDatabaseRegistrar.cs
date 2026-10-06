@@ -15,6 +15,8 @@ public static class MongoLibrarianDatabaseRegistrar
     /// </summary>
     /// <param name="services">Service collection that receives the registration.</param>
     /// <returns>The same service collection, so additional registrations can be chained.</returns>
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode("Runtime BSON serializer discovery requires preserved document members. Supply explicit serializer factories instead.")]
+    [System.Diagnostics.CodeAnalysis.RequiresDynamicCode("Runtime BSON serializer discovery constructs generic types. Supply explicit serializer factories instead.")]
     public static IServiceCollection AddMongoLibrarianDatabaseAsSingleton(this IServiceCollection services)
     {
         services.TryAddSingleton<ILibrarianDatabase, MongoLibrarianDatabase>();
@@ -27,6 +29,8 @@ public static class MongoLibrarianDatabaseRegistrar
     /// </summary>
     /// <param name="services">Service collection that receives the registration.</param>
     /// <returns>The same service collection, so additional registrations can be chained.</returns>
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode("Runtime BSON serializer discovery requires preserved document members. Supply explicit serializer factories instead.")]
+    [System.Diagnostics.CodeAnalysis.RequiresDynamicCode("Runtime BSON serializer discovery constructs generic types. Supply explicit serializer factories instead.")]
     public static IServiceCollection AddMongoLibrarianDatabaseAsScoped(this IServiceCollection services)
     {
         services.TryAddScoped<ILibrarianDatabase, MongoLibrarianDatabase>();
@@ -41,6 +45,8 @@ public static class MongoLibrarianDatabaseRegistrar
     /// <returns>The same service collection, so additional registrations can be chained.</returns>
     /// <remarks>The service key selects the DI instance; it does not change the underlying storage namespace.
     /// Resolve with GetRequiredKeyedService&lt;ILibrarianDatabase&gt; or inject with FromKeyedServices.</remarks>
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode("Runtime BSON serializer discovery requires preserved document members. Supply explicit serializer factories instead.")]
+    [System.Diagnostics.CodeAnalysis.RequiresDynamicCode("Runtime BSON serializer discovery constructs generic types. Supply explicit serializer factories instead.")]
     public static IServiceCollection AddMongoLibrarianDatabaseAsSingleton(this IServiceCollection services, object serviceKey,
         Func<IServiceProvider, MongoLibrarianDatabase>? factory = null)
     {
@@ -62,6 +68,8 @@ public static class MongoLibrarianDatabaseRegistrar
     /// <returns>The same service collection, so additional registrations can be chained.</returns>
     /// <remarks>The service key selects the DI instance; it does not change the underlying storage namespace.
     /// Resolve with GetRequiredKeyedService&lt;ILibrarianDatabase&gt; or inject with FromKeyedServices.</remarks>
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode("Runtime BSON serializer discovery requires preserved document members. Supply explicit serializer factories instead.")]
+    [System.Diagnostics.CodeAnalysis.RequiresDynamicCode("Runtime BSON serializer discovery constructs generic types. Supply explicit serializer factories instead.")]
     public static IServiceCollection AddMongoLibrarianDatabaseAsScoped(this IServiceCollection services, object serviceKey,
         Func<IServiceProvider, MongoLibrarianDatabase>? factory = null)
     {
