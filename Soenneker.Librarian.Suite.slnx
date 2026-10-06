@@ -9,6 +9,11 @@
     <File Path=".github/workflows/website.yml" />
   </Folder>
   <Folder Name="/src/">
+    <Project Path="src/Soenneker.Librarian.Maui.Secure/Soenneker.Librarian.Maui.Secure.csproj" />
+    <Project Path="src/Soenneker.Librarian.IndexedDb/Soenneker.Librarian.IndexedDb.csproj" />
+    <Project Path="src/Soenneker.Librarian.LocalStorage/Soenneker.Librarian.LocalStorage.csproj" />
+    <Project Path="src/Soenneker.Librarian.SessionStorage/Soenneker.Librarian.SessionStorage.csproj" />
+    <Project Path="src/Soenneker.Librarian.Browser/Soenneker.Librarian.Browser.csproj" />
     <Project Path="src/Soenneker.Librarian.Generators/Soenneker.Librarian.Generators.csproj" />
     <Project Path="src/Soenneker.Librarian.Kv/Soenneker.Librarian.Kv.csproj" />
     <Project Path="src/Soenneker.Librarian.R2/Soenneker.Librarian.R2.csproj" />

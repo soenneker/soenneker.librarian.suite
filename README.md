@@ -19,6 +19,10 @@ Install the provider you need. Shared dependencies are included automatically.
 ```sh
 dotnet add package Soenneker.Librarian.Memory
 # Or: dotnet add package Soenneker.Librarian.FileSystem
+# Or: dotnet add package Soenneker.Librarian.Maui.Secure
+# Or: dotnet add package Soenneker.Librarian.IndexedDb
+# Or: dotnet add package Soenneker.Librarian.LocalStorage
+# Or: dotnet add package Soenneker.Librarian.SessionStorage
 # Or: dotnet add package Soenneker.Librarian.Redis
 # Or: dotnet add package Soenneker.Librarian.Postgres
 # Or: dotnet add package Soenneker.Librarian.D1
@@ -30,6 +34,11 @@ dotnet add package Soenneker.Librarian.Memory
 | --- | --- |
 | `Soenneker.Librarian.Memory` | In-process document storage |
 | `Soenneker.Librarian.FileSystem` | In-memory documents backed by a JSON file |
+| `Soenneker.Librarian.Maui.Secure` | Encrypted file snapshots with keys in MAUI SecureStorage |
+| `Soenneker.Librarian.IndexedDb` | Browser snapshots committed through IndexedDB transactions |
+| `Soenneker.Librarian.LocalStorage` | Small browser snapshots coordinated through Web Locks |
+| `Soenneker.Librarian.SessionStorage` | Small snapshots scoped to a browser tab session, coordinated through Web Locks |
+| `Soenneker.Librarian.Browser` | Shared browser interop and static web assets; included by browser providers |
 | `Soenneker.Librarian.Redis` | Shared document storage and indexes in Redis |
 | `Soenneker.Librarian.Postgres` | PostgreSQL persistence, SQL queries, and atomic transactions |
 | `Soenneker.Librarian.D1` | Single-owner in-memory documents persisted as a D1 snapshot |
@@ -189,6 +198,45 @@ Add to `appsettings.json`:
 - Use one database owner per file.
 - Await `database.Save()` when changes must be flushed explicitly.
 - Dispose the database's owner asynchronously to complete shutdown persistence.
+
+### MAUI Secure
+
+```csharp
+using Soenneker.Librarian.Maui.Secure.Registrars;
+
+// Scope must identify the application, user and organization unambiguously.
+builder.Services.AddMauiSecureLibrarianDatabaseAsSingleton("myapp/user-id/organization-id");
+```
+
+The provider keeps documents in memory and atomically replaces an AES-256-GCM encrypted file under the app-data directory. SecureStorage holds only the key. Encryption authenticates the scope and file format. Missing or invalid keys, corrupt files, and unavailable SecureStorage throw; there is no plaintext fallback or automatic reset. Keep authentication tokens directly in SecureStorage.
+
+Use **one owner per scope**. Ordinary writes persist on `Save`, unload, or disposal; batches persist before publication. Call `Save` after important changes and before suspension. Mobile process termination does not guarantee disposal. For account switching, stop operations and dispose the old owner before creating the new scope's owner. Fixed scopes also support keyed singleton registration with `(serviceKey, scope, directoryPath)`.
+
+After stopping operations, `IMauiSecureLibrarianDatabase.DiscardAsync()` releases an owner without saving, including when secure storage is unavailable. `MauiSecureLibrarianDatabase.DeleteStorage(scope, secureStorage, directoryPath)` deletes that scope's file and protected key after its owners have been disposed. Use the same directory supplied at construction. Other scopes remain intact.
+
+### Browser storage
+
+```csharp
+using Soenneker.Librarian.IndexedDb.Registrars;
+using Soenneker.Librarian.LocalStorage.Registrars;
+using Soenneker.Librarian.SessionStorage.Registrars;
+
+builder.Services.AddIndexedDbLibrarianDatabaseAsScoped("myapp/user-id/organization-id");
+// Alternatively, for small snapshots:
+// builder.Services.AddLocalStorageLibrarianDatabaseAsScoped("myapp/user-id/organization-id");
+// Or, for tab-session storage:
+// builder.Services.AddSessionStorageLibrarianDatabaseAsScoped("myapp/user-id/organization-id");
+```
+
+These providers use the interactive client's `IJSRuntime`. The Browser package supplies the JavaScript module as a static web asset; no external CDN or manual script tag is required. Invoke database operations after interactive rendering, not during prerender. Scoped instances prevent sharing a Blazor Server client's runtime with other clients. All three browser registrars support `(serviceKey, key)` for independently keyed registrations.
+
+Each storage key holds a complete snapshot; document queries and indexes run in memory. IndexedDB commits snapshot replacement inside a read/write transaction. LocalStorage uses the Web Locks API and requires a secure context and cooperating writers. LocalStorage is intended for small snapshots. Neither provider encrypts browser data or stores secrets securely.
+
+SessionStorage uses the same Web Locks coordination as LocalStorage, but its data belongs to the origin and tab session. It survives reloads; independent tabs have separate storage. A tab opened with an opener may initially receive a copy, and browser session restoration follows browser policy. It is unencrypted and intended for small snapshots.
+
+Call `Save` after ordinary mutations; batches persist before publication. Quota, access-denied, unavailable-feature and transaction failures propagate without reporting success. Do not rely on browser shutdown or circuit disposal for a final flush.
+
+Cached reads are not live-synchronized between owners. Writes compare the last loaded snapshot with persisted storage to detect external changes. A conflict throws `LibrarianConcurrencyException`. Stop operations, call `IBrowserLibrarianDatabase.DiscardAsync()`, create a fresh owner, and reapply the intended change to freshly loaded data. Interop cancellation or disconnection after dispatch can leave the commit outcome unknown; reopen and reconcile before retrying. Discard leaves persisted storage intact.
 
 ### Redis
 

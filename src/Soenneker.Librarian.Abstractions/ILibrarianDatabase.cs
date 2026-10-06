@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 namespace Soenneker.Librarian.Abstractions;
 
 /// <summary>
-/// A document database implemented by a memory, filesystem, Redis, PostgreSQL, MongoDB, Cosmos DB, CouchDB, or Cloudflare provider.
+/// A document database implemented by a memory, filesystem, secure MAUI, browser, Redis, PostgreSQL, MongoDB, Cosmos DB, CouchDB, or Cloudflare provider.
 /// </summary>
 public interface ILibrarianDatabase : IAsyncDisposable
 {
@@ -107,6 +107,11 @@ public interface ILibrarianDatabase : IAsyncDisposable
     /// Save and MarkDirty perform no I/O; writes commit immediately. Unload releases local handles and rechecks existence on reload.
     /// A supplied HttpClient remains caller-owned. CouchDB 3.5 or later is required for strict Mango index selection.
     /// </remarks>
+    /// <remarks>MAUI Secure, LocalStorage, SessionStorage and IndexedDb buffer ordinary writes until Save, UnloadContainer or disposal.
+    /// Save explicitly before suspension/navigation; process termination or browser disconnection cannot guarantee a final flush.
+    /// Browser providers detect external snapshot changes and require discarding/reopening stale owners; they do not live-sync cached reads.
+    /// IndexedDb uses a transaction per snapshot. LocalStorage and SessionStorage require Web Locks and cooperating writers.
+    /// MAUI Secure authenticates encrypted files against an application/account scope and stores keys in platform secure storage.</remarks>
     ValueTask Save(CancellationToken cancellationToken = default);
 
     /// <summary>

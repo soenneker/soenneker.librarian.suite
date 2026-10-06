@@ -14,6 +14,10 @@
     </ItemGroup>
 
     <ItemGroup>
+        <ProjectReference Include="../../src/Soenneker.Librarian.LocalStorage/Soenneker.Librarian.LocalStorage.csproj" />
+        <ProjectReference Include="../../src/Soenneker.Librarian.SessionStorage/Soenneker.Librarian.SessionStorage.csproj" />
+        <ProjectReference Include="../../src/Soenneker.Librarian.IndexedDb/Soenneker.Librarian.IndexedDb.csproj" />
+        <ProjectReference Include="../../src/Soenneker.Librarian.Maui.Secure/Soenneker.Librarian.Maui.Secure.csproj" />
         <ProjectReference Include="../../src/Soenneker.Librarian.Generators/Soenneker.Librarian.Generators.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
         <ProjectReference Include="../../src/Soenneker.Librarian.CouchDb/Soenneker.Librarian.CouchDb.csproj" />
         <ProjectReference Include="../../src/Soenneker.Librarian.Kv/Soenneker.Librarian.Kv.csproj" />

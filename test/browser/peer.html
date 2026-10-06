@@ -1,0 +1,10 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Librarian concurrent storage owner</title>
+<script type="module">
+import { compareExchange } from "../../src/Soenneker.Librarian.Browser/wwwroot/librarian.js";
+window.compareExchange = compareExchange;
+window.dispatchEvent(new Event("provider-ready"));
+</script>
+</html>

@@ -155,4 +155,18 @@ public abstract class SnapshotLibrarianDatabase(ILogger logger) : ILibrarianData
             _persistedJson = null;
         }
     }
+
+    /// <summary>Disposes this owner without saving pending writes, for explicit recovery from an external storage conflict.</summary>
+    /// <remarks>Stop container operations first. This permanently invalidates the owner and its containers.</remarks>
+    protected async ValueTask DisposeWithoutSaving()
+    {
+        using (await _gate.Lock(CancellationToken.None).NoSync())
+        {
+            if (!_disposed.TrySetTrue()) return;
+            foreach (LibrarianContainer container in _containers.Values) container.Dispose();
+            _containers.Clear();
+            _snapshot = null;
+            _persistedJson = null;
+        }
+    }
 }

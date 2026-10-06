@@ -119,6 +119,11 @@ jobs:
             Soenneker.Librarian.Abstractions
             Soenneker.Librarian.Core
             Soenneker.Librarian.Memory
+            Soenneker.Librarian.Browser
+            Soenneker.Librarian.LocalStorage
+            Soenneker.Librarian.SessionStorage
+            Soenneker.Librarian.IndexedDb
+            Soenneker.Librarian.Maui.Secure
             Soenneker.Librarian.FileSystem
             Soenneker.Librarian.Redis
             Soenneker.Librarian.Postgres
