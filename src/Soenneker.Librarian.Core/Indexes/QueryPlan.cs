@@ -5,6 +5,7 @@ using System.Linq.Expressions;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using Soenneker.Librarian.Abstractions.Queries;
 
 namespace Soenneker.Librarian.Core.Indexes;
 
@@ -217,6 +218,8 @@ internal sealed class QueryPlan
 
     private static bool IsSupported(PropertyInfo property)
     {
+        if (property.DeclaringType is { } declaring && GeneratedQueryMetadata.TryGet(declaring, property.Name, out var generated))
+            return generated.CanIndex;
         Type type = property.PropertyType;
         if (type != typeof(int) && type != typeof(long) && type != typeof(decimal) && type != typeof(string) && type != typeof(bool)) return false;
         // Computed getters may have side effects or depend on mutable external state.

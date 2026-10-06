@@ -9,6 +9,7 @@
     <File Path=".github/workflows/website.yml" />
   </Folder>
   <Folder Name="/src/">
+    <Project Path="src/Soenneker.Librarian.Generators/Soenneker.Librarian.Generators.csproj" />
     <Project Path="src/Soenneker.Librarian.Kv/Soenneker.Librarian.Kv.csproj" />
     <Project Path="src/Soenneker.Librarian.R2/Soenneker.Librarian.R2.csproj" />
     <Project Path="src/Soenneker.Librarian.CouchDb/Soenneker.Librarian.CouchDb.csproj" />
@@ -24,6 +25,7 @@
     <Project Path="src/Soenneker.Librarian.Website/Soenneker.Librarian.Website.csproj" />
   </Folder>
   <Folder Name="/test/">
+    <Project Path="test/Soenneker.Librarian.Generators.Tests/Soenneker.Librarian.Generators.Tests.csproj" />
     <Project Path="test/Soenneker.Librarian.NativeAot.Smoke/Soenneker.Librarian.NativeAot.Smoke.csproj" />
     <Project Path="test/Soenneker.Librarian.Suite.Tests/Soenneker.Librarian.Suite.Tests.csproj" />
   </Folder>

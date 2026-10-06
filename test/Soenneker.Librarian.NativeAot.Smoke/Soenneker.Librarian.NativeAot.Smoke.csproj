@@ -7,8 +7,10 @@
     <PublishAot>true</PublishAot>
     <JsonSerializerIsReflectionEnabledByDefault>false</JsonSerializerIsReflectionEnabledByDefault>
     <IsPackable>false</IsPackable>
+    <InterceptorsNamespaces>$(InterceptorsNamespaces);Soenneker.Librarian.Generated</InterceptorsNamespaces>
   </PropertyGroup>
   <ItemGroup>
+    <ProjectReference Include="../../src/Soenneker.Librarian.Generators/Soenneker.Librarian.Generators.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
     <ProjectReference Include="../../src/Soenneker.Librarian.CouchDb/Soenneker.Librarian.CouchDb.csproj" />
     <ProjectReference Include="../../src/Soenneker.Librarian.Memory/Soenneker.Librarian.Memory.csproj" />
     <ProjectReference Include="../../src/Soenneker.Librarian.FileSystem/Soenneker.Librarian.FileSystem.csproj" />

@@ -156,7 +156,8 @@ internal sealed class LocalQueryExecutor(Func<Expression, IEnumerable<object?>?>
         throw Unsupported(name);
     }
 
-    private static Func<object?, int, object?> Function(LambdaExpression lambda) => Functions.GetValue(lambda, static expression => Compile(expression));
+    private static Func<object?, int, object?> Function(LambdaExpression lambda) =>
+        GeneratedQueryFunctions.TryGet(lambda, out var function) ? function : Functions.GetValue(lambda, static expression => Compile(expression));
 
     private static Func<object?, int, object?> Compile(LambdaExpression lambda)
     {

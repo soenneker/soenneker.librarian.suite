@@ -23,6 +23,7 @@ using StackExchange.Redis;
 LibrarianJson.Register(SmokeJsonContext.Default.SmokeRow);
 LibrarianJson.Register(SmokeJsonContext.Default.SmokeStatus);
 LibrarianJson.Register(SmokeJsonContext.Default.SmokeDocument);
+GeneratedSmokeQueries.Run();
 using (var couchClient = new HttpClient(new CouchDbSmokeHandler()))
 await using (var couch = new CouchDbLibrarianDatabase(new CouchDbLibrarianOptions { Endpoint = new Uri("https://couch.invalid/") }, couchClient))
 {

@@ -22,7 +22,8 @@ public static class QueryExpressionReader
                 parent == typeof(DateTime) || parent == typeof(DateTimeOffset) || parent == typeof(Guid) ||
                 parent == typeof(DateOnly) || parent == typeof(TimeOnly) || parent == typeof(TimeSpan) || Nullable.GetUnderlyingType(parent) is not null))
                 return null;
-            string segment = member.Member.GetCustomAttribute<JsonPropertyNameAttribute>()?.Name ??
+            string segment = member.Member.DeclaringType is { } declaring && GeneratedQueryMetadata.TryGet(declaring, member.Member.Name, out var generated)
+                ? generated.JsonName : member.Member.GetCustomAttribute<JsonPropertyNameAttribute>()?.Name ??
                 (JsonNamingPolicy.CamelCase.ConvertName(member.Member.Name) ?? member.Member.Name);
             if (segment.Contains('.', StringComparison.Ordinal)) throw unsupported();
             segments.Push(segment);

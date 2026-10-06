@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
+using Soenneker.Librarian.Abstractions.Queries;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 using System.Threading;
@@ -162,6 +163,12 @@ public sealed partial class LibrarianContainer
 
     private static AutomaticIndex CreateAutomaticIndex<T>(PropertyInfo property)
     {
+        if (property.DeclaringType is { } declaring && GeneratedQueryMetadata.TryGet(declaring, property.Name, out var generated) && generated.IndexKey is { } generatedGetter)
+            return new AutomaticIndex(value =>
+            {
+                GeneratedIndexKey key = generatedGetter(value);
+                return new IndexKey(key.Kind, key.Number, key.Text);
+            });
         ParameterExpression parameter = Expression.Parameter(typeof(object));
         MemberExpression value = Expression.Property(Expression.Convert(parameter, typeof(T)), property);
         // Build the scalar key directly so indexing value-type properties never boxes each document's value.

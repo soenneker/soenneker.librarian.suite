@@ -68,6 +68,7 @@ public sealed class PostgresProjection
         // Construction is materialization only: each leaf is fetched as a SQL column, never a full document.
         projection.Materialize = projection.Scalar
             ? values => values[0] is { } json ? Read(json, projection.ResultType) : QueryTypes.Get(projection.ResultType).Default
+            : GeneratedQueryProjections.TryGet(selector.Body, projection.Columns, out var generated) ? generated
             : Expression.Lambda<Func<string?[], object?>>(Expression.Convert(body, typeof(object)), row).Compile(preferInterpretation: true);
         return projection;
     }

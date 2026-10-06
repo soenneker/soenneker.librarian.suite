@@ -81,6 +81,38 @@ Use the same generated contract when serializing documents. Register enums (and 
 
 All production projects enable AOT/trimming analyzers. CI publishes and runs a native executable with reflection-based JSON serialization disabled, including Redis and PostgreSQL integration checks.
 
+## Generated query accessors and delegates
+
+Reference `Soenneker.Librarian.Generators` in the application that contains the models and query calls, with `PrivateAssets="all"`. Keep the existing System.Text.Json context and `LibrarianJson.Register` calls.
+
+```csharp
+using Soenneker.Librarian.Abstractions;
+
+public sealed class Customer
+{
+    public int Age { get; set; }
+    public string Name { get; set; } = "";
+}
+
+public static class CustomerQueries
+{
+    public static IQueryable<string> Adults(ILibrarianContainer container, bool filter)
+    {
+        var source = container.BuildQueryable<Customer>();
+        if (filter) source = source.Where(customer => customer.Age >= 18);
+        return source.OrderBy(customer => customer.Name).Select(customer => customer.Name);
+    }
+}
+```
+
+No Librarian attributes are required for this example. The generator recognizes Librarian container, repository, and database query APIs by their symbols and discovers document types from those calls and resolvable `LibrarianJson.Register<T>` calls. It follows LINQ chains, local aliases, assignments, branches, and awaited repository queries. It registers model getters, camel-case/`JsonPropertyName` mappings, and scalar index-key factories, and intercepts supported single-parameter `Queryable` lambdas to register compiled delegates while preserving the provider's expression tree. Supported explicit constructor projections also get generated materializers for PostgreSQL and Redis. Query translation still happens at runtime; this is not full query precompilation.
+
+Locals that can receive queries from another provider, query fields, and helpers accepting an ordinary `IQueryable<T>` are conservatively left alone. `[GenerateLibrarianQueries]` remains an optional opt-in for such helper classes; `[LibrarianModel]` remains available for additional models that cannot be discovered from query roots. Attributes use the `Soenneker.Librarian.Abstractions.Queries` namespace.
+
+Captured locals/outer parameters, anonymous projections, and other unsupported lambdas produce informational `LIBGEN002` diagnostics for automatically discovered queries and retain existing runtime execution, including deferred capture evaluation. Explicitly annotated query classes retain warning-level diagnostics. This release does **not** guarantee reflection-free LINQ. `LIBGEN001` identifies inaccessible or generic explicitly annotated models. Use the .NET 10 SDK; the package enables its interceptor namespace automatically. For a project reference, set `OutputItemType="Analyzer"`, `ReferenceOutputAssembly="false"`, and add `Soenneker.Librarian.Generated` to `InterceptorsNamespaces`.
+
+When the consuming project references the Mongo provider, generated `Soenneker.Librarian.Generated.LibrarianModels.RegisterMongo(registry)` registers discovered or annotated documents and supported nested documents, scalars, nullable values, arrays, lists, and string-keyed dictionaries. Call it once per registry, then pass that registry to the provider's explicit serializer API. `LIBGEN003` reports types requiring a manual factory. These mappings assume camel-case JSON unless overridden by `JsonPropertyName`.
+
 ## Choose a provider
 
 | | Memory | FileSystem | Redis | PostgreSQL |

@@ -1,0 +1,5 @@
+<Project>
+  <PropertyGroup>
+    <InterceptorsNamespaces>$(InterceptorsNamespaces);Soenneker.Librarian.Generated</InterceptorsNamespaces>
+  </PropertyGroup>
+</Project>
