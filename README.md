@@ -209,9 +209,9 @@ Add to application configuration:
 
 - `Key` is the required namespace; `Database` is optional (`-1` uses the connection default).
 - Reads fetch current Redis data; writes update documents and indexes together.
-- No RedisJSON, Redis Search, or Lua scripts required.
+- Requires atomic Lua scripts and conditional transactions; no RedisJSON, Redis Search, or `SORT` support is required.
 - Redis persistence and eviction settings determine durability. Use a non-evicting database for document storage.
-- Cluster deployments require Redis 8 or later.
+- Garnet servers must enable `--lua --lua-transaction-mode`. Persistence and recovery must be configured separately.
 
 See the [Redis guide](docs/REDIS.md) for supported queries, index costs, concurrency, and deployment details.
 

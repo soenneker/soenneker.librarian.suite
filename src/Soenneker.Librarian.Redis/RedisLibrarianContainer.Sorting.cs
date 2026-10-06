@@ -17,7 +17,7 @@ public sealed partial class RedisLibrarianContainer
             token.ThrowIfCancellationRequested();
             if (await store.SetContainsAsync(SortSchema, path).NoSync()) return;
             RedisValue version = await store.StringGetAsync(Version).NoSync();
-            RedisValue[] entries = await store.SortAsync(Present(path), sortType: SortType.Alphabetic, get: ["#", DocumentPattern(Field(path))]).NoSync();
+            RedisValue[] entries = await ReadSetFields(store, Present(path), ["#", Field(path)], token).NoSync();
             token.ThrowIfCancellationRequested();
             ITransaction transaction = Transaction(store, version);
             var commands = new List<Task>();

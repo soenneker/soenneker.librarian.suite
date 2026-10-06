@@ -28,7 +28,7 @@ Both `AddRedisLibrarianDatabaseAsSingleton()` and `AddRedisLibrarianDatabaseAsSc
 
 - Each document has its own Redis hash. IDs are case-insensitive; container names are case-sensitive.
 - Persistent sorted sets and equality sets hold indexes.
-- Conditional transactions (`WATCH` / `MULTI` / `EXEC`) update documents and indexes together. Version checks retry concurrent changes.
+- Atomic Lua scripts update documents and indexes together. Index creation and clearing also use conditional transactions (`WATCH` / `MULTI` / `EXEC`). Version checks retry concurrent changes.
 - Reads repeat when version checks detect overlapping writes.
 - There is no document cache, dirty tracking, or periodic save.
 - Cancellation is checked before dispatch. Already dispatched commands are awaited and may commit.
@@ -92,14 +92,16 @@ Indexed LINQ sorting now stores a value-plus-document-ID hash field, making equa
 - `EnsureIndex()` reads existing documents to encode exact decimal and ordinal string values, then installs the index only if its snapshot is still current.
 - Index creation is proportional to container size. Definitions survive unload, restart, and document deletion.
 - Simple index pages seek within sorted sets and transfer only the requested documents.
-- Compound LINQ plans retrieve distinct encoded index values, then use Redis union, intersection, difference, and `SORT` operations to filter, order, and page on the server.
-- Broad filters consume Redis CPU and temporary memory. Compound queries may transfer many distinct index values even when the returned document page is small.
+- Compound LINQ plans use set union, intersection, and difference to filter on the server. Broad ordered queries page through sorted-set indexes. Sparse ordered queries retrieve matching sort fields and sort those values locally; only the requested document page is fetched.
+- Unordered pages sort normalized IDs on the server. Collection reads and index creation use version-checked reads in windows of 128 documents, with every document key explicitly declared. Concurrent writes cause bounded retries rather than mixed snapshots.
+- Broad filters consume server CPU and temporary memory. Sparse ordered queries can transfer many sort fields even when the returned document page is small. No `SORT` or external-key patterns are used.
 - Temporary result sets are deleted after a query and expire for crash cleanup.
 
 ## Deployment
 
-- No Lua scripts, Redis Search, or RedisJSON are required.
-- All containers in a database namespace share a hash slot, allowing conditional batches across containers. Cluster deployments require Redis 8 or later for `SORT` with external key patterns.
+- Atomic Lua scripts, hashes, sets, sorted sets, and conditional transactions are required; Redis Search and RedisJSON are not.
+- All containers in a database namespace share a hash slot, allowing conditional batches across containers. Commands and scripts declare their keys explicitly.
+- For Garnet, enable both `--lua` and `--lua-transaction-mode`; Lua without transaction mode does not provide the atomicity this provider requires. Standalone compatibility is tested against Garnet 2.2.0. Configure durable storage, AOF acknowledgment, and `--recover` separately; enabling Lua does not enable persistence. Cluster failover is not covered by the standalone tests.
 - Configure Redis persistence for the durability you need and use a non-evicting database for document storage.
 - Keep the configured namespace under the provider's ownership; external key changes bypass document/index coordination.
 - The current `:containers:` layout does not read earlier `:batches:`, `:native:`, snapshot, or scripted prototype layouts.
@@ -109,7 +111,7 @@ Indexed LINQ sorting now stores a value-plus-document-ID hash field, making equa
 Set `LIBRARIAN_TEST_REDIS` to a test Redis connection string, then run from the repository root:
 
 ```sh
-dotnet test --project test/Soenneker.Librarian.Suite.Tests -- --treenode-filter "/*/*/RedisPersistenceTests/*"
+dotnet test --project test/Soenneker.Librarian.Suite.Tests -- --treenode-filter "/*/*/Redis*/*"
 ```
 
 Tests use unique namespaces and remove their keys afterward. Without the environment variable, Redis integration tests are skipped.

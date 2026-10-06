@@ -5,17 +5,17 @@ using StackExchange.Redis;
 
 namespace Soenneker.Librarian.Redis;
 
-// One script evaluates the filter and final page against the same server snapshot.
+// Select IDs and a container version atomically; callers read explicitly declared document keys against that version.
 internal sealed class RedisQueryCommands(string prefix)
 {
     private const string Script = """
         local temporary = {}
-        local count = tonumber(ARGV[8])
-        for i = 1, count do temporary[i] = KEYS[tonumber(ARGV[8 + i])] end
+        local count = tonumber(ARGV[6])
+        for i = 1, count do temporary[i] = KEYS[tonumber(ARGV[6 + i])] end
         local function execute()
-            local orderIndex = tonumber(ARGV[9 + count])
-            local selectedIndex = tonumber(ARGV[10 + count])
-            local p = 11 + count
+            local orderIndex = tonumber(ARGV[7 + count])
+            local version = redis.call('GET', KEYS[tonumber(ARGV[8 + count])])
+            local p = 9 + count
             while p <= #ARGV do
                 local op, destination = ARGV[p], KEYS[tonumber(ARGV[p + 1])]
                 if op == 'range' then
@@ -40,17 +40,18 @@ internal sealed class RedisQueryCommands(string prefix)
             end
             local matches = KEYS[tonumber(ARGV[1])]
             local skip, take = tonumber(ARGV[3]), tonumber(ARGV[4])
+            local matchCount = redis.call('SCARD', matches)
             if ARGV[2] == '1' then
-                return math.min(take, math.max(0, redis.call('SCARD', matches) - skip))
+                return math.min(take, math.max(0, matchCount - skip))
             end
-            if take == 0 then return {} end
+            if take == 0 or skip >= matchCount then return { version, 0, {} } end
             local scanOrder = false
             if orderIndex ~= 0 then
                 local orderedCount = redis.call('ZCARD', KEYS[orderIndex])
-                scanOrder = orderedCount <= 256 or redis.call('SCARD', matches) * 8 >= orderedCount
+                scanOrder = orderedCount <= 256 or matchCount * 8 >= orderedCount
             end
             if scanOrder then
-                local selected = KEYS[selectedIndex]
+                local selected = {}
                 local offset, seen, collected = 0, 0, 0
                 local command = ARGV[5] == 'DESC' and 'ZREVRANGE' or 'ZRANGE'
                 while collected < take do
@@ -67,16 +68,20 @@ internal sealed class RedisQueryCommands(string prefix)
                             end
                         end
                     end
-                    if #ids > 0 then redis.call('SADD', selected, unpack(ids)) end
+                    for i = 1, #ids do selected[#selected + 1] = ids[i] end
                     if #members < 128 then break end
                     offset = offset + 128
                 end
-                matches, skip = selected, 0
+                return { version, 0, selected }
             end
-            if ARGV[6] == '' then
-                return redis.call('SORT', matches, 'LIMIT', skip, take, ARGV[5], 'ALPHA', 'GET', ARGV[7])
+            local ids = redis.call('SMEMBERS', matches)
+            if orderIndex ~= 0 then return { version, 1, ids } end
+            table.sort(ids)
+            local page = {}
+            for i = skip + 1, math.min(#ids, skip + take) do
+                page[#page + 1] = ARGV[5] == 'DESC' and ids[#ids - i + 1] or ids[i]
             end
-            return redis.call('SORT', matches, 'BY', ARGV[6], 'LIMIT', skip, take, ARGV[5], 'ALPHA', 'GET', ARGV[7])
+            return { version, 0, page }
         end
         local ok, result = pcall(execute)
         for i = 1, #temporary do redis.call('DEL', temporary[i]) end
@@ -141,29 +146,22 @@ internal sealed class RedisQueryCommands(string prefix)
         return destination;
     }
 
-    internal static bool UsesOrderedPage(RedisQueryPlan plan) =>
-        plan.Order is not null && !plan.CountOnly && plan.Take <= 256 && plan.Skip <= 1024;
-
-    internal Task<RedisResult> Execute(IDatabase store, RedisKey matches, RedisQueryPlan plan, string orderPattern,
-        string documentPattern, RedisKey orderIndex)
+    internal Task<RedisResult> Execute(IDatabase store, RedisKey matches, RedisQueryPlan plan, RedisKey version, RedisKey orderIndex)
     {
         int matchIndex = Key(matches);
-        bool orderedPage = UsesOrderedPage(plan);
-        int orderKey = orderedPage ? Key(orderIndex) : 0;
-        int selectedKey = orderedPage ? Key(Empty()) : 0;
-        var arguments = new RedisValue[10 + _temporary.Count + _operations.Count];
+        int orderKey = plan.Order is not null && !plan.CountOnly ? Key(orderIndex) : 0;
+        int versionKey = Key(version);
+        var arguments = new RedisValue[8 + _temporary.Count + _operations.Count];
         arguments[0] = matchIndex;
         arguments[1] = plan.CountOnly ? "1" : "0";
         arguments[2] = plan.Skip;
         arguments[3] = plan.Take;
         arguments[4] = plan.Descending ? "DESC" : "ASC";
-        arguments[5] = orderPattern;
-        arguments[6] = documentPattern;
-        arguments[7] = _temporary.Count;
-        for (var i = 0; i < _temporary.Count; i++) arguments[8 + i] = _temporary[i];
-        arguments[8 + _temporary.Count] = orderKey;
-        arguments[9 + _temporary.Count] = selectedKey;
-        _operations.CopyTo(arguments, 10 + _temporary.Count);
+        arguments[5] = _temporary.Count;
+        for (var i = 0; i < _temporary.Count; i++) arguments[6 + i] = _temporary[i];
+        arguments[6 + _temporary.Count] = orderKey;
+        arguments[7 + _temporary.Count] = versionKey;
+        _operations.CopyTo(arguments, 8 + _temporary.Count);
         return store.ScriptEvaluateAsync(Script, _keys.ToArray(), arguments);
     }
 }

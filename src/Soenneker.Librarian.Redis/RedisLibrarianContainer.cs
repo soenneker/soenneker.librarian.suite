@@ -28,7 +28,6 @@ public sealed partial class RedisLibrarianContainer : ILibrarianContainer
     private readonly RedisKey SortSchema;
     private readonly RedisKey Ids;
     private RedisKey Document(string id) => _prefix + "document:" + id;
-    private string DocumentPattern(string field) => _prefix + "document:*->" + field;
     private static string Field(string path) => "index:" + RedisIndexValue.KeySegment(path);
     private static string SortField(string path) => "sort:" + RedisIndexValue.KeySegment(path);
     private RedisKey Index(string path) => IndexedKey("index:", path);
@@ -146,21 +145,21 @@ public sealed partial class RedisLibrarianContainer : ILibrarianContainer
     public async ValueTask<List<string>> GetAllItems(CancellationToken cancellationToken = default)
     {
         IDatabase store = await Store(cancellationToken).NoSync();
-        RedisValue[] values = await store.SortAsync(Ids, sortType: SortType.Alphabetic, get: [DocumentPattern("json")]).WaitAsync(cancellationToken).NoSync();
+        RedisValue[] values = await ReadSetFields(store, Ids, ["json"], cancellationToken).NoSync();
         return values.Select(value => value.ToString()).ToList();
     }
 
     public async ValueTask<List<string>> GetAllIds(CancellationToken cancellationToken = default)
     {
         IDatabase store = await Store(cancellationToken).NoSync();
-        RedisValue[] values = await store.SortAsync(Ids, sortType: SortType.Alphabetic, get: [DocumentPattern("id")]).WaitAsync(cancellationToken).NoSync();
+        RedisValue[] values = await ReadSetFields(store, Ids, ["id"], cancellationToken).NoSync();
         return values.Select(value => value.ToString()).ToList();
     }
 
     public async ValueTask<List<IdValuePair>> GetLibrarianItems(CancellationToken cancellationToken = default)
     {
         IDatabase store = await Store(cancellationToken).NoSync();
-        RedisValue[] values = await store.SortAsync(Ids, sortType: SortType.Alphabetic, get: [DocumentPattern("id"), DocumentPattern("json")]).WaitAsync(cancellationToken).NoSync();
+        RedisValue[] values = await ReadSetFields(store, Ids, ["id", "json"], cancellationToken).NoSync();
         var items = new List<IdValuePair>(values.Length / 2);
         for (var i = 0; i < values.Length; i += 2) items.Add(new IdValuePair { Id = values[i].ToString(), Value = values[i + 1].ToString() });
         return items;
@@ -198,7 +197,7 @@ public sealed partial class RedisLibrarianContainer : ILibrarianContainer
             cancellationToken.ThrowIfCancellationRequested();
             if (await store.SetContainsAsync(Schema, fieldPath).WaitAsync(cancellationToken).NoSync()) return;
             RedisValue version = await store.StringGetAsync(Version).WaitAsync(cancellationToken).NoSync();
-            RedisValue[] documents = await store.SortAsync(Ids, sortType: SortType.Alphabetic, get: ["#", DocumentPattern("json")]).WaitAsync(cancellationToken).NoSync();
+            RedisValue[] documents = await ReadSetFields(store, Ids, ["#", "json"], cancellationToken).NoSync();
             var entries = new List<(string Id, string Value)>();
             for (var i = 0; i < documents.Length; i += 2)
             {
@@ -322,31 +321,38 @@ public sealed partial class RedisLibrarianContainer : ILibrarianContainer
     {
         IDatabase store = await Store(cancellationToken).NoSync();
         await EnsureQueryIndexes(store, plan, cancellationToken).NoSync();
-        // SCARD and SORT each execute atomically in Redis. A persistent set needs no optimistic retry or temporary set.
-        if (plan.Order is null && TryDirectSet(plan.Filter, out RedisKey direct))
-            return await ReadQuerySet(store, direct, plan, cancellationToken).NoSync();
-        var commands = new RedisQueryCommands(_prefix);
-        RedisKey matches = Evaluate(plan.Filter, commands);
-        if (plan.Order is not null)
-            matches = commands.Combine("SINTERSTORE", [matches, Present(plan.Order)]);
-        return await commands.Execute(store, matches, plan,
-            plan.Order is null ? "" : DocumentPattern(SortField(plan.Order)), DocumentPattern("json"),
-            plan.Order is null ? default : Index(plan.Order))
-            .WaitAsync(cancellationToken).NoSync();
-    }
-
-    private async ValueTask<RedisResult> ReadQuerySet(IDatabase store, RedisKey matches, RedisQueryPlan plan, CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        if (plan.CountOnly)
+        if (plan.CountOnly && plan.Order is null && TryDirectSet(plan.Filter, out RedisKey direct))
         {
-            long count = await store.SetLengthAsync(matches).NoSync();
+            long count = await store.SetLengthAsync(direct).WaitAsync(cancellationToken).NoSync();
             return RedisResult.Create(Math.Min(plan.Take, Math.Max(0, count - plan.Skip)));
         }
-        RedisValue[] documents = plan.Take == 0 ? [] : await store.SortAsync(matches, skip: plan.Skip, take: plan.Take,
-            order: plan.Descending ? Order.Descending : Order.Ascending, sortType: SortType.Alphabetic,
-            by: plan.Order is null ? default : DocumentPattern(SortField(plan.Order)), get: [DocumentPattern("json")]).NoSync();
-        return RedisResult.Create(documents);
+        for (var attempt = 0; ; attempt++)
+        {
+            var commands = new RedisQueryCommands(_prefix);
+            RedisKey matches = Evaluate(plan.Filter, commands);
+            if (plan.Order is not null)
+                matches = commands.Combine("SINTERSTORE", [matches, Present(plan.Order)]);
+            RedisResult result = await commands.Execute(store, matches, plan, Version,
+                plan.Order is null ? default : Index(plan.Order)).WaitAsync(cancellationToken).NoSync();
+            if (plan.CountOnly) return result;
+            var snapshot = (RedisResult[])result!;
+            var version = (RedisValue)snapshot[0];
+            var ids = (string[])snapshot[2]!;
+            if ((long)snapshot[1] == 1)
+            {
+                // Sparse matches: read only sort fields, rather than scanning the entire ordered index.
+                RedisValue[]? sortValues = await ReadFields(store, version, ids, [SortField(plan.Order!)], cancellationToken).NoSync();
+                if (sortValues is null) { await RetryIndexConflict(attempt, cancellationToken).NoSync(); continue; }
+                var order = Enumerable.Range(0, ids.Length);
+                ids = (plan.Descending
+                    ? order.OrderByDescending(i => sortValues[i].ToString(), StringComparer.Ordinal)
+                    : order.OrderBy(i => sortValues[i].ToString(), StringComparer.Ordinal))
+                    .Skip(plan.Skip).Take(plan.Take).Select(i => ids[i]).ToArray();
+            }
+            RedisValue[]? documents = await ReadFields(store, version, ids, ["json"], cancellationToken).NoSync();
+            if (documents is not null) return RedisResult.Create(documents);
+            await RetryIndexConflict(attempt, cancellationToken).NoSync();
+        }
     }
 
     private bool TryDirectSet(RedisQueryFilter filter, out RedisKey key)
