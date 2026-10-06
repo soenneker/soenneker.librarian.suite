@@ -133,6 +133,13 @@ public sealed partial class LibrarianContainer : ILibrarianContainer
                     throw new KeyNotFoundException($"Could not find item ({id})");
                 return null;
             }
+            cancellationToken.ThrowIfCancellationRequested();
+            if (string.Equals(existing, item, StringComparison.Ordinal))
+            {
+                // A write invalidates prior versions even when no stored content changes.
+                _versions[id] = Guid.NewGuid().ToString();
+                return item;
+            }
             IndexKey?[] keys = PrepareIndexKeys(item);
             try
             {

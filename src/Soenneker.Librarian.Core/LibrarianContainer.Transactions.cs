@@ -36,6 +36,12 @@ public sealed partial class LibrarianContainer
         ThrowIfDisposed();
         token.ThrowIfCancellationRequested();
         if (write.Value is null && !_items.ContainsKey(write.Id)) return;
+        if (string.Equals(_items.GetValueOrDefault(write.Id), write.Value, StringComparison.Ordinal))
+        {
+            // Stage the version change until the batch commits, without rebuilding indexes.
+            state.Add(write.Id, new LibrarianPreparedWrite(write.Value, [], []));
+            return;
+        }
         IndexKey?[] keys = [];
         IndexKey?[] automaticKeys = [];
         if (write.Value is not null)
@@ -75,8 +81,9 @@ public sealed partial class LibrarianContainer
             }
             else
             {
-                _items[id] = write.Value;
                 _versions[id] = Guid.NewGuid().ToString();
+                if (string.Equals(_items.GetValueOrDefault(id), write.Value, StringComparison.Ordinal)) continue;
+                _items[id] = write.Value;
                 ApplyIndexKeys(id, write.Keys);
                 var i = 0;
                 foreach (AutomaticIndexGroup group in _automaticIndexGroups.Values)
