@@ -4,14 +4,15 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Soenneker.Librarian.Abstractions;
-using Soenneker.Librarian.R2.Abstract;
+using Soenneker.Cloudflare.R2.Abstract;
+using Soenneker.Cloudflare.R2;
 
 namespace Soenneker.Librarian.R2;
 
 /// <summary>A multi-owner R2 database storing one versioned object per document. Point operations perform no startup load.</summary>
 /// <remarks>Writes persist immediately. Conditional deletes retain tombstones. Multi-document transactions, LINQ and secondary
 /// indexes are unsupported; use the snapshot provider only when its single-owner and whole-database semantics are intended.</remarks>
-public sealed class R2ObjectLibrarianDatabase(IR2LibrarianObjectStore store, string key = "librarian") : ILibrarianDatabase
+public sealed class R2ObjectLibrarianDatabase(ICloudflareR2ObjectStore store, string key = "librarian") : ILibrarianDatabase
 {
     private readonly ConcurrentDictionary<string, R2ObjectLibrarianContainer> _containers = new(StringComparer.Ordinal);
     private readonly string _prefix = "librarian/" + Segment(key) + "/";

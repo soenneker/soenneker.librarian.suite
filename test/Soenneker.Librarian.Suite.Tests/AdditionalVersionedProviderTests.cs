@@ -1,3 +1,4 @@
+using Soenneker.Cloudflare.R2;
 using System;
 using System.Net.Http;
 using System.Threading.Tasks;
@@ -79,7 +80,7 @@ public sealed class AdditionalVersionedProviderTests
     {
         using var transport = new R2ObjectHttpHandler();
         using var http = new HttpClient(transport);
-        var store = new R2LibrarianHttpObjectStore(http, new Uri("https://r2.example/"), "test-token");
+        var store = new CloudflareR2WorkerObjectStore(http, new Uri("https://r2.example/"), "test-token");
         await using var first = new R2ObjectLibrarianDatabase(store);
         await using var second = new R2ObjectLibrarianDatabase(store);
         ILibrarianContainer a = await first.GetContainer("items");

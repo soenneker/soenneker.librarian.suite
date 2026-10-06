@@ -8,11 +8,12 @@ using System.Threading.Tasks;
 using Soenneker.Dtos.IdValuePair;
 using Soenneker.Librarian.Abstractions;
 using Soenneker.Librarian.Abstractions.Queries;
-using Soenneker.Librarian.R2.Abstract;
+using Soenneker.Cloudflare.R2.Abstract;
+using Soenneker.Cloudflare.R2;
 
 namespace Soenneker.Librarian.R2;
 
-public sealed class R2ObjectLibrarianContainer(IR2LibrarianObjectStore store, string prefix) : ILibrarianContainer
+public sealed class R2ObjectLibrarianContainer(ICloudflareR2ObjectStore store, string prefix) : ILibrarianContainer
 {
     private bool _disposed;
     private string Key(string id)
@@ -21,7 +22,7 @@ public sealed class R2ObjectLibrarianContainer(IR2LibrarianObjectStore store, st
         return prefix + R2ObjectLibrarianDatabase.Segment(id) + ".json";
     }
 
-    private static R2DocumentEnvelope Decode(R2LibrarianObject value) =>
+    private static R2DocumentEnvelope Decode(CloudflareR2Object value) =>
         JsonSerializer.Deserialize(value.Content.Span, R2DocumentJsonContext.Default.R2DocumentEnvelope)
         ?? throw new InvalidDataException("The R2 document envelope is null.");
 
@@ -31,7 +32,7 @@ public sealed class R2ObjectLibrarianContainer(IR2LibrarianObjectStore store, st
 
     public async ValueTask<LibrarianItem<string>?> GetItemWithVersion(string id, CancellationToken cancellationToken = default)
     {
-        R2LibrarianObject? value = await store.Read(Key(id), cancellationToken: cancellationToken);
+        CloudflareR2Object? value = await store.Read(Key(id), cancellationToken: cancellationToken);
         if (value is null) return null;
         R2DocumentEnvelope envelope = Decode(value);
         if (envelope.Id != id || string.IsNullOrWhiteSpace(envelope.Revision)) throw new InvalidDataException("Invalid R2 document identity or revision.");
@@ -56,10 +57,10 @@ public sealed class R2ObjectLibrarianContainer(IR2LibrarianObjectStore store, st
     public async ValueTask<string> AddItem(string id, string document, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(document);
-        R2LibrarianObject? current = await store.Read(Key(id), cancellationToken: cancellationToken);
+        CloudflareR2Object? current = await store.Read(Key(id), cancellationToken: cancellationToken);
         if (current is not null && Decode(current).Document is not null ||
             await Write(id, document, current?.ETag, cancellationToken) is null)
-            throw new InvalidOperationException($"Document '{id}' already exists or was concurrently created.");
+            throw new R2LibrarianItemAlreadyExistsException(id);
         return document;
     }
 
@@ -103,11 +104,11 @@ public sealed class R2ObjectLibrarianContainer(IR2LibrarianObjectStore store, st
         var cursors = new HashSet<string>(StringComparer.Ordinal);
         do
         {
-            R2LibrarianObjectPage page = await store.List(prefix, cursor, cancellationToken);
+            CloudflareR2ObjectPage page = await store.List(prefix, cursor, cancellationToken);
             foreach (string key in page.Keys)
             {
                 if (!key.StartsWith(prefix, StringComparison.Ordinal)) throw new InvalidDataException("R2 listing escaped its container prefix.");
-                R2LibrarianObject? value = await store.Read(key, cancellationToken: cancellationToken);
+                CloudflareR2Object? value = await store.Read(key, cancellationToken: cancellationToken);
                 if (value is null) continue;
                 R2DocumentEnvelope envelope = Decode(value);
                 if (key != Key(envelope.Id)) throw new InvalidDataException("R2 document identity does not match its key.");
