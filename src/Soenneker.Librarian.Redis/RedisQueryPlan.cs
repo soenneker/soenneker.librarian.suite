@@ -3,10 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
-using System.Reflection;
 using Soenneker.Librarian.Abstractions.Queries;
-using System.Text.Json;
-using System.Text.Json.Serialization;
 
 namespace Soenneker.Librarian.Redis;
 
@@ -52,11 +49,7 @@ public sealed class RedisQueryPlan
                 break;
             case nameof(Queryable.OrderBy):
             case nameof(Queryable.OrderByDescending):
-                if (_paged || Projection is not null) throw Unsupported();
-                if (call.Arguments.Count != 2) throw Unsupported();
-                LambdaExpression order = Lambda(call.Arguments[1]);
-                Order = Register(Path(order.Body, order.Parameters[0]) ?? throw Unsupported());
-                Descending = method == nameof(Queryable.OrderByDescending);
+                ApplyOrder(call);
                 break;
             case nameof(Queryable.Select):
                 if (Projection is not null || call.Arguments.Count != 2) throw Unsupported();
@@ -81,63 +74,52 @@ public sealed class RedisQueryPlan
             case nameof(Queryable.FirstOrDefault):
             case nameof(Queryable.Single):
             case nameof(Queryable.SingleOrDefault):
-                if (call.Arguments.Count == 2)
-                {
-                    if (_paged || Projection is not null) throw Unsupported();
-                    LambdaExpression predicate = Lambda(call.Arguments[1]);
-                    RedisQueryFilter next = Predicate(predicate.Body, predicate.Parameters[0]);
-                    if (method == nameof(Queryable.All)) next = new RedisQueryFilter("not", Left: next);
-                    _filter = _filter is null ? next : new RedisQueryFilter("and", Left: _filter, Right: next);
-                }
-                if (call.Arguments.Count > 2) throw Unsupported();
-                Terminal = method;
-                if (method is nameof(Queryable.Any) or nameof(Queryable.All) or nameof(Queryable.First) or nameof(Queryable.FirstOrDefault)) Take = Math.Min(Take, 1);
-                if (method is nameof(Queryable.Single) or nameof(Queryable.SingleOrDefault)) Take = Math.Min(Take, 2);
+                ApplyTerminal(call);
                 break;
             default: throw Unsupported();
         }
     }
 
+    private void ApplyOrder(MethodCallExpression call)
+    {
+        string method = call.Method.Name;
+        if (_paged || Projection is not null) throw Unsupported();
+        if (call.Arguments.Count != 2) throw Unsupported();
+        LambdaExpression order = Lambda(call.Arguments[1]);
+        Order = Register(Path(order.Body, order.Parameters[0]) ?? throw Unsupported());
+        Descending = method == nameof(Queryable.OrderByDescending);
+    }
+
+    private void ApplyTerminal(MethodCallExpression call)
+    {
+        string method = call.Method.Name;
+        if (call.Arguments.Count == 2)
+        {
+            if (_paged || Projection is not null) throw Unsupported();
+            LambdaExpression predicate = Lambda(call.Arguments[1]);
+            AddPredicate(predicate, negate: method == nameof(Queryable.All));
+        }
+        if (call.Arguments.Count > 2) throw Unsupported();
+        Terminal = method;
+        if (method is nameof(Queryable.Any) or nameof(Queryable.All) or nameof(Queryable.First) or nameof(Queryable.FirstOrDefault)) Take = Math.Min(Take, 1);
+        if (method is nameof(Queryable.Single) or nameof(Queryable.SingleOrDefault)) Take = Math.Min(Take, 2);
+    }
+
     private static LambdaExpression Lambda(Expression expression) => expression is UnaryExpression { NodeType: ExpressionType.Quote, Operand: LambdaExpression lambda }
         && lambda.Parameters.Count == 1 ? lambda : throw Unsupported();
 
-    private void AddPredicate(LambdaExpression predicate)
+    private void AddPredicate(LambdaExpression predicate, bool negate = false)
     {
         RedisQueryFilter next = Predicate(predicate.Body, predicate.Parameters[0]);
+        if (negate) next = new RedisQueryFilter("not", Left: next);
         _filter = _filter is null ? next : new RedisQueryFilter("and", Left: _filter, Right: next);
     }
 
     private RedisQueryFilter Predicate(Expression expression, ParameterExpression parameter)
     {
         if (expression is ConstantExpression { Value: bool booleanConstant }) return new RedisQueryFilter(booleanConstant ? "all" : "none");
-        if (expression is MethodCallExpression call)
-        {
-            if (call.Method.DeclaringType == typeof(string) && call.Method.Name == nameof(string.StartsWith) && call.Object is not null)
-            {
-                string path = Path(call.Object, parameter) ?? throw Unsupported();
-                if (call.Arguments.Count is < 1 or > 2 || call.Arguments[0].Type != typeof(string)) throw Unsupported();
-                if (call.Arguments.Count == 2 && (call.Arguments[1].Type != typeof(StringComparison) || !Equals(Value(call.Arguments[1]), StringComparison.Ordinal))) throw Unsupported();
-                string value = Value(call.Arguments[0]) as string ?? throw new ArgumentNullException("value");
-                string prefix = "3" + RedisIndexValue.Hex(value);
-                return new RedisQueryFilter("term", Register(path), "[" + prefix + "!", "(" + prefix + "G!");
-            }
-            Expression? collection = null;
-            Expression? item = null;
-            if ((call.Method.DeclaringType == typeof(Enumerable) || call.Method.DeclaringType == typeof(MemoryExtensions)) &&
-                call.Method.Name == nameof(Enumerable.Contains) && call.Arguments.Count == 2)
-                (collection, item) = (call.Arguments[0], call.Arguments[1]);
-            else if (call.Method.Name == nameof(IList.Contains) && call.Object is not null && call.Arguments.Count == 1)
-                (collection, item) = (call.Object, call.Arguments[0]);
-            if (collection is not null)
-            {
-                string path = Path(item!, parameter) ?? throw Unsupported();
-                object? source = CollectionValue(collection);
-                if (source is not IEnumerable values || !IsMembershipCollection(source)) throw Unsupported();
-                // Equality buckets are combined on the server; only the final page is fetched.
-                return new RedisQueryFilter("in", Register(path), Values: values.Cast<object?>().Select(RedisIndexValue.Encode).Distinct(StringComparer.Ordinal).ToArray());
-            }
-            throw Unsupported();
-        }        if (expression is BinaryExpression binary)
+        if (expression is MethodCallExpression call) return MethodPredicate(call, parameter);
+        if (expression is BinaryExpression binary)
         {
             if (binary.NodeType is ExpressionType.AndAlso or ExpressionType.OrElse)
                 return new RedisQueryFilter(binary.NodeType == ExpressionType.AndAlso ? "and" : "or", Left: Predicate(binary.Left, parameter), Right: Predicate(binary.Right, parameter));
@@ -166,6 +148,35 @@ public sealed class RedisQueryPlan
         throw Unsupported();
     }
 
+    private RedisQueryFilter MethodPredicate(MethodCallExpression call, ParameterExpression parameter)
+    {
+        if (call.Method.DeclaringType == typeof(string) && call.Method.Name == nameof(string.StartsWith) && call.Object is not null)
+        {
+            string path = Path(call.Object, parameter) ?? throw Unsupported();
+            if (call.Arguments.Count is < 1 or > 2 || call.Arguments[0].Type != typeof(string)) throw Unsupported();
+            if (call.Arguments.Count == 2 && (call.Arguments[1].Type != typeof(StringComparison) || !Equals(Value(call.Arguments[1]), StringComparison.Ordinal))) throw Unsupported();
+            string value = Value(call.Arguments[0]) as string ?? throw new ArgumentNullException("value");
+            string prefix = "3" + RedisIndexValue.Hex(value);
+            return new RedisQueryFilter("term", Register(path), "[" + prefix + "!", "(" + prefix + "G!");
+        }
+        Expression? collection = null;
+        Expression? item = null;
+        if ((call.Method.DeclaringType == typeof(Enumerable) || call.Method.DeclaringType == typeof(MemoryExtensions)) &&
+            call.Method.Name == nameof(Enumerable.Contains) && call.Arguments.Count == 2)
+            (collection, item) = (call.Arguments[0], call.Arguments[1]);
+        else if (call.Method.Name == nameof(IList.Contains) && call.Object is not null && call.Arguments.Count == 1)
+            (collection, item) = (call.Object, call.Arguments[0]);
+        if (collection is not null)
+        {
+            string path = Path(item!, parameter) ?? throw Unsupported();
+            object? source = QueryExpressionReader.CollectionValue(collection, Unsupported);
+            if (source is not IEnumerable values || !QueryTypes.IsMembershipCollection(source)) throw Unsupported();
+            // Equality buckets are combined on the server; only the final page is fetched.
+            return new RedisQueryFilter("in", Register(path), Values: values.Cast<object?>().Select(RedisIndexValue.Encode).Distinct(StringComparer.Ordinal).ToArray());
+        }
+        throw Unsupported();
+    }
+
     private RedisQueryFilter Term(string path, ExpressionType comparison, object? value)
     {
         string encoded = RedisIndexValue.Encode(value);
@@ -191,53 +202,9 @@ public sealed class RedisQueryPlan
         return path;
     }
 
-    internal static string? Path(Expression expression, ParameterExpression parameter)
-    {
-        var segments = new Stack<string>();
-        while (expression is MemberExpression member)
-        {
-            if (member.Member is not PropertyInfo && member.Member is not FieldInfo) return null;
-            Type? parent = member.Expression?.Type;
-            if (parent is not null && (parent.IsPrimitive || parent.IsEnum || parent == typeof(string) || parent == typeof(decimal) ||
-                parent == typeof(DateTime) || parent == typeof(DateTimeOffset) || parent == typeof(Guid) ||
-                parent == typeof(DateOnly) || parent == typeof(TimeOnly) || parent == typeof(TimeSpan) || Nullable.GetUnderlyingType(parent) is not null))
-                return null;
-            string segment = member.Member.GetCustomAttribute<JsonPropertyNameAttribute>()?.Name ??
-                (JsonNamingPolicy.CamelCase.ConvertName(member.Member.Name) ?? member.Member.Name);
-            if (segment.Contains('.', StringComparison.Ordinal)) throw Unsupported();
-            segments.Push(segment);
-            expression = member.Expression!;
-        }
-        return expression == parameter && segments.Count > 0 ? string.Join('.', segments) : null;
-    }
+    internal static string? Path(Expression expression, ParameterExpression parameter) => QueryExpressionReader.Path(expression, parameter, Unsupported);
 
-    private static object? Value(Expression expression) => expression switch
-    {
-        ConstantExpression constant => constant.Value,
-        MemberExpression { Member: FieldInfo field } member => field.GetValue(member.Expression is null ? null : Value(member.Expression)),
-        MemberExpression { Member: PropertyInfo property } member => property.GetValue(member.Expression is null ? null : Value(member.Expression)),
-        UnaryExpression { NodeType: ExpressionType.Convert } unary when unary.Operand is ConstantExpression => Expression.Lambda<Func<object?>>(Expression.Convert(unary, typeof(object))).Compile(preferInterpretation: true)(),
-        NewArrayExpression { NodeType: ExpressionType.NewArrayInit } array => array.Expressions.Select(Value).ToArray(),
-        _ => throw Unsupported()
-    };
-
-    private static bool IsMembershipCollection(object source)
-    {
-        return QueryTypes.IsMembershipCollection(source);
-    }
-
-    private static object? CollectionValue(Expression expression)
-    {
-        // C# 14 binds array.Contains to MemoryExtensions and inserts an array-to-span conversion.
-        // Inspect the original array without compiling or boxing the ref-struct value.
-        if (expression is MethodCallExpression { Method.Name: "op_Implicit", Arguments.Count: 1 } conversion &&
-            conversion.Type.IsGenericType && conversion.Type.GetGenericTypeDefinition() == typeof(ReadOnlySpan<>) &&
-            conversion.Arguments[0].Type.IsArray)
-            expression = conversion.Arguments[0];
-        while (expression is UnaryExpression { NodeType: ExpressionType.Convert, Method: null } cast && cast.Type.IsAssignableFrom(cast.Operand.Type))
-            expression = cast.Operand;
-        return Value(expression);
-    }
+    private static object? Value(Expression expression) => QueryExpressionReader.Value(expression, Unsupported);
 
     internal static NotSupportedException Unsupported() => new("This LINQ expression cannot execute in Redis. Supported operations are scalar property comparisons, boolean AND/OR/NOT, ordinal StartsWith, membership, one ordering, Skip/Take, bounded projections, Count/LongCount/Any/All and First/Single. Filtering and ordering must precede paging; unsupported expressions never fall back to local evaluation.");
 }

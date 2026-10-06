@@ -171,25 +171,7 @@ internal sealed class LibrarianQueryProvider<T>(LibrarianContainer container) : 
         return expression is MethodCallExpression call && call.Arguments.Any(argument => NeedsUnfilteredSource(argument, prefix));
     }
 
-    private static Expression NormalizeProjectedPaging(Expression expression)
-    {
-        List<MethodCallExpression>? pages = null;
-        Expression source = expression;
-        while (source is MethodCallExpression page && page.Method.DeclaringType == typeof(Queryable) &&
-            page.Method.Name is nameof(Queryable.Skip) or nameof(Queryable.Take) && page.Arguments[1] is ConstantExpression { Value: int })
-        {
-            (pages ??= new List<MethodCallExpression>()).Add(page);
-            source = page.Arguments[0];
-        }
-        if (pages is null || source is not MethodCallExpression projection || projection.Method.DeclaringType != typeof(Queryable) ||
-            projection.Method.Name != nameof(Queryable.Select) || projection.Method.GetGenericArguments()[0] != typeof(T) ||
-            projection.Arguments[1] is not UnaryExpression { Operand: LambdaExpression selector } || selector.Parameters.Count != 1 ||
-            QueryPlan.GetProperty(selector.Body, selector.Parameters[0]) is null) return expression;
-        source = projection.Arguments[0];
-        for (int i = pages.Count - 1; i >= 0; i--)
-            source = Call(pages[i].Method.Name, source, pages[i].Arguments[1]);
-        return projection.Update(null, [source, projection.Arguments[1]]);
-    }
+    private static Expression NormalizeProjectedPaging(Expression expression) => NormalizeProjection(expression, removeProjection: false);
 
     // Count and Any do not need a selected scalar. Push their paging to the indexed source,
     // while leaving arbitrary projections and predicate overloads on the ordinary path.
@@ -198,8 +180,14 @@ internal sealed class LibrarianQueryProvider<T>(LibrarianContainer container) : 
         if (expression is not MethodCallExpression terminal || terminal.Method.DeclaringType != typeof(Queryable) ||
             terminal.Method.Name is not (nameof(Queryable.Count) or nameof(Queryable.LongCount) or nameof(Queryable.Any)) || terminal.Arguments.Count != 1)
             return expression;
+        Expression source = NormalizeProjection(terminal.Arguments[0], removeProjection: true);
+        return source == terminal.Arguments[0] ? expression : Call(terminal.Method.Name, source);
+    }
+
+    private static Expression NormalizeProjection(Expression expression, bool removeProjection)
+    {
         List<MethodCallExpression>? pages = null;
-        Expression source = terminal.Arguments[0];
+        Expression source = expression;
         while (source is MethodCallExpression page && page.Method.DeclaringType == typeof(Queryable) &&
             page.Method.Name is nameof(Queryable.Skip) or nameof(Queryable.Take) && page.Arguments[1] is ConstantExpression { Value: int })
         {
@@ -214,8 +202,9 @@ internal sealed class LibrarianQueryProvider<T>(LibrarianContainer container) : 
         source = projection.Arguments[0];
         for (int i = (pages?.Count ?? 0) - 1; i >= 0; i--)
             source = Call(pages![i].Method.Name, source, pages[i].Arguments[1]);
-        return Call(terminal.Method.Name, source);
+        return removeProjection ? source : projection.Update(null, [source, projection.Arguments[1]]);
     }
+
     private static MethodCallExpression Call(string name, params Expression[] arguments)
     {
         Expression<Func<IQueryable<T>, object?>> template = name switch

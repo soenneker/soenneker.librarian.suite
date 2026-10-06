@@ -3,10 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
-using System.Reflection;
 using Soenneker.Librarian.Abstractions.Queries;
-using System.Text.Json;
-using System.Text.Json.Serialization;
 
 namespace Soenneker.Librarian.Postgres;
 
@@ -56,26 +53,14 @@ public sealed class PostgresQueryPlan
             case nameof(Queryable.OrderByDescending):
             case nameof(Queryable.ThenBy):
             case nameof(Queryable.ThenByDescending):
-                if (call.Arguments.Count != 2) throw Unsupported();
-                bool secondary = method is nameof(Queryable.ThenBy) or nameof(Queryable.ThenByDescending);
-                if (secondary && _paged) throw Unsupported();
-                BeginStageAfterPage();
-                if (secondary && Orders.Count == 0) throw Unsupported();
-                if (!secondary) Orders.Clear();
-                PostgresLambda order = Resolve(Lambda(call.Arguments[1]));
-                Orders.Add((Register(Path(order.Body, order.Parameters[0]) ?? throw Unsupported()),
-                    method is nameof(Queryable.OrderByDescending) or nameof(Queryable.ThenByDescending)));
+                ApplyOrder(call);
                 break;
             case nameof(Queryable.Select):
                 if (call.Arguments.Count != 2) throw Unsupported();
                 Projection = PostgresProjection.Create(Resolve(Lambda(call.Arguments[1])));
                 break;
             case nameof(Queryable.Distinct):
-                if (call.Arguments.Count != 1 || Projection?.Scalar != true) throw Unsupported();
-                Type distinctType = Nullable.GetUnderlyingType(Projection.ResultType) ?? Projection.ResultType;
-                if (!PostgresScalar.Numeric(distinctType) && distinctType != typeof(string) && distinctType != typeof(bool)) throw Unsupported();
-                Stages.Add(CurrentStage with { Distinct = Projection.Expressions[0] });
-                ResetStage();
+                ApplyDistinct(call);
                 break;
             case nameof(Queryable.Skip):
                 int skip = Math.Max(0, (int)Value(call.Arguments[1])!);
@@ -96,45 +81,76 @@ public sealed class PostgresQueryPlan
             case nameof(Queryable.FirstOrDefault):
             case nameof(Queryable.Single):
             case nameof(Queryable.SingleOrDefault):
-                if (call.Arguments.Count == 2)
-                {
-                    BeginStageAfterPage();
-                    PostgresLambda predicate = Resolve(Lambda(call.Arguments[1]));
-                    PostgresQueryFilter next = Predicate(predicate.Body, predicate.Parameters[0]);
-                    if (method == nameof(Queryable.All)) next = new PostgresQueryFilter("not", Left: next);
-                    _filter = _filter is null ? next : new PostgresQueryFilter("and", Left: _filter, Right: next);
-                }
-                if (call.Arguments.Count > 2) throw Unsupported();
-                Terminal = method;
-                if (method is nameof(Queryable.Any) or nameof(Queryable.All) or nameof(Queryable.First) or nameof(Queryable.FirstOrDefault)) _take = Math.Min(_take, 1);
-                if (method is nameof(Queryable.Single) or nameof(Queryable.SingleOrDefault)) _take = Math.Min(_take, 2);
+                ApplyTerminal(call);
                 break;
             case nameof(Queryable.Sum):
             case nameof(Queryable.Average):
             case nameof(Queryable.Min):
             case nameof(Queryable.Max):
-                if (call.Arguments.Count == 2)
-                {
-                    PostgresLambda selector = Resolve(Lambda(call.Arguments[1]));
-                    AggregateExpression = PostgresScalar.Create(selector.Body, selector.Parameters[0]);
-                    AggregatePath = AggregateExpression.Path;
-                    AggregateType = selector.ReturnType;
-                }
-                else if (call.Arguments.Count == 1 && Projection?.Scalar == true)
-                {
-                    AggregatePath = Projection.Columns[0].Path;
-                    AggregateExpression = Projection.Expressions[0];
-                    AggregateType = Projection.Columns[0].Type;
-                }
-                else throw Unsupported();
-                if (!string.IsNullOrEmpty(AggregatePath)) PostgresIndexValue.ValidatePath(AggregatePath);
-                Type numeric = Nullable.GetUnderlyingType(AggregateType) ?? AggregateType;
-                if (numeric != typeof(int) && numeric != typeof(long) && numeric != typeof(float) && numeric != typeof(double) && numeric != typeof(decimal))
-                    throw Unsupported();
-                Terminal = method;
+                ApplyAggregate(call);
                 break;
             default: throw Unsupported();
         }
+    }
+
+    private void ApplyOrder(MethodCallExpression call)
+    {
+        string method = call.Method.Name;
+        if (call.Arguments.Count != 2) throw Unsupported();
+        bool secondary = method is nameof(Queryable.ThenBy) or nameof(Queryable.ThenByDescending);
+        if (secondary && _paged) throw Unsupported();
+        BeginStageAfterPage();
+        if (secondary && Orders.Count == 0) throw Unsupported();
+        if (!secondary) Orders.Clear();
+        PostgresLambda order = Resolve(Lambda(call.Arguments[1]));
+        Orders.Add((Register(Path(order.Body, order.Parameters[0]) ?? throw Unsupported()),
+            method is nameof(Queryable.OrderByDescending) or nameof(Queryable.ThenByDescending)));
+    }
+
+    private void ApplyDistinct(MethodCallExpression call)
+    {
+        if (call.Arguments.Count != 1 || Projection?.Scalar != true) throw Unsupported();
+        Type distinctType = Nullable.GetUnderlyingType(Projection.ResultType) ?? Projection.ResultType;
+        if (!PostgresScalar.Numeric(distinctType) && distinctType != typeof(string) && distinctType != typeof(bool)) throw Unsupported();
+        Stages.Add(CurrentStage with { Distinct = Projection.Expressions[0] });
+        ResetStage();
+    }
+
+    private void ApplyTerminal(MethodCallExpression call)
+    {
+        string method = call.Method.Name;
+        if (call.Arguments.Count == 2)
+        {
+            BeginStageAfterPage();
+            PostgresLambda predicate = Resolve(Lambda(call.Arguments[1]));
+            AddPredicate(predicate, negate: method == nameof(Queryable.All));
+        }
+        if (call.Arguments.Count > 2) throw Unsupported();
+        Terminal = method;
+        if (method is nameof(Queryable.Any) or nameof(Queryable.All) or nameof(Queryable.First) or nameof(Queryable.FirstOrDefault)) _take = Math.Min(_take, 1);
+        if (method is nameof(Queryable.Single) or nameof(Queryable.SingleOrDefault)) _take = Math.Min(_take, 2);
+    }
+
+    private void ApplyAggregate(MethodCallExpression call)
+    {
+        string method = call.Method.Name;
+        if (call.Arguments.Count == 2)
+        {
+            PostgresLambda selector = Resolve(Lambda(call.Arguments[1]));
+            AggregateExpression = PostgresScalar.Create(selector.Body, selector.Parameters[0]);
+            AggregatePath = AggregateExpression.Path;
+            AggregateType = selector.ReturnType;
+        }
+        else if (call.Arguments.Count == 1 && Projection?.Scalar == true)
+        {
+            AggregatePath = Projection.Columns[0].Path;
+            AggregateExpression = Projection.Expressions[0];
+            AggregateType = Projection.Columns[0].Type;
+        }
+        else throw Unsupported();
+        if (!string.IsNullOrEmpty(AggregatePath)) PostgresIndexValue.ValidatePath(AggregatePath);
+        if (!PostgresScalar.Numeric(AggregateType)) throw Unsupported();
+        Terminal = method;
     }
 
     private static PostgresLambda Lambda(Expression expression) => expression is UnaryExpression { NodeType: ExpressionType.Quote, Operand: LambdaExpression lambda }
@@ -158,77 +174,34 @@ public sealed class PostgresQueryPlan
         _paged = false;
     }
 
-    private void AddPredicate(PostgresLambda predicate)
+    private void AddPredicate(PostgresLambda predicate, bool negate = false)
     {
         PostgresQueryFilter next = Predicate(predicate.Body, predicate.Parameters[0]);
+        if (negate) next = new PostgresQueryFilter("not", Left: next);
         _filter = _filter is null ? next : new PostgresQueryFilter("and", Left: _filter, Right: next);
     }
 
     private PostgresQueryFilter Predicate(Expression expression, ParameterExpression parameter)
     {
         if (expression is ConstantExpression { Value: bool booleanConstant }) return new PostgresQueryFilter(booleanConstant ? "all" : "none");
-        if (expression is MethodCallExpression call)
-        {
-            if (call.Method.DeclaringType == typeof(string) && call.Object is not null &&
-                call.Method.Name is nameof(string.StartsWith) or nameof(string.EndsWith) or nameof(string.Contains))
-            {
-                string path = Path(call.Object, parameter) ?? throw Unsupported();
-                if (call.Arguments.Count is < 1 or > 2 || call.Arguments[0].Type != typeof(string)) throw Unsupported();
-                if (call.Arguments.Count == 2 && (call.Arguments[1].Type != typeof(StringComparison) ||
-                    !Equals(Value(call.Arguments[1]), StringComparison.Ordinal))) throw Unsupported();
-                string value = Value(call.Arguments[0]) as string ?? throw new ArgumentNullException("value");
-                string hex = PostgresIndexValue.Hex(value);
-                return call.Method.Name switch
-                {
-                    nameof(string.StartsWith) => new PostgresQueryFilter("prefix", Register(path), Value: "3" + hex),
-                    nameof(string.EndsWith) => new PostgresQueryFilter("pattern", Register(path), Value: "3%" + hex),
-                    // Match only aligned UTF-16 code units, never an arbitrary substring of the hex encoding.
-                    _ => new PostgresQueryFilter("regex", Register(path), Value: "^3([0-9A-F]{4})*" + hex)
-                };
-            }
-            Expression? collection = null;
-            Expression? item = null;
-            if ((call.Method.DeclaringType == typeof(Enumerable) || call.Method.DeclaringType == typeof(MemoryExtensions)) &&
-                call.Method.Name == nameof(Enumerable.Contains) && call.Arguments.Count == 2)
-                (collection, item) = (call.Arguments[0], call.Arguments[1]);
-            else if (call.Method.Name == nameof(IList.Contains) && call.Object is not null && call.Arguments.Count == 1)
-                (collection, item) = (call.Object, call.Arguments[0]);
-            if (collection is not null)
-            {
-                string path = Path(item!, parameter) ?? throw Unsupported();
-                object? source = CollectionValue(collection);
-                if (source is not IEnumerable values || !IsMembershipCollection(source)) throw Unsupported();
-                string[] encoded = values.Cast<object?>().Select(PostgresIndexValue.Encode).Distinct(StringComparer.Ordinal).ToArray();
-                return new PostgresQueryFilter("in", Register(path), Values: encoded);
-            }
-            throw Unsupported();
-        }
+        if (expression is MethodCallExpression call) return MethodPredicate(call, parameter);
         if (expression is BinaryExpression binary)
         {
             if (binary.NodeType is ExpressionType.AndAlso or ExpressionType.OrElse)
                 return new PostgresQueryFilter(binary.NodeType == ExpressionType.AndAlso ? "and" : "or", Left: Predicate(binary.Left, parameter), Right: Predicate(binary.Right, parameter));
+            string? leftPath = Path(binary.Left, parameter);
+            string? rightPath = Path(binary.Right, parameter);
             if (binary.NodeType is ExpressionType.Equal or ExpressionType.NotEqual or ExpressionType.LessThan or ExpressionType.LessThanOrEqual or ExpressionType.GreaterThan or ExpressionType.GreaterThanOrEqual &&
-                ((Path(binary.Left, parameter) is not null && Path(binary.Right, parameter) is not null) ||
-                 (Path(binary.Left, parameter) is null && Path(binary.Right, parameter) is null) ||
-                 (Path(binary.Left, parameter) is null && References(binary.Left, parameter)) ||
-                 (Path(binary.Right, parameter) is null && References(binary.Right, parameter))))
-            {
-                var left = PostgresScalar.Create(binary.Left, parameter);
-                var right = PostgresScalar.Create(binary.Right, parameter);
-                if (!PostgresScalar.Numeric(left.Type) || !PostgresScalar.Numeric(right.Type)) throw Unsupported();
-                string computedComparison = binary.NodeType switch
-                {
-                    ExpressionType.Equal => "IS NOT DISTINCT FROM", ExpressionType.NotEqual => "IS DISTINCT FROM",
-                    ExpressionType.LessThan => "<", ExpressionType.LessThanOrEqual => "<=", ExpressionType.GreaterThan => ">", _ => ">="
-                };
-                return new PostgresQueryFilter("computed", Comparison: computedComparison, ScalarLeft: left, ScalarRight: right);
-            }
-            string? path = Path(binary.Left, parameter);
+                ((leftPath is null) == (rightPath is null) ||
+                 (leftPath is null && References(binary.Left, parameter)) ||
+                 (rightPath is null && References(binary.Right, parameter))))
+                return ComputedComparison(binary, parameter);
+            string? path = leftPath;
             Expression constant = binary.Right;
             ExpressionType comparison = binary.NodeType;
             if (path is null)
             {
-                path = Path(binary.Right, parameter) ?? throw Unsupported();
+                path = rightPath ?? throw Unsupported();
                 constant = binary.Left;
                 comparison = comparison switch
                 {
@@ -245,6 +218,56 @@ public sealed class PostgresQueryPlan
             return new PostgresQueryFilter("not", Left: Predicate(unary.Operand, parameter));
         if (expression.Type == typeof(bool) && Path(expression, parameter) is { } boolean)
             return Term(boolean, ExpressionType.Equal, true);
+        throw Unsupported();
+    }
+
+    private static PostgresQueryFilter ComputedComparison(BinaryExpression binary, ParameterExpression parameter)
+    {
+        var left = PostgresScalar.Create(binary.Left, parameter);
+        var right = PostgresScalar.Create(binary.Right, parameter);
+        if (!PostgresScalar.Numeric(left.Type) || !PostgresScalar.Numeric(right.Type)) throw Unsupported();
+        string computedComparison = binary.NodeType switch
+        {
+            ExpressionType.Equal => "IS NOT DISTINCT FROM", ExpressionType.NotEqual => "IS DISTINCT FROM",
+            ExpressionType.LessThan => "<", ExpressionType.LessThanOrEqual => "<=", ExpressionType.GreaterThan => ">", _ => ">="
+        };
+        return new PostgresQueryFilter("computed", Comparison: computedComparison, ScalarLeft: left, ScalarRight: right);
+    }
+
+    private PostgresQueryFilter MethodPredicate(MethodCallExpression call, ParameterExpression parameter)
+    {
+        if (call.Method.DeclaringType == typeof(string) && call.Object is not null &&
+            call.Method.Name is nameof(string.StartsWith) or nameof(string.EndsWith) or nameof(string.Contains))
+        {
+            string path = Path(call.Object, parameter) ?? throw Unsupported();
+            if (call.Arguments.Count is < 1 or > 2 || call.Arguments[0].Type != typeof(string)) throw Unsupported();
+            if (call.Arguments.Count == 2 && (call.Arguments[1].Type != typeof(StringComparison) ||
+                !Equals(Value(call.Arguments[1]), StringComparison.Ordinal))) throw Unsupported();
+            string value = Value(call.Arguments[0]) as string ?? throw new ArgumentNullException("value");
+            string hex = PostgresIndexValue.Hex(value);
+            return call.Method.Name switch
+            {
+                nameof(string.StartsWith) => new PostgresQueryFilter("prefix", Register(path), Value: "3" + hex),
+                nameof(string.EndsWith) => new PostgresQueryFilter("pattern", Register(path), Value: "3%" + hex),
+                // Match only aligned UTF-16 code units, never an arbitrary substring of the hex encoding.
+                _ => new PostgresQueryFilter("regex", Register(path), Value: "^3([0-9A-F]{4})*" + hex)
+            };
+        }
+        Expression? collection = null;
+        Expression? item = null;
+        if ((call.Method.DeclaringType == typeof(Enumerable) || call.Method.DeclaringType == typeof(MemoryExtensions)) &&
+            call.Method.Name == nameof(Enumerable.Contains) && call.Arguments.Count == 2)
+            (collection, item) = (call.Arguments[0], call.Arguments[1]);
+        else if (call.Method.Name == nameof(IList.Contains) && call.Object is not null && call.Arguments.Count == 1)
+            (collection, item) = (call.Object, call.Arguments[0]);
+        if (collection is not null)
+        {
+            string path = Path(item!, parameter) ?? throw Unsupported();
+            object? source = QueryExpressionReader.CollectionValue(collection, Unsupported);
+            if (source is not IEnumerable values || !QueryTypes.IsMembershipCollection(source)) throw Unsupported();
+            string[] encoded = values.Cast<object?>().Select(PostgresIndexValue.Encode).Distinct(StringComparer.Ordinal).ToArray();
+            return new PostgresQueryFilter("in", Register(path), Values: encoded);
+        }
         throw Unsupported();
     }
 
@@ -272,53 +295,9 @@ public sealed class PostgresQueryPlan
         return path;
     }
 
-    internal static string? Path(Expression expression, ParameterExpression parameter)
-    {
-        var segments = new Stack<string>();
-        while (expression is MemberExpression member)
-        {
-            if (member.Member is not PropertyInfo && member.Member is not FieldInfo) return null;
-            Type? parent = member.Expression?.Type;
-            if (parent is not null && (parent.IsPrimitive || parent.IsEnum || parent == typeof(string) || parent == typeof(decimal) ||
-                parent == typeof(DateTime) || parent == typeof(DateTimeOffset) || parent == typeof(Guid) ||
-                parent == typeof(DateOnly) || parent == typeof(TimeOnly) || parent == typeof(TimeSpan) || Nullable.GetUnderlyingType(parent) is not null))
-                return null;
-            string segment = member.Member.GetCustomAttribute<JsonPropertyNameAttribute>()?.Name ??
-                (JsonNamingPolicy.CamelCase.ConvertName(member.Member.Name) ?? member.Member.Name);
-            if (segment.Contains('.', StringComparison.Ordinal)) throw Unsupported();
-            segments.Push(segment);
-            expression = member.Expression!;
-        }
-        return expression == parameter && segments.Count > 0 ? string.Join('.', segments) : null;
-    }
+    internal static string? Path(Expression expression, ParameterExpression parameter) => QueryExpressionReader.Path(expression, parameter, Unsupported);
 
-    internal static object? Value(Expression expression) => expression switch
-    {
-        ConstantExpression constant => constant.Value,
-        MemberExpression { Member: FieldInfo field } member => field.GetValue(member.Expression is null ? null : Value(member.Expression)),
-        MemberExpression { Member: PropertyInfo property } member => property.GetValue(member.Expression is null ? null : Value(member.Expression)),
-        UnaryExpression { NodeType: ExpressionType.Convert } unary when unary.Operand is ConstantExpression => Expression.Lambda<Func<object?>>(Expression.Convert(unary, typeof(object))).Compile(preferInterpretation: true)(),
-        NewArrayExpression { NodeType: ExpressionType.NewArrayInit } array => array.Expressions.Select(Value).ToArray(),
-        _ => throw Unsupported()
-    };
-
-    private static bool IsMembershipCollection(object source)
-    {
-        return QueryTypes.IsMembershipCollection(source);
-    }
-
-    private static object? CollectionValue(Expression expression)
-    {
-        // C# 14 binds array.Contains to MemoryExtensions and inserts an array-to-span conversion.
-        // Inspect the original array without compiling or boxing the ref-struct value.
-        if (expression is MethodCallExpression { Method.Name: "op_Implicit", Arguments.Count: 1 } conversion &&
-            conversion.Type.IsGenericType && conversion.Type.GetGenericTypeDefinition() == typeof(ReadOnlySpan<>) &&
-            conversion.Arguments[0].Type.IsArray)
-            expression = conversion.Arguments[0];
-        while (expression is UnaryExpression { NodeType: ExpressionType.Convert, Method: null } cast && cast.Type.IsAssignableFrom(cast.Operand.Type))
-            expression = cast.Operand;
-        return Value(expression);
-    }
+    internal static object? Value(Expression expression) => QueryExpressionReader.Value(expression, Unsupported);
 
     private static bool References(Expression expression, ParameterExpression parameter)
     {

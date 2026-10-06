@@ -12,12 +12,13 @@ namespace Soenneker.Librarian.Core.Indexes;
 internal sealed class QueryPlan
 {
     private static readonly ConditionalWeakTable<PropertyInfo, PropertySupport> _properties = new();
-    internal PropertyInfo Property = null!;
+    private IndexFilter _primary = new(null!);
+    internal PropertyInfo Property => _primary.Property;
     internal Expression Prefix = null!;
-    internal IndexKey? Minimum;
-    internal IndexKey? Maximum;
-    internal bool IncludeMinimum = true;
-    internal bool IncludeMaximum = true;
+    internal IndexKey? Minimum => _primary.Minimum;
+    internal IndexKey? Maximum => _primary.Maximum;
+    internal bool IncludeMinimum => _primary.IncludeMinimum;
+    internal bool IncludeMaximum => _primary.IncludeMaximum;
     internal bool Descending;
     internal int Skip;
     internal int Take = int.MaxValue;
@@ -27,10 +28,7 @@ internal sealed class QueryPlan
     internal List<IndexFilter>? AdditionalFilters;
     internal PropertyInfo? OrderProperty;
     internal LambdaExpression? ResidualPredicate;
-    internal IndexFilter PrimaryFilter => new(Property)
-    {
-        Minimum = Minimum, Maximum = Maximum, IncludeMinimum = IncludeMinimum, IncludeMaximum = IncludeMaximum
-    };
+    internal IndexFilter PrimaryFilter => _primary;
 
     internal static QueryPlan? CreatePredicate(Expression source, LambdaExpression predicate, IQueryProvider provider)
     {
@@ -95,7 +93,7 @@ internal sealed class QueryPlan
                 // ThenBy needs the original ordered sequence, not an array containing already sorted rows.
                 if (i + 1 < count && calls[i + 1].Method.Name is nameof(Queryable.ThenBy) or nameof(Queryable.ThenByDescending))
                     break;
-                plan.Property ??= property;
+                plan._primary.Property ??= property;
                 plan.OrderProperty = property;
                 plan.Descending = name == nameof(Queryable.OrderByDescending);
                 ordered = true;
@@ -129,14 +127,16 @@ internal sealed class QueryPlan
 
     private bool TryFilter(Expression expression, ParameterExpression parameter)
     {
-        (PropertyInfo Property, IndexKey? Minimum, IndexKey? Maximum, bool IncludeMinimum, bool IncludeMaximum, bool Empty) saved = (Property, Minimum, Maximum, IncludeMinimum, IncludeMaximum, Empty);
+        IndexFilter savedPrimary = _primary;
+        bool savedEmpty = Empty;
         List<IndexFilter>? savedAdditional = AdditionalFilters;
         int count = savedAdditional?.Count ?? 0;
         InlineBuffer<IndexFilter> buffer = default;
         Span<IndexFilter> savedFilters = count <= 8 ? buffer : new IndexFilter[count];
         if (savedAdditional is not null) CollectionsMarshal.AsSpan(savedAdditional).CopyTo(savedFilters);
         if (Filter(expression, parameter)) return true;
-        (Property, Minimum, Maximum, IncludeMinimum, IncludeMaximum, Empty) = saved;
+        _primary = savedPrimary;
+        Empty = savedEmpty;
         AdditionalFilters = savedAdditional;
         if (savedAdditional is not null)
         {
@@ -188,16 +188,11 @@ internal sealed class QueryPlan
 
     private bool AddFilter(PropertyInfo property, IndexKey key, ExpressionType operation)
     {
-        Property ??= property;
+        _primary.Property ??= property;
         if (Property == property)
         {
-            IndexFilter filter = PrimaryFilter;
-            filter.Apply(key, operation);
-            Minimum = filter.Minimum;
-            Maximum = filter.Maximum;
-            IncludeMinimum = filter.IncludeMinimum;
-            IncludeMaximum = filter.IncludeMaximum;
-            Empty |= filter.Empty;
+            _primary.Apply(key, operation);
+            Empty |= _primary.Empty;
         }
         else
         {
