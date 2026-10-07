@@ -130,6 +130,7 @@ jobs:
             Soenneker.Librarian.Mongo
             Soenneker.Librarian.Cosmos
             Soenneker.Librarian.D1
+            Soenneker.Librarian.AzureBlob
             Soenneker.Librarian.R2
             Soenneker.Librarian.Kv
             Soenneker.Librarian.Generators

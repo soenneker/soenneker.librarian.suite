@@ -9,6 +9,7 @@
     <File Path=".github/workflows/website.yml" />
   </Folder>
   <Folder Name="/src/">
+    <Project Path="src/Soenneker.Librarian.AzureBlob/Soenneker.Librarian.AzureBlob.csproj" />
     <Project Path="src/Soenneker.Librarian.Maui.Secure/Soenneker.Librarian.Maui.Secure.csproj" />
     <Project Path="src/Soenneker.Librarian.IndexedDb/Soenneker.Librarian.IndexedDb.csproj" />
     <Project Path="src/Soenneker.Librarian.LocalStorage/Soenneker.Librarian.LocalStorage.csproj" />
