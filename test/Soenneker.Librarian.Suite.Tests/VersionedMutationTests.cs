@@ -11,7 +11,7 @@ namespace Soenneker.Librarian.Suite.Tests;
 public sealed class VersionedMutationTests
 {
     [Test]
-    public async Task Uncertain_write_failures_are_not_retried()
+    public async Task Uncertain_write_failures_are_not_retried(CancellationToken cancellationToken)
     {
         var container = new Mock<ILibrarianContainer>(MockBehavior.Strict);
         container.Setup(c => c.GetItemWithVersion("one", It.IsAny<CancellationToken>()))
@@ -21,7 +21,7 @@ public sealed class VersionedMutationTests
         var mutations = 0;
         try
         {
-            await container.Object.MutateItem<QueryableRow>("one", row => { mutations++; row.Score++; return row; });
+            await container.Object.MutateItem<QueryableRow>("one", row => { mutations++; row.Score++; return row; }, cancellationToken: cancellationToken);
             throw new Exception("Uncertain outcome was swallowed.");
         }
         catch (IOException) { }

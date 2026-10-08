@@ -11,6 +11,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Soenneker.Librarian.Memory;
 using Soenneker.Librarian.FileSystem.Registrars;
 using Soenneker.Librarian.Abstractions;
+using System.Threading;
 
 namespace Soenneker.Librarian.Suite.Tests;
 
@@ -23,11 +24,11 @@ public class QueryableTests
     private static void Check(bool value) { if (!value) throw new Exception("Query assertion failed."); }
 
     [Test]
-    public async ValueTask Deferred_queries_build_once_page_by_rank_and_count_without_deserializing()
+    public async ValueTask Deferred_queries_build_once_page_by_rank_and_count_without_deserializing(CancellationToken cancellationToken)
     {
         await using var database = new MemoryLibrarianDatabase(NullLogger<MemoryLibrarianDatabase>.Instance);
-        ILibrarianContainer container = await database.GetContainer("query");
-        for (var i = 0; i < 1000; i++) await container.AddItem(i.ToString(), $"{{\"score_value\":{i}}}");
+        ILibrarianContainer container = await database.GetContainer("query", cancellationToken: cancellationToken);
+        for (var i = 0; i < 1000; i++) await container.AddItem(i.ToString(), $"{{\"score_value\":{i}}}", cancellationToken: cancellationToken);
         QueryableRow.Created = 0;
         IQueryable<QueryableRow> query = container.BuildQueryable<QueryableRow>();
         IQueryable<QueryableRow> page = query.Where(row => row.Score >= 100 && row.Score < 900).OrderByDescending(row => row.Score).Skip(700).Take(4);
@@ -59,40 +60,40 @@ public class QueryableTests
     }
 
     [Test]
-    public async ValueTask Automatic_indexes_follow_mutations_defaults_aliases_and_document_types()
+    public async ValueTask Automatic_indexes_follow_mutations_defaults_aliases_and_document_types(CancellationToken cancellationToken)
     {
         await using var database = new MemoryLibrarianDatabase(NullLogger<MemoryLibrarianDatabase>.Instance);
-        ILibrarianContainer container = await database.GetContainer("query");
-        await container.AddItem("default", "{}");
-        await container.AddItem("aliased", "{\"SCORE_VALUE\":8}");
-        await container.AddItem("invalid", "not json");
+        ILibrarianContainer container = await database.GetContainer("query", cancellationToken: cancellationToken);
+        await container.AddItem("default", "{}", cancellationToken: cancellationToken);
+        await container.AddItem("aliased", "{\"SCORE_VALUE\":8}", cancellationToken: cancellationToken);
+        await container.AddItem("invalid", "not json", cancellationToken: cancellationToken);
         IQueryable<QueryableRow> query = container.BuildQueryable<QueryableRow>();
         Check(query.Count(row => row.Score == 7) == 1);
         Check(query.Count(row => row.Score == 8) == 1);
         Check(query.Count(row => row.Name == null) == 2);
-        await container.AddItem("new", "{\"score_value\":7,\"name\":\"Alex\"}");
+        await container.AddItem("new", "{\"score_value\":7,\"name\":\"Alex\"}", cancellationToken: cancellationToken);
         Check(query.Count(row => row.Score == 7) == 2);
         Check(query.Count(row => row.Name == "Alex") == 1);
-        await container.UpdateItemStrict("new", "{\"score_value\":9}");
+        await container.UpdateItemStrict("new", "{\"score_value\":9}", cancellationToken: cancellationToken);
         Check(query.Count(row => row.Score == 7) == 1 && query.Count(row => row.Score == 9) == 1);
         Check(!query.Any(row => row.Name == "Alex"));
-        await container.UpdateItemStrict("new", "invalid");
+        await container.UpdateItemStrict("new", "invalid", cancellationToken: cancellationToken);
         Check(!query.Any(row => row.Score == 9));
-        await container.DeleteItem("default");
+        await container.DeleteItem("default", cancellationToken: cancellationToken);
         Check(!query.Any(row => row.Score == 7));
-        await container.DeleteAllItems();
+        await container.DeleteAllItems(cancellationToken: cancellationToken);
         Check(!query.Any(row => row.Score == 8));
-        await container.AddItem("new", "{}");
+        await container.AddItem("new", "{}", cancellationToken: cancellationToken);
         Check(query.Count(row => row.Score == 7) == 1);
         Check(container.BuildQueryable<OtherRow>().Count(row => row.Score == 0) == 1);
     }
 
     [Test]
-    public async ValueTask Direct_element_execution_preserves_defaults_errors_and_detached_results()
+    public async ValueTask Direct_element_execution_preserves_defaults_errors_and_detached_results(CancellationToken cancellationToken)
     {
         await using var database = new MemoryLibrarianDatabase(NullLogger<MemoryLibrarianDatabase>.Instance);
-        ILibrarianContainer container = await database.GetContainer("query");
-        await container.AddItem("one", "{\"score_value\":1}");
+        ILibrarianContainer container = await database.GetContainer("query", cancellationToken: cancellationToken);
+        await container.AddItem("one", "{\"score_value\":1}", cancellationToken: cancellationToken);
         IQueryable<QueryableRow> query = container.BuildQueryable<QueryableRow>();
         IQueryable<QueryableRow> selected = query.Where(row => row.Score == 1);
         QueryableRow first = selected.First();
@@ -115,41 +116,41 @@ public class QueryableTests
     }
 
     [Test]
-    public async ValueTask Writes_deserialize_once_per_type_for_multiple_automatic_indexes()
+    public async ValueTask Writes_deserialize_once_per_type_for_multiple_automatic_indexes(CancellationToken cancellationToken)
     {
         await using var database = new MemoryLibrarianDatabase(NullLogger<MemoryLibrarianDatabase>.Instance);
-        ILibrarianContainer container = await database.GetContainer("query");
+        ILibrarianContainer container = await database.GetContainer("query", cancellationToken: cancellationToken);
         IQueryable<QueryableRow> query = container.BuildQueryable<QueryableRow>();
         query.Count(row => row.Score == 7);
         query.Count(row => row.Name == "Alex");
         QueryableRow.Created = 0;
-        await container.AddItem("one", "{\"name\":\"Alex\"}");
+        await container.AddItem("one", "{\"name\":\"Alex\"}", cancellationToken: cancellationToken);
         Check(QueryableRow.Created == 1);
         Check(query.Count(row => row.Score == 7) == 1 && query.Count(row => row.Name == "Alex") == 1);
         Check(QueryableRow.Created == 1);
-        await container.UpdateItemStrict("one", "{\"score_value\":8,\"name\":\"Other\"}");
+        await container.UpdateItemStrict("one", "{\"score_value\":8,\"name\":\"Other\"}", cancellationToken: cancellationToken);
         Check(QueryableRow.Created == 2);
         Check(!query.Any(row => row.Score == 7) && !query.Any(row => row.Name == "Alex"));
         Check(query.Count(row => row.Score == 8) == 1 && query.Count(row => row.Name == "Other") == 1);
     }
 
     [Test]
-    public async ValueTask Concurrent_creation_writes_and_reads_keep_indexes_consistent()
+    public async ValueTask Concurrent_creation_writes_and_reads_keep_indexes_consistent(CancellationToken cancellationToken)
     {
         await using var database = new MemoryLibrarianDatabase(NullLogger<MemoryLibrarianDatabase>.Instance);
-        ILibrarianContainer container = await database.GetContainer("query");
+        ILibrarianContainer container = await database.GetContainer("query", cancellationToken: cancellationToken);
         await Task.WhenAll(Enumerable.Range(0, 100).Select(i => Task.Run(async () =>
         {
-            await container.AddItem(i.ToString(), $"{{\"score_value\":{i}}}");
+            await container.AddItem(i.ToString(), $"{{\"score_value\":{i}}}", cancellationToken: cancellationToken);
             Check(container.BuildQueryable<QueryableRow>().Any(row => row.Score == i));
-            await container.UpdateItemStrict(i.ToString(), $"{{\"score_value\":{i + 100}}}");
+            await container.UpdateItemStrict(i.ToString(), $"{{\"score_value\":{i + 100}}}", cancellationToken: cancellationToken);
             Check(!container.BuildQueryable<QueryableRow>().Any(row => row.Score == i));
-        })));
+        }, cancellationToken: cancellationToken)));
         Check(container.BuildQueryable<QueryableRow>().Where(row => row.Score >= 100).Count() == 100);
     }
 
     [Test]
-    public async ValueTask Filesystem_queries_rebuild_automatically_after_restart()
+    public async ValueTask Filesystem_queries_rebuild_automatically_after_restart(CancellationToken cancellationToken)
     {
         string path = Path.Combine(Path.GetTempPath(), $"librarian-linq-{Guid.NewGuid():N}.json");
         try
@@ -163,21 +164,21 @@ public class QueryableTests
                 await using ServiceProvider services = new ServiceCollection().AddLogging().AddSingleton(config)
                     .AddFileSystemLibrarianDatabaseAsSingleton().BuildServiceProvider();
                 var database = services.GetRequiredService<ILibrarianDatabase>();
-                ILibrarianContainer container = await database.GetContainer("query");
-                if (pass == 0) await container.AddItem("one", "{\"score_value\":12}");
+                ILibrarianContainer container = await database.GetContainer("query", cancellationToken: cancellationToken);
+                if (pass == 0) await container.AddItem("one", "{\"score_value\":12}", cancellationToken: cancellationToken);
                 Check(container.BuildQueryable<QueryableRow>().Where(row => row.Score == 12).Single().Score == 12);
-                await database.Save();
+                await database.Save(cancellationToken: cancellationToken);
             }
         }
         finally { await _fileUtil.Delete(path); }
     }
 
     [Test]
-    public async ValueTask Unsupported_operations_preserve_their_position_and_normal_linq_semantics()
+    public async ValueTask Unsupported_operations_preserve_their_position_and_normal_linq_semantics(CancellationToken cancellationToken)
     {
         await using var database = new MemoryLibrarianDatabase(NullLogger<MemoryLibrarianDatabase>.Instance);
-        ILibrarianContainer container = await database.GetContainer("query");
-        for (var i = 0; i < 20; i++) await container.AddItem(i.ToString(), $"{{\"score_value\":{i},\"name\":\"name-{i}\"}}");
+        ILibrarianContainer container = await database.GetContainer("query", cancellationToken: cancellationToken);
+        for (var i = 0; i < 20; i++) await container.AddItem(i.ToString(), $"{{\"score_value\":{i},\"name\":\"name-{i}\"}}", cancellationToken: cancellationToken);
         IQueryable<QueryableRow> query = container.BuildQueryable<QueryableRow>();
         Check(query.Where(row => row.Score >= 5).Where(row => row.Computed == 0).OrderBy(row => row.Score).Select(row => row.Score)
             .SequenceEqual(Enumerable.Range(5, 15).Where(i => i % 2 == 0)));

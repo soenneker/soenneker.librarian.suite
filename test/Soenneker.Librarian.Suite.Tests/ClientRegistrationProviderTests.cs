@@ -14,13 +14,14 @@ using Soenneker.Librarian.LocalStorage;
 using Soenneker.Librarian.LocalStorage.Registrars;
 using Soenneker.Librarian.Maui.Secure;
 using Soenneker.Librarian.Maui.Secure.Registrars;
+using System.Threading;
 
 namespace Soenneker.Librarian.Suite.Tests;
 
 public class ClientRegistrationProviderTests
 {
     [Test]
-    public async Task Scoped_browser_and_keyed_mobile_registrations_resolve_without_platform_io()
+    public async Task Scoped_browser_and_keyed_mobile_registrations_resolve_without_platform_io(CancellationToken cancellationToken)
     {
         var services = new ServiceCollection();
         services.AddLogging();

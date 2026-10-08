@@ -20,7 +20,7 @@ public class ProviderTests
     private static readonly IFileUtil _fileUtil = new Soenneker.Utils.File.FileUtil(NullLogger<Soenneker.Utils.File.FileUtil>.Instance, new MemoryStreamUtil());
 
     [Test]
-    public async ValueTask Providers_agree_on_names_and_cancelled_cached_lookups()
+    public async ValueTask Providers_agree_on_names_and_cancelled_cached_lookups(CancellationToken cancellationToken)
     {
         string path = Path.Combine(Path.GetTempPath(), $"librarian-contract-{Guid.NewGuid():N}.json");
         try
@@ -34,12 +34,12 @@ public class ProviderTests
                 else collection.AddMemoryLibrarianDatabaseAsSingleton();
                 await using ServiceProvider services = collection.BuildServiceProvider();
                 var database = services.GetRequiredService<ILibrarianDatabase>();
-                ILibrarianContainer lower = await database.GetContainer("items");
-                ILibrarianContainer upper = await database.GetContainer("Items");
+                ILibrarianContainer lower = await database.GetContainer("items", cancellationToken: cancellationToken);
+                ILibrarianContainer upper = await database.GetContainer("Items", cancellationToken: cancellationToken);
                 if (ReferenceEquals(lower, upper)) throw new Exception("Container names were not case-sensitive");
-                try { await database.GetContainer(" "); throw new Exception("Blank name accepted"); }
+                try { await database.GetContainer(" ", cancellationToken: cancellationToken); throw new Exception("Blank name accepted"); }
                 catch (ArgumentException) { }
-                try { await database.UnloadContainer(" "); throw new Exception("Blank unload name accepted"); }
+                try { await database.UnloadContainer(" ", cancellationToken: cancellationToken); throw new Exception("Blank unload name accepted"); }
                 catch (ArgumentException) { }
                 try { await database.GetContainer("items", new CancellationToken(true)); throw new Exception("Cached lookup ignored cancellation"); }
                 catch (OperationCanceledException) { }
@@ -49,7 +49,7 @@ public class ProviderTests
     }
 
     [Test]
-    public async ValueTask Scoped_registrations_resolve_dependencies_and_isolate_database_lifetimes()
+    public async ValueTask Scoped_registrations_resolve_dependencies_and_isolate_database_lifetimes(CancellationToken cancellationToken)
     {
         string path = Path.Combine(Path.GetTempPath(), $"librarian-scoped-{Guid.NewGuid():N}.json");
         try
@@ -72,13 +72,13 @@ public class ProviderTests
                     first = scope.ServiceProvider.GetRequiredService<ILibrarianDatabase>();
                     if (!ReferenceEquals(first, scope.ServiceProvider.GetRequiredService<ILibrarianDatabase>()))
                         throw new Exception("Database was not shared within its scope.");
-                    await (await first.GetContainer("items")).AddItem("one", "value");
+                    await (await first.GetContainer("items", cancellationToken: cancellationToken)).AddItem("one", "value", cancellationToken: cancellationToken);
                 }
                 await using (AsyncServiceScope scope = services.CreateAsyncScope())
                 {
                     var second = scope.ServiceProvider.GetRequiredService<ILibrarianDatabase>();
                     if (ReferenceEquals(first, second)) throw new Exception("Database was shared across scopes.");
-                    string? value = (await (await second.GetContainer("items")).GetItem("one"));
+                    string? value = (await (await second.GetContainer("items", cancellationToken: cancellationToken)).GetItem("one", cancellationToken: cancellationToken));
                     if (value != (useFile ? "value" : null))
                         throw new Exception("Scope disposal did not preserve the provider's storage behavior.");
                 }
@@ -88,26 +88,26 @@ public class ProviderTests
     }
 
     [Test]
-    public async ValueTask Memory_database_owns_containers_and_discards_unloaded_data()
+    public async ValueTask Memory_database_owns_containers_and_discards_unloaded_data(CancellationToken cancellationToken)
     {
         await using ServiceProvider services = new ServiceCollection().AddLogging().AddMemoryLibrarianDatabaseAsSingleton().BuildServiceProvider();
         var database = services.GetRequiredService<ILibrarianDatabase>();
-        ILibrarianContainer container = await database.GetContainer("items");
-        await container.AddItem("one", "original");
-        if (!ReferenceEquals(container, await database.GetContainer("items")))
+        ILibrarianContainer container = await database.GetContainer("items", cancellationToken: cancellationToken);
+        await container.AddItem("one", "original", cancellationToken: cancellationToken);
+        if (!ReferenceEquals(container, await database.GetContainer("items", cancellationToken: cancellationToken)))
             throw new Exception("Container ownership changed.");
-        await database.Save();
-        if (!await database.UnloadContainer("items")) throw new Exception("Unload failed.");
-        try { await container.GetItem("one"); throw new Exception("Unloaded container remained usable."); }
+        await database.Save(cancellationToken: cancellationToken);
+        if (!await database.UnloadContainer("items", cancellationToken: cancellationToken)) throw new Exception("Unload failed.");
+        try { await container.GetItem("one", cancellationToken: cancellationToken); throw new Exception("Unloaded container remained usable."); }
         catch (ObjectDisposedException) { }
-        if ((await (await database.GetContainer("items")).GetItem("one")) != null)
+        if ((await (await database.GetContainer("items", cancellationToken: cancellationToken)).GetItem("one", cancellationToken: cancellationToken)) != null)
             throw new Exception("Unloaded memory data was retained.");
         try { await database.GetContainer("cancelled", new CancellationToken(true)); throw new Exception("Cancellation was ignored."); }
         catch (OperationCanceledException) { }
     }
 
     [Test]
-    public async ValueTask Repository_contract_works_with_both_providers()
+    public async ValueTask Repository_contract_works_with_both_providers(CancellationToken cancellationToken)
     {
         string path = Path.Combine(Path.GetTempPath(), $"librarian-provider-{Guid.NewGuid():N}.json");
         try
@@ -123,16 +123,16 @@ public class ProviderTests
                 var database = services.GetRequiredService<ILibrarianDatabase>();
                 var repository = new LibrarianRepository<ExampleDocument>(new ConfigurationBuilder().Build(),
                     NullLogger<LibrarianRepository<ExampleDocument>>.Instance, database, "items");
-                await repository.AddItem(new ExampleDocument { Id = "one", Name = "first" });
-                if ((await repository.GetItem("ONE"))?.Name != "first") throw new Exception("Lookup failed.");
-                await repository.UpdateItem(new ExampleDocument { Id = "one", Name = "second" });
-                if (repository.GetItems(await repository.BuildQueryable<ExampleDocument>()).Count != 1)
+                await repository.AddItem(new ExampleDocument { Id = "one", Name = "first" }, cancellationToken: cancellationToken);
+                if ((await repository.GetItem("ONE", cancellationToken: cancellationToken))?.Name != "first") throw new Exception("Lookup failed.");
+                await repository.UpdateItem(new ExampleDocument { Id = "one", Name = "second" }, cancellationToken: cancellationToken);
+                if (repository.GetItems(await repository.BuildQueryable<ExampleDocument>(cancellationToken: cancellationToken)).Count != 1)
                     throw new Exception("Query failed.");
-                try { await repository.UpdateItem(new ExampleDocument { Id = "missing" }); throw new Exception("Missing update succeeded."); }
+                try { await repository.UpdateItem(new ExampleDocument { Id = "missing" }, cancellationToken: cancellationToken); throw new Exception("Missing update succeeded."); }
                 catch (KeyNotFoundException) { }
-                await database.Save();
-                await repository.DeleteItem("one");
-                if (await repository.GetAll() != null) throw new Exception("Delete failed.");
+                await database.Save(cancellationToken: cancellationToken);
+                await repository.DeleteItem("one", cancellationToken: cancellationToken);
+                if (await repository.GetAll(cancellationToken: cancellationToken) != null) throw new Exception("Delete failed.");
             }
         }
         finally { await _fileUtil.Delete(path); }

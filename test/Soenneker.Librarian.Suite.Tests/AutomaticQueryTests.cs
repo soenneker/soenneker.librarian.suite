@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Soenneker.Librarian.Abstractions.Queries;
 using Soenneker.Librarian.Abstractions.Serialization;
 using Soenneker.Librarian.Memory;
+using System.Threading;
 
 namespace Soenneker.Librarian.Suite.Tests;
 
@@ -13,15 +14,15 @@ namespace Soenneker.Librarian.Suite.Tests;
 public sealed class AutomaticQueryTests
 {
     [Test]
-    public async Task Librarian_queries_generate_metadata_and_delegates_without_attributes()
+    public async Task Librarian_queries_generate_metadata_and_delegates_without_attributes(CancellationToken cancellationToken)
     {
         LibrarianJson.Register(GeneratedRowJsonContext.Default.AutomaticQueryRow);
         if (!GeneratedQueryMetadata.TryGet(typeof(AutomaticQueryRow), "Age", out var metadata) || !metadata.CanIndex)
             throw new InvalidOperationException("The model was not discovered from BuildQueryable.");
         await using var database = new MemoryLibrarianDatabase(NullLogger<MemoryLibrarianDatabase>.Instance);
-        var container = await database.GetContainer("automatic");
-        await container.AddItem("1", "{\"age\":10,\"name\":\"Zoe\"}");
-        await container.AddItem("2", "{\"age\":30,\"name\":\"Amy\"}");
+        var container = await database.GetContainer("automatic", cancellationToken: cancellationToken);
+        await container.AddItem("1", "{\"age\":10,\"name\":\"Zoe\"}", cancellationToken: cancellationToken);
+        await container.AddItem("2", "{\"age\":30,\"name\":\"Amy\"}", cancellationToken: cancellationToken);
         foreach (bool adultsOnly in new[] { true, false })
         {
             var query = container.BuildQueryable<AutomaticQueryRow>();

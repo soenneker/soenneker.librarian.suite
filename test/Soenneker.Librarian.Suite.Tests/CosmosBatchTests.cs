@@ -13,7 +13,7 @@ namespace Soenneker.Librarian.Suite.Tests;
 public sealed class CosmosBatchTests
 {
     [Test]
-    public async Task Native_conflicts_return_false_and_service_errors_propagate_without_replay()
+    public async Task Native_conflicts_return_false_and_service_errors_propagate_without_replay(CancellationToken cancellationToken)
     {
         foreach (HttpStatusCode status in new[] { HttpStatusCode.Conflict, HttpStatusCode.PreconditionFailed, HttpStatusCode.NotFound, HttpStatusCode.Forbidden, HttpStatusCode.TooManyRequests, HttpStatusCode.ServiceUnavailable })
         {
@@ -29,23 +29,23 @@ public sealed class CosmosBatchTests
             await using var database = new CosmosLibrarianDatabase(store.Object);
             var batch = new LibrarianBatch([new LibrarianWrite("items", "org-a:one", null, "version")]);
             if (status is HttpStatusCode.Conflict or HttpStatusCode.PreconditionFailed or HttpStatusCode.NotFound)
-                Check(!await database.Execute(batch), "Conflict reported success.");
+                Check(!await database.Execute(batch, cancellationToken: cancellationToken), "Conflict reported success.");
             else
             {
-                try { await database.Execute(batch); throw new Exception("Service failure hidden."); }
+                try { await database.Execute(batch, cancellationToken: cancellationToken); throw new Exception("Service failure hidden."); }
                 catch (CosmosException exception) when (exception.StatusCode == status) { }
             }
             transaction.Verify(t => t.ExecuteAsync(It.IsAny<CancellationToken>()), Times.Once);
         }
     }
     [Test]
-    public async Task Oversized_batches_fail_before_provisioning()
+    public async Task Oversized_batches_fail_before_provisioning(CancellationToken cancellationToken)
     {
         var store = new Mock<Container>(MockBehavior.Strict);
         await using var database = new CosmosLibrarianDatabase(store.Object);
         var writes = new LibrarianWrite[101];
         for (var i = 0; i < writes.Length; i++) writes[i] = new LibrarianWrite("items", "org-a:" + i, null);
-        try { await database.Execute(new LibrarianBatch(writes)); throw new Exception("Oversized batch accepted."); }
+        try { await database.Execute(new LibrarianBatch(writes), cancellationToken: cancellationToken); throw new Exception("Oversized batch accepted."); }
         catch (ArgumentException) { }
         store.VerifyNoOtherCalls();
     }

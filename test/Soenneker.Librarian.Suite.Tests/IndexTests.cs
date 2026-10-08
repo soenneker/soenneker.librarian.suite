@@ -23,11 +23,11 @@ public class IndexTests
     private static readonly IFileUtil _fileUtil = new Soenneker.Utils.File.FileUtil(NullLogger<Soenneker.Utils.File.FileUtil>.Instance, new MemoryStreamUtil());
 
     [Test]
-    public async ValueTask Randomized_mutations_and_rank_paging_match_a_reference_model()
+    public async ValueTask Randomized_mutations_and_rank_paging_match_a_reference_model(CancellationToken cancellationToken)
     {
         await using MemoryLibrarianDatabase database = CreateDatabase();
-        ILibrarianContainer container = await database.GetContainer("random");
-        await container.EnsureIndex("score");
+        ILibrarianContainer container = await database.GetContainer("random", cancellationToken: cancellationToken);
+        await container.EnsureIndex("score", cancellationToken: cancellationToken);
         var expected = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         var random = new Random(7919);
         for (var step = 0; step < 6000; step++)
@@ -35,17 +35,17 @@ public class IndexTests
             var id = $"id-{random.Next(600):D4}";
             if (step % 997 == 996)
             {
-                await container.DeleteAllItems();
+                await container.DeleteAllItems(cancellationToken: cancellationToken);
                 expected.Clear();
             }
             else if (random.Next(4) == 0 && expected.Remove(id))
-                await container.DeleteItem(id.ToUpperInvariant());
+                await container.DeleteItem(id.ToUpperInvariant(), cancellationToken: cancellationToken);
             else
             {
                 int score = random.Next(-30, 31);
                 var json = $"{{\"id\":\"{id}\",\"score\":{score}}}";
-                if (expected.ContainsKey(id)) await container.UpdateItemStrict(id.ToUpperInvariant(), json);
-                else await container.AddItem(id, json);
+                if (expected.ContainsKey(id)) await container.UpdateItemStrict(id.ToUpperInvariant(), json, cancellationToken: cancellationToken);
+                else await container.AddItem(id, json, cancellationToken: cancellationToken);
                 expected[id] = score;
             }
 
@@ -58,32 +58,32 @@ public class IndexTests
             IOrderedEnumerable<KeyValuePair<string, int>> ordered = expected.Where(pair => pair.Value >= minimum && pair.Value <= maximum)
                                                                             .OrderBy(pair => pair.Value).ThenBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase);
             string[] ids = (descending ? ordered.Reverse() : ordered).Skip(skip).Take(take).Select(pair => pair.Key).ToArray();
-            LibrarianQueryResult<IndexRow> page = await container.FindRangeByIndex<IndexRow>("score", minimum, maximum, descending, skip, take);
+            LibrarianQueryResult<IndexRow> page = await container.FindRangeByIndex<IndexRow>("score", minimum, maximum, descending, skip, take, cancellationToken: cancellationToken);
             Check(page.Items.Select(row => row.Id).SequenceEqual(ids), $"Range mismatch at mutation {step}.");
             Check(page.IndexEntriesExamined == ids.Length, "Paging visited skipped entries.");
             int key = random.Next(-30, 31);
             string[] equal = expected.Where(pair => pair.Value == key).Select(pair => pair.Key)
                 .OrderBy(value => value, StringComparer.OrdinalIgnoreCase).Skip(skip).Take(take).ToArray();
-            LibrarianQueryResult<IndexRow> matches = await container.FindByIndex<IndexRow>("score", key, skip, take);
+            LibrarianQueryResult<IndexRow> matches = await container.FindByIndex<IndexRow>("score", key, skip, take, cancellationToken: cancellationToken);
             Check(matches.Items.Select(row => row.Id).SequenceEqual(equal), $"Equality mismatch at mutation {step}.");
-            Check(await container.CountByIndex("score", key) == expected.Count(pair => pair.Value == key), "Cached count drifted.");
+            Check(await container.CountByIndex("score", key, cancellationToken: cancellationToken) == expected.Count(pair => pair.Value == key), "Cached count drifted.");
         }
     }
 
     [Test]
-    public async ValueTask Returned_pages_survive_pool_reuse_and_failed_deserialization()
+    public async ValueTask Returned_pages_survive_pool_reuse_and_failed_deserialization(CancellationToken cancellationToken)
     {
         await using MemoryLibrarianDatabase database = CreateDatabase();
-        ILibrarianContainer container = await database.GetContainer("pooled");
-        await container.EnsureIndex("score");
-        await container.AddItem("one", "{\"id\":\"one\",\"score\":1}");
-        LibrarianQueryResult<IndexRow> first = await container.FindByIndex<IndexRow>("score", 1);
+        ILibrarianContainer container = await database.GetContainer("pooled", cancellationToken: cancellationToken);
+        await container.EnsureIndex("score", cancellationToken: cancellationToken);
+        await container.AddItem("one", "{\"id\":\"one\",\"score\":1}", cancellationToken: cancellationToken);
+        LibrarianQueryResult<IndexRow> first = await container.FindByIndex<IndexRow>("score", 1, cancellationToken: cancellationToken);
         first.Items[0].Score = 500;
-        await Throws<JsonException>(async () => await container.FindByIndex<int>("score", 1));
-        await container.UpdateItemStrict("one", "{\"id\":\"one\",\"score\":2}");
+        await Throws<JsonException>(async () => await container.FindByIndex<int>("score", 1, cancellationToken: cancellationToken));
+        await container.UpdateItemStrict("one", "{\"id\":\"one\",\"score\":2}", cancellationToken: cancellationToken);
         for (var i = 0; i < 100; i++)
         {
-            LibrarianQueryResult<IndexRow> next = await container.FindByIndex<IndexRow>("score", 2);
+            LibrarianQueryResult<IndexRow> next = await container.FindByIndex<IndexRow>("score", 2, cancellationToken: cancellationToken);
             Check(next.Items[0].Score == 2, "A pooled buffer or returned object leaked into another query.");
         }
         Check(first.Items[0].Score == 500, "A later query changed a previously returned page.");
@@ -104,146 +104,146 @@ public class IndexTests
     }
 
     [Test]
-    public async ValueTask Equality_materializes_only_the_requested_page_and_count_materializes_nothing()
+    public async ValueTask Equality_materializes_only_the_requested_page_and_count_materializes_nothing(CancellationToken cancellationToken)
     {
         await using MemoryLibrarianDatabase database = CreateDatabase();
-        ILibrarianContainer container = await database.GetContainer("items");
+        ILibrarianContainer container = await database.GetContainer("items", cancellationToken: cancellationToken);
         for (var i = 0; i < 2000; i++)
             await container.AddItem($"id-{i:D4}", i < 10
                 ? "{\"status\":\"active\",\"date\":\"2026-01-01\"}"
-                : "{\"status\":\"inactive\",\"date\":\"not-a-date\"}");
+                : "{\"status\":\"inactive\",\"date\":\"not-a-date\"}", cancellationToken: cancellationToken);
         CountedRow.Created = 0;
-        await container.EnsureIndex("status");
+        await container.EnsureIndex("status", cancellationToken: cancellationToken);
         Check(CountedRow.Created == 0, "Index creation materialized documents.");
-        Check(await container.CountByIndex("status", "active") == 10, "Count is incorrect.");
-        Check(await container.ExistsByIndex("status", "active"), "Existence lookup failed.");
-        Check(!await container.ExistsByIndex("status", "missing"), "Missing value matched.");
+        Check(await container.CountByIndex("status", "active", cancellationToken: cancellationToken) == 10, "Count is incorrect.");
+        Check(await container.ExistsByIndex("status", "active", cancellationToken: cancellationToken), "Existence lookup failed.");
+        Check(!await container.ExistsByIndex("status", "missing", cancellationToken: cancellationToken), "Missing value matched.");
         Check(CountedRow.Created == 0, "Count or existence materialized documents.");
-        LibrarianQueryResult<CountedRow> page = await container.FindByIndex<CountedRow>("status", "active", skip: 2, take: 3);
+        LibrarianQueryResult<CountedRow> page = await container.FindByIndex<CountedRow>("status", "active", skip: 2, take: 3, cancellationToken: cancellationToken);
         Check(page.Items.Count == 3 && CountedRow.Created == 3 && page.DocumentsDeserialized == 3,
             "Query deserialized outside its result page.");
         Check(page.IndexEntriesExamined == 3 && page.Index == "status", "Unexpected query work.");
     }
 
     [Test]
-    public async ValueTask Equality_handles_null_missing_nested_properties_and_scalar_types()
+    public async ValueTask Equality_handles_null_missing_nested_properties_and_scalar_types(CancellationToken cancellationToken)
     {
         await using MemoryLibrarianDatabase database = CreateDatabase();
-        ILibrarianContainer container = await database.GetContainer("items");
-        await container.EnsureIndex("profile.key");
+        ILibrarianContainer container = await database.GetContainer("items", cancellationToken: cancellationToken);
+        await container.EnsureIndex("profile.key", cancellationToken: cancellationToken);
         foreach ((string id, string json) in new[]
         {
             ("null", "{\"profile\":{\"key\":null}}"), ("missing", "{}"),
             ("number", "{\"profile\":{\"key\":1.00}}"), ("string", "{\"profile\":{\"key\":\"1\"}}"),
             ("upper", "{\"profile\":{\"key\":\"ACTIVE\"}}"), ("boolean", "{\"profile\":{\"key\":true}}")
-        }) await container.AddItem(id, json);
-        Check(await container.CountByIndex("profile.key", null) == 1, "Null matched a missing property.");
-        Check(await container.CountByIndex("profile.key", 1) == 1, "Numeric normalization failed.");
-        Check(await container.CountByIndex("profile.key", "1") == 1, "String matched numeric data.");
-        Check(await container.CountByIndex("profile.key", true) == 1, "Boolean lookup failed.");
-        Check(await container.CountByIndex("profile.key", "active") == 0, "String matching was not ordinal.");
+        }) await container.AddItem(id, json, cancellationToken: cancellationToken);
+        Check(await container.CountByIndex("profile.key", null, cancellationToken: cancellationToken) == 1, "Null matched a missing property.");
+        Check(await container.CountByIndex("profile.key", 1, cancellationToken: cancellationToken) == 1, "Numeric normalization failed.");
+        Check(await container.CountByIndex("profile.key", "1", cancellationToken: cancellationToken) == 1, "String matched numeric data.");
+        Check(await container.CountByIndex("profile.key", true, cancellationToken: cancellationToken) == 1, "Boolean lookup failed.");
+        Check(await container.CountByIndex("profile.key", "active", cancellationToken: cancellationToken) == 0, "String matching was not ordinal.");
     }
 
     [Test]
-    public async ValueTask Updates_deletes_and_clear_maintain_all_indexes()
+    public async ValueTask Updates_deletes_and_clear_maintain_all_indexes(CancellationToken cancellationToken)
     {
         await using MemoryLibrarianDatabase database = CreateDatabase();
-        ILibrarianContainer container = await database.GetContainer("items");
-        await container.EnsureIndex("status");
-        await container.EnsureIndex("score");
-        await container.AddItem("ONE", "{\"status\":\"old\",\"score\":1}");
-        await container.UpdateItemStrict("one", "{\"status\":\"new\",\"score\":2}");
-        Check(await container.CountByIndex("status", "old") == 0 && await container.CountByIndex("score", 1) == 0,
+        ILibrarianContainer container = await database.GetContainer("items", cancellationToken: cancellationToken);
+        await container.EnsureIndex("status", cancellationToken: cancellationToken);
+        await container.EnsureIndex("score", cancellationToken: cancellationToken);
+        await container.AddItem("ONE", "{\"status\":\"old\",\"score\":1}", cancellationToken: cancellationToken);
+        await container.UpdateItemStrict("one", "{\"status\":\"new\",\"score\":2}", cancellationToken: cancellationToken);
+        Check(await container.CountByIndex("status", "old", cancellationToken: cancellationToken) == 0 && await container.CountByIndex("score", 1, cancellationToken: cancellationToken) == 0,
             "Update retained old entries.");
-        Check(await container.CountByIndex("status", "new") == 1, "Update lost new entries.");
-        Check((await container.FindRangeByIndex<IndexRow>("score", 1, 1)).Items.Count == 0,
+        Check(await container.CountByIndex("status", "new", cancellationToken: cancellationToken) == 1, "Update lost new entries.");
+        Check((await container.FindRangeByIndex<IndexRow>("score", 1, 1, cancellationToken: cancellationToken)).Items.Count == 0,
             "Update retained the old ordered entry.");
-        Check((await container.FindRangeByIndex<IndexRow>("score", 2, 2)).Items.Count == 1,
+        Check((await container.FindRangeByIndex<IndexRow>("score", 2, 2, cancellationToken: cancellationToken)).Items.Count == 1,
             "Update lost the new ordered entry.");
-        await container.DeleteItem("oNe");
-        Check(await container.CountByIndex("score", 2) == 0, "Delete retained entries.");
-        await container.AddItem("two", "{\"score\":3}");
-        await container.DeleteAllItems();
-        Check(await container.CountByIndex("score", 3) == 0, "Clear retained entries.");
-        await container.AddItem("three", "{\"score\":4}");
-        Check(await container.CountByIndex("score", 4) == 1, "Clear removed the index definition.");
+        await container.DeleteItem("oNe", cancellationToken: cancellationToken);
+        Check(await container.CountByIndex("score", 2, cancellationToken: cancellationToken) == 0, "Delete retained entries.");
+        await container.AddItem("two", "{\"score\":3}", cancellationToken: cancellationToken);
+        await container.DeleteAllItems(cancellationToken: cancellationToken);
+        Check(await container.CountByIndex("score", 3, cancellationToken: cancellationToken) == 0, "Clear retained entries.");
+        await container.AddItem("three", "{\"score\":4}", cancellationToken: cancellationToken);
+        Check(await container.CountByIndex("score", 4, cancellationToken: cancellationToken) == 1, "Clear removed the index definition.");
     }
 
     [Test]
-    public async ValueTask Invalid_indexed_writes_and_cancelled_mutations_leave_data_and_indexes_unchanged()
+    public async ValueTask Invalid_indexed_writes_and_cancelled_mutations_leave_data_and_indexes_unchanged(CancellationToken cancellationToken)
     {
         await using MemoryLibrarianDatabase database = CreateDatabase();
-        ILibrarianContainer container = await database.GetContainer("items");
-        await container.EnsureIndex("status");
-        await container.EnsureIndex("score");
+        ILibrarianContainer container = await database.GetContainer("items", cancellationToken: cancellationToken);
+        await container.EnsureIndex("status", cancellationToken: cancellationToken);
+        await container.EnsureIndex("score", cancellationToken: cancellationToken);
         const string original = "{\"status\":\"old\",\"score\":1}";
-        await container.AddItem("one", original);
-        await Throws<ArgumentException>(async () => await container.UpdateItem("one", "{\"status\":\"new\",\"score\":[]}"));
-        await Throws<JsonException>(async () => await container.AddItem("two", "malformed"));
+        await container.AddItem("one", original, cancellationToken: cancellationToken);
+        await Throws<ArgumentException>(async () => await container.UpdateItem("one", "{\"status\":\"new\",\"score\":[]}", cancellationToken: cancellationToken));
+        await Throws<JsonException>(async () => await container.AddItem("two", "malformed", cancellationToken: cancellationToken));
         await Throws<OperationCanceledException>(async () => await container.UpdateItem("one", "{}", new CancellationToken(true)));
-        Check((await container.GetItem("one")) == original && (await container.GetItem("two")) is null, "Rejected write changed documents.");
-        Check(await container.CountByIndex("status", "old") == 1 && await container.CountByIndex("status", "new") == 0,
+        Check((await container.GetItem("one", cancellationToken: cancellationToken)) == original && (await container.GetItem("two", cancellationToken: cancellationToken)) is null, "Rejected write changed documents.");
+        Check(await container.CountByIndex("status", "old", cancellationToken: cancellationToken) == 1 && await container.CountByIndex("status", "new", cancellationToken: cancellationToken) == 0,
             "Rejected write changed indexes.");
     }
 
     [Test]
-    public async ValueTask Index_creation_is_atomic_idempotent_and_never_implicitly_scans_queries()
+    public async ValueTask Index_creation_is_atomic_idempotent_and_never_implicitly_scans_queries(CancellationToken cancellationToken)
     {
         await using MemoryLibrarianDatabase database = CreateDatabase();
-        ILibrarianContainer container = await database.GetContainer("items");
-        await container.AddItem("one", "{\"score\":1}");
-        await container.AddItem("bad", "not-json");
-        await Throws<JsonException>(async () => await container.EnsureIndex("score"));
-        await Throws<InvalidOperationException>(async () => await container.CountByIndex("score", 1));
-        await container.DeleteItem("bad");
+        ILibrarianContainer container = await database.GetContainer("items", cancellationToken: cancellationToken);
+        await container.AddItem("one", "{\"score\":1}", cancellationToken: cancellationToken);
+        await container.AddItem("bad", "not-json", cancellationToken: cancellationToken);
+        await Throws<JsonException>(async () => await container.EnsureIndex("score", cancellationToken: cancellationToken));
+        await Throws<InvalidOperationException>(async () => await container.CountByIndex("score", 1, cancellationToken: cancellationToken));
+        await container.DeleteItem("bad", cancellationToken: cancellationToken);
         await Throws<OperationCanceledException>(async () => await container.EnsureIndex("score", new CancellationToken(true)));
-        await Throws<InvalidOperationException>(async () => await container.FindByIndex<IndexRow>("score", 1));
-        await container.EnsureIndex("score");
-        await container.EnsureIndex("score");
-        Check(await container.CountByIndex("score", 1) == 1, "Repeated EnsureIndex duplicated entries.");
+        await Throws<InvalidOperationException>(async () => await container.FindByIndex<IndexRow>("score", 1, cancellationToken: cancellationToken));
+        await container.EnsureIndex("score", cancellationToken: cancellationToken);
+        await container.EnsureIndex("score", cancellationToken: cancellationToken);
+        Check(await container.CountByIndex("score", 1, cancellationToken: cancellationToken) == 1, "Repeated EnsureIndex duplicated entries.");
     }
 
     [Test]
-    public async ValueTask Ranges_sort_and_page_before_materializing_with_deterministic_ties()
+    public async ValueTask Ranges_sort_and_page_before_materializing_with_deterministic_ties(CancellationToken cancellationToken)
     {
         await using MemoryLibrarianDatabase database = CreateDatabase();
-        ILibrarianContainer container = await database.GetContainer("items");
+        ILibrarianContainer container = await database.GetContainer("items", cancellationToken: cancellationToken);
         for (var i = 0; i < 100; i++)
-            await container.AddItem($"id-{i:D3}", $"{{\"id\":\"id-{i:D3}\",\"score\":{i / 2}}}");
-        await container.EnsureIndex("score");
-        LibrarianQueryResult<IndexRow> page = await container.FindRangeByIndex<IndexRow>("score", 20, 22, skip: 1, take: 3);
+            await container.AddItem($"id-{i:D3}", $"{{\"id\":\"id-{i:D3}\",\"score\":{i / 2}}}", cancellationToken: cancellationToken);
+        await container.EnsureIndex("score", cancellationToken: cancellationToken);
+        LibrarianQueryResult<IndexRow> page = await container.FindRangeByIndex<IndexRow>("score", 20, 22, skip: 1, take: 3, cancellationToken: cancellationToken);
         Check(page.Items.Select(row => row.Id).SequenceEqual(new[] { "id-041", "id-042", "id-043" }), "Ascending range is wrong.");
         Check(page.DocumentsDeserialized == 3 && page.IndexEntriesExamined == 3, "Range did excess work.");
-        LibrarianQueryResult<IndexRow> descending = await container.FindRangeByIndex<IndexRow>("score", 20, 22, descending: true, skip: 1, take: 3);
+        LibrarianQueryResult<IndexRow> descending = await container.FindRangeByIndex<IndexRow>("score", 20, 22, descending: true, skip: 1, take: 3, cancellationToken: cancellationToken);
         Check(descending.Items.Select(row => row.Id).SequenceEqual(new[] { "id-044", "id-043", "id-042" }), "Descending range is wrong.");
-        Check((await container.FindRangeByIndex<IndexRow>("score", minimum: 1000)).Items.Count == 0, "Out-of-range lookup matched.");
-        Check((await container.FindRangeByIndex<IndexRow>("score", maximum: -1)).Items.Count == 0, "Negative bound matched.");
-        Check((await container.FindRangeByIndex<IndexRow>("score", descending: true, take: 1)).Items[0].Score == 49, "Unbounded order failed.");
-        await Throws<ArgumentException>(async () => await container.FindRangeByIndex<IndexRow>("score", 2, 1));
-        await Throws<ArgumentException>(async () => await container.FindRangeByIndex<IndexRow>("score", 1, "2"));
-        await Throws<ArgumentOutOfRangeException>(async () => await container.FindByIndex<IndexRow>("score", 1, skip: -1));
-        await Throws<ArgumentOutOfRangeException>(async () => await container.FindByIndex<IndexRow>("score", 1, take: 0));
+        Check((await container.FindRangeByIndex<IndexRow>("score", minimum: 1000, cancellationToken: cancellationToken)).Items.Count == 0, "Out-of-range lookup matched.");
+        Check((await container.FindRangeByIndex<IndexRow>("score", maximum: -1, cancellationToken: cancellationToken)).Items.Count == 0, "Negative bound matched.");
+        Check((await container.FindRangeByIndex<IndexRow>("score", descending: true, take: 1, cancellationToken: cancellationToken)).Items[0].Score == 49, "Unbounded order failed.");
+        await Throws<ArgumentException>(async () => await container.FindRangeByIndex<IndexRow>("score", 2, 1, cancellationToken: cancellationToken));
+        await Throws<ArgumentException>(async () => await container.FindRangeByIndex<IndexRow>("score", 1, "2", cancellationToken: cancellationToken));
+        await Throws<ArgumentOutOfRangeException>(async () => await container.FindByIndex<IndexRow>("score", 1, skip: -1, cancellationToken: cancellationToken));
+        await Throws<ArgumentOutOfRangeException>(async () => await container.FindByIndex<IndexRow>("score", 1, take: 0, cancellationToken: cancellationToken));
     }
 
     [Test]
-    public async ValueTask Concurrent_index_creation_writes_and_queries_preserve_consistent_results()
+    public async ValueTask Concurrent_index_creation_writes_and_queries_preserve_consistent_results(CancellationToken cancellationToken)
     {
         await using MemoryLibrarianDatabase database = CreateDatabase();
-        ILibrarianContainer container = await database.GetContainer("items");
+        ILibrarianContainer container = await database.GetContainer("items", cancellationToken: cancellationToken);
         await Task.WhenAll(Enumerable.Range(0, 200).Select(i => Task.Run(async () =>
         {
-            await container.EnsureIndex("status");
-            await container.AddItem($"id-{i}", "{\"status\":\"old\"}");
-            await container.UpdateItemStrict($"id-{i}", "{\"status\":\"new\"}");
-            LibrarianQueryResult<IndexRow> page = await container.FindByIndex<IndexRow>("status", "new", take: 20);
+            await container.EnsureIndex("status", cancellationToken: cancellationToken);
+            await container.AddItem($"id-{i}", "{\"status\":\"old\"}", cancellationToken: cancellationToken);
+            await container.UpdateItemStrict($"id-{i}", "{\"status\":\"new\"}", cancellationToken: cancellationToken);
+            LibrarianQueryResult<IndexRow> page = await container.FindByIndex<IndexRow>("status", "new", take: 20, cancellationToken: cancellationToken);
             Check(page.Items.All(row => row.Status == "new"), "Index and document snapshots disagreed.");
-        })));
-        Check(await container.CountByIndex("status", "new") == 200 && await container.CountByIndex("status", "old") == 0,
+        }, cancellationToken: cancellationToken)));
+        Check(await container.CountByIndex("status", "new", cancellationToken: cancellationToken) == 200 && await container.CountByIndex("status", "old", cancellationToken: cancellationToken) == 0,
             "Concurrent mutation lost index entries.");
     }
 
     [Test]
-    public async ValueTask Filesystem_reload_rebuilds_indexes_and_repository_uses_them()
+    public async ValueTask Filesystem_reload_rebuilds_indexes_and_repository_uses_them(CancellationToken cancellationToken)
     {
         string path = Path.Combine(Path.GetTempPath(), $"librarian-index-{Guid.NewGuid():N}.json");
         try
@@ -258,15 +258,15 @@ public class IndexTests
                     .AddFileSystemLibrarianDatabaseAsSingleton().BuildServiceProvider();
                 var database = services.GetRequiredService<ILibrarianDatabase>();
                 var repository = new LibrarianRepository<IndexRow>(config, NullLogger<LibrarianRepository<IndexRow>>.Instance, database, "items");
-                await repository.EnsureIndex("score");
-                if (pass == 0) await repository.AddItem(new IndexRow { Id = "one", Score = 10 });
-                Check(await repository.CountByIndex("score", 10) == 1 && await repository.ExistsByIndex("score", 10), "Repository index lost data.");
-                Check((await repository.FindByIndex("score", 10)).Items[0].Id == "one", "Repository equality failed.");
-                Check((await repository.FindRangeByIndex("score", 9, 11)).Items.Count == 1, "Repository range failed.");
-                await database.UnloadContainer("items");
-                await Throws<InvalidOperationException>(async () => await repository.CountByIndex("score", 10));
-                await repository.EnsureIndex("score");
-                Check(await repository.CountByIndex("score", 10) == 1, "Reloaded index lost persisted data.");
+                await repository.EnsureIndex("score", cancellationToken: cancellationToken);
+                if (pass == 0) await repository.AddItem(new IndexRow { Id = "one", Score = 10 }, cancellationToken: cancellationToken);
+                Check(await repository.CountByIndex("score", 10, cancellationToken: cancellationToken) == 1 && await repository.ExistsByIndex("score", 10, cancellationToken: cancellationToken), "Repository index lost data.");
+                Check((await repository.FindByIndex("score", 10, cancellationToken: cancellationToken)).Items[0].Id == "one", "Repository equality failed.");
+                Check((await repository.FindRangeByIndex("score", 9, 11, cancellationToken: cancellationToken)).Items.Count == 1, "Repository range failed.");
+                await database.UnloadContainer("items", cancellationToken: cancellationToken);
+                await Throws<InvalidOperationException>(async () => await repository.CountByIndex("score", 10, cancellationToken: cancellationToken));
+                await repository.EnsureIndex("score", cancellationToken: cancellationToken);
+                Check(await repository.CountByIndex("score", 10, cancellationToken: cancellationToken) == 1, "Reloaded index lost persisted data.");
             }
         }
         finally { await _fileUtil.Delete(path); }

@@ -2,23 +2,24 @@ using System;
 using System.Threading.Tasks;
 using Soenneker.Librarian.Abstractions.Transactions;
 using static Soenneker.Librarian.Suite.Tests.DocumentProviderAssertions;
+using System.Threading;
 
 namespace Soenneker.Librarian.Suite.Tests;
 
 public sealed class BatchValidationTests
 {
     [Test]
-    public async Task Snapshot_providers_reject_native_concurrency_options_before_writing()
+    public async Task Snapshot_providers_reject_native_concurrency_options_before_writing(CancellationToken cancellationToken)
     {
         foreach (string provider in new[] { "memory", "filesystem" })
         {
             await using var fixture = new BatchFixture(provider);
             foreach (LibrarianWrite write in new[] { new LibrarianWrite("items", "a", "value", "version"), new LibrarianWrite("items", "a", "value", CreateOnly: true) })
             {
-                try { await fixture.Database.Execute(new LibrarianBatch([write])); throw new Exception("Unsupported concurrency silently ignored."); }
+                try { await fixture.Database.Execute(new LibrarianBatch([write]), cancellationToken: cancellationToken); throw new Exception("Unsupported concurrency silently ignored."); }
                 catch (NotSupportedException) { }
             }
-            Check(await (await fixture.Database.GetContainer("items")).CountItems() == 0, "Rejected batch wrote data.");
+            Check(await (await fixture.Database.GetContainer("items", cancellationToken: cancellationToken)).CountItems(cancellationToken: cancellationToken) == 0, "Rejected batch wrote data.");
         }
     }
     [Test]

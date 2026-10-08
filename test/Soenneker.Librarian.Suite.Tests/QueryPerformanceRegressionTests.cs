@@ -6,17 +6,18 @@ using Soenneker.Librarian.Abstractions.Queries;
 using Soenneker.Librarian.Memory;
 using Soenneker.Librarian.Postgres;
 using Soenneker.Librarian.Redis;
+using System.Threading;
 
 namespace Soenneker.Librarian.Suite.Tests;
 
 public class QueryPerformanceRegressionTests
 {
     [Test]
-    public async Task Reused_fallback_query_observes_live_closures()
+    public async Task Reused_fallback_query_observes_live_closures(CancellationToken cancellationToken)
     {
         await using var database = new MemoryLibrarianDatabase(NullLogger<MemoryLibrarianDatabase>.Instance);
-        var container = await database.GetContainer("rows");
-        for (int i = 0; i < 5; i++) await container.AddItem(i.ToString(), "{\"score\":" + i + "}");
+        var container = await database.GetContainer("rows", cancellationToken: cancellationToken);
+        for (int i = 0; i < 5; i++) await container.AddItem(i.ToString(), "{\"score\":" + i + "}", cancellationToken: cancellationToken);
         int direction = 1;
         var query = container.BuildQueryable<ConformanceRow>().Take(5).OrderBy(row => row.Score * direction);
         if (!query.Select(row => row.Score).ToArray().SequenceEqual(new[] { 0, 1, 2, 3, 4 })) throw new Exception("Initial order differs");
@@ -25,11 +26,11 @@ public class QueryPerformanceRegressionTests
     }
 
     [Test]
-    public async Task Typed_parameters_bind_values_without_capturing_local_fields()
+    public async Task Typed_parameters_bind_values_without_capturing_local_fields(CancellationToken cancellationToken)
     {
         await using var database = new MemoryLibrarianDatabase(NullLogger<MemoryLibrarianDatabase>.Instance);
-        var container = await database.GetContainer("rows");
-        for (int i = 0; i < 5; i++) await container.AddItem(i.ToString(), "{\"score\":" + i + "}");
+        var container = await database.GetContainer("rows", cancellationToken: cancellationToken);
+        for (int i = 0; i < 5; i++) await container.AddItem(i.ToString(), "{\"score\":" + i + "}", cancellationToken: cancellationToken);
         int minimum = 2;
         var query = container.BuildQueryable<ConformanceRow>().Where(minimum, (row, bound) => row.Score >= bound).OrderBy(row => row.Score);
         minimum = 4;

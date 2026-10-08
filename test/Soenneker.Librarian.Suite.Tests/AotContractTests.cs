@@ -6,18 +6,19 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Soenneker.Librarian.Abstractions;
 using Soenneker.Librarian.Abstractions.Serialization;
 using Soenneker.Librarian.Memory;
+using System.Threading;
 
 namespace Soenneker.Librarian.Suite.Tests;
 
 public class AotContractTests
 {
     [Test]
-    public async ValueTask Missing_contracts_fail_before_scanning_and_raw_JSON_still_works()
+    public async ValueTask Missing_contracts_fail_before_scanning_and_raw_JSON_still_works(CancellationToken cancellationToken)
     {
         await using var database = new MemoryLibrarianDatabase(NullLogger<MemoryLibrarianDatabase>.Instance);
-        ILibrarianContainer container = await database.GetContainer("contracts");
-        await container.AddItem("one", "{\"score\":1}");
-        if (await container.GetItem("one") != "{\"score\":1}")
+        ILibrarianContainer container = await database.GetContainer("contracts", cancellationToken: cancellationToken);
+        await container.AddItem("one", "{\"score\":1}", cancellationToken: cancellationToken);
+        if (await container.GetItem("one", cancellationToken: cancellationToken) != "{\"score\":1}")
             throw new Exception("Raw CRUD changed.");
         try
         {
@@ -46,12 +47,12 @@ public class AotContractTests
     }
 
     [Test]
-    public async ValueTask Nullable_aggregates_defaults_casts_and_unsupported_comparers_are_explicit()
+    public async ValueTask Nullable_aggregates_defaults_casts_and_unsupported_comparers_are_explicit(CancellationToken cancellationToken)
     {
         await using var database = new MemoryLibrarianDatabase(NullLogger<MemoryLibrarianDatabase>.Instance);
-        ILibrarianContainer container = await database.GetContainer("values");
-        await container.AddItem("one", "1");
-        await container.AddItem("two", "2");
+        ILibrarianContainer container = await database.GetContainer("values", cancellationToken: cancellationToken);
+        await container.AddItem("one", "1", cancellationToken: cancellationToken);
+        await container.AddItem("two", "2", cancellationToken: cancellationToken);
         IQueryable<int> root = container.BuildQueryable<int>();
         if (root.Sum() != 3 || root.Average() != 1.5 || root.Min() != 1 || root.Max() != 2)
             throw new Exception("Numeric aggregate changed.");

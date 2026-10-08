@@ -6,20 +6,21 @@ using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 using Soenneker.Librarian.Abstractions;
 using System.Text.Json;
+using System.Threading;
 
 namespace Soenneker.Librarian.Suite.Tests;
 
 public class PostgresExpandedQueryTests
 {
     [Test]
-    public async ValueTask Multi_key_ordering_and_projections_fetch_only_selected_fields()
+    public async ValueTask Multi_key_ordering_and_projections_fetch_only_selected_fields(CancellationToken cancellationToken)
     {
         await using var fixture = new PostgresPersistenceFixture();
-        ILibrarianContainer container = await fixture.Database.GetContainer("projection");
-        await container.AddItem("a", "{\"name\":\"B\",\"amount\":1,\"active\":true}");
-        await container.AddItem("b", "{\"name\":\"A\",\"amount\":1,\"active\":false}");
-        await container.AddItem("c", "{\"name\":\"C\",\"amount\":2,\"active\":true}");
-        await container.AddItem("d", "{\"name\":\"D\",\"amount\":2,\"active\":false}");
+        ILibrarianContainer container = await fixture.Database.GetContainer("projection", cancellationToken: cancellationToken);
+        await container.AddItem("a", "{\"name\":\"B\",\"amount\":1,\"active\":true}", cancellationToken: cancellationToken);
+        await container.AddItem("b", "{\"name\":\"A\",\"amount\":1,\"active\":false}", cancellationToken: cancellationToken);
+        await container.AddItem("c", "{\"name\":\"C\",\"amount\":2,\"active\":true}", cancellationToken: cancellationToken);
+        await container.AddItem("d", "{\"name\":\"D\",\"amount\":2,\"active\":false}", cancellationToken: cancellationToken);
         IQueryable<PostgresRow> query = container.BuildQueryable<PostgresRow>();
         PostgresRow.Reads.Value = 0;
         var page = query.OrderBy(row => row.Amount).ThenByDescending(row => row.Name)
@@ -42,14 +43,14 @@ public class PostgresExpandedQueryTests
     }
 
     [Test]
-    public async ValueTask String_search_preserves_literals_and_utf16_boundaries()
+    public async ValueTask String_search_preserves_literals_and_utf16_boundaries(CancellationToken cancellationToken)
     {
         await using var fixture = new PostgresPersistenceFixture();
-        ILibrarianContainer container = await fixture.Database.GetContainer("strings");
+        ILibrarianContainer container = await fixture.Database.GetContainer("strings", cancellationToken: cancellationToken);
         string[] names = ["A%_\\B", "AB", "prefix-tail", "prefix-😀-tail", "' OR 1=1 --", "", "Prefix-tail"];
-        for (var i = 0; i < names.Length; i++) await container.AddItem(i.ToString(), JsonUtil.Serialize(new { name = names[i] })!);
-        await container.AddItem("null", "{\"name\":null}");
-        await container.AddItem("missing", "{}");
+        for (var i = 0; i < names.Length; i++) await container.AddItem(i.ToString(), JsonUtil.Serialize(new { name = names[i] })!, cancellationToken: cancellationToken);
+        await container.AddItem("null", "{\"name\":null}", cancellationToken: cancellationToken);
+        await container.AddItem("missing", "{}", cancellationToken: cancellationToken);
         IQueryable<PostgresRow> query = container.BuildQueryable<PostgresRow>();
         foreach (string term in new[] { "prefix", "tail", "%_\\", "😀", "' OR 1=1 --", "", "\u1004" })
         {
@@ -63,14 +64,14 @@ public class PostgresExpandedQueryTests
     }
 
     [Test]
-    public async ValueTask Collection_membership_all_and_boolean_constants_execute_on_server()
+    public async ValueTask Collection_membership_all_and_boolean_constants_execute_on_server(CancellationToken cancellationToken)
     {
         await using var fixture = new PostgresPersistenceFixture();
-        ILibrarianContainer container = await fixture.Database.GetContainer("membership");
-        await container.AddItem("a", "{\"name\":\"A\",\"amount\":1}");
-        await container.AddItem("b", "{\"name\":\"B\",\"amount\":2}");
-        await container.AddItem("c", "{\"name\":null,\"amount\":3}");
-        await container.AddItem("d", "{\"amount\":4}");
+        ILibrarianContainer container = await fixture.Database.GetContainer("membership", cancellationToken: cancellationToken);
+        await container.AddItem("a", "{\"name\":\"A\",\"amount\":1}", cancellationToken: cancellationToken);
+        await container.AddItem("b", "{\"name\":\"B\",\"amount\":2}", cancellationToken: cancellationToken);
+        await container.AddItem("c", "{\"name\":null,\"amount\":3}", cancellationToken: cancellationToken);
+        await container.AddItem("d", "{\"amount\":4}", cancellationToken: cancellationToken);
         IQueryable<PostgresRow> query = container.BuildQueryable<PostgresRow>();
         string?[] names = ["A", null, "A"];
         var numbers = new List<decimal> { 2, 3 };
@@ -92,14 +93,14 @@ public class PostgresExpandedQueryTests
     }
 
     [Test]
-    public async ValueTask Numeric_aggregates_preserve_types_paging_and_empty_results()
+    public async ValueTask Numeric_aggregates_preserve_types_paging_and_empty_results(CancellationToken cancellationToken)
     {
         await using var fixture = new PostgresPersistenceFixture();
-        ILibrarianContainer container = await fixture.Database.GetContainer("aggregates");
+        ILibrarianContainer container = await fixture.Database.GetContainer("aggregates", cancellationToken: cancellationToken);
         NumericRow[] rows = [new() { Number = 1, Amount = 0.1m, Optional = 2, Fraction = 1.25 },
             new() { Number = 2, Amount = 0.2m, Optional = null, Fraction = 2.5 },
             new() { Number = 3, Amount = 0.3m, Optional = 4, Fraction = 3.75 }];
-        for (var i = 0; i < rows.Length; i++) await container.AddItem(i.ToString(), JsonUtil.Serialize(rows[i], TestJsonContext.Default.PostgresExpandedQueryTestsNumericRow));
+        for (var i = 0; i < rows.Length; i++) await container.AddItem(i.ToString(), JsonUtil.Serialize(rows[i], TestJsonContext.Default.PostgresExpandedQueryTestsNumericRow), cancellationToken: cancellationToken);
         IQueryable<NumericRow> query = container.BuildQueryable<NumericRow>();
         Check(query.Sum(row => row.Number) == 6, "Integer Sum failed.");
         Check(query.Average(row => row.Number) == 2d, "Integer Average return type failed.");
@@ -118,7 +119,7 @@ public class PostgresExpandedQueryTests
         Check(query.Where(row => row.Number == 2).Max(row => row.Optional) is null, "All-null Max failed.");
         var projected = query.Select(row => new { row.Number, row.Optional }).ToArray();
         Check(projected.Length == 3 && projected[1].Optional is null, "JSON name mapping or nullable projection failed.");
-        await container.AddItem("overflow", "{\"integer_value\":2147483647,\"amount\":0}");
+        await container.AddItem("overflow", "{\"integer_value\":2147483647,\"amount\":0}", cancellationToken: cancellationToken);
         try { query.Sum(row => row.Number); throw new Exception("Integer overflow was ignored."); } catch (OverflowException) { }
     }
 

@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Soenneker.Librarian.Abstractions;
 using Soenneker.Librarian.Abstractions.Queries;
 using Soenneker.Librarian.Memory;
+using System.Threading;
 
 namespace Soenneker.Librarian.Suite.Tests;
 
@@ -23,7 +24,7 @@ public class QueryPlannerTests
     }
 
     [Test]
-    public async ValueTask Composite_indexes_build_in_one_pass_and_only_materialize_the_page()
+    public async ValueTask Composite_indexes_build_in_one_pass_and_only_materialize_the_page(CancellationToken cancellationToken)
     {
         await using MemoryLibrarianDatabase database = Database();
         ILibrarianContainer container = await Populate(database);
@@ -39,13 +40,13 @@ public class QueryPlannerTests
         Check(query.Count() == 3 && query.Any(), "Composite terminals failed");
         Check(root.Count(row => row.Status == "target" && !row.Active) == 0, "Boolean negation failed");
         Check(PlannerRow.Created == 0, "Count/Any materialized documents");
-        await container.UpdateItemStrict("01700", "{\"score\":17,\"status\":\"other\",\"active\":false}");
+        await container.UpdateItemStrict("01700", "{\"score\":17,\"status\":\"other\",\"active\":false}", cancellationToken: cancellationToken);
         PlannerRow.Created = 0;
         Check(query.ToArray().Select(row => row.Score).SequenceEqual(new[] { 1600, 1500, 1400 }) && PlannerRow.Created == 3, "Index maintenance changed composite results");
     }
 
     [Test]
-    public async ValueTask Ordering_on_another_property_and_projected_paging_use_index_keys()
+    public async ValueTask Ordering_on_another_property_and_projected_paging_use_index_keys(CancellationToken cancellationToken)
     {
         await using MemoryLibrarianDatabase database = Database();
         ILibrarianContainer container = await Populate(database);
@@ -67,7 +68,7 @@ public class QueryPlannerTests
     }
 
     [Test]
-    public async ValueTask Residual_predicates_reuse_indexed_prefixes_and_stop_at_take()
+    public async ValueTask Residual_predicates_reuse_indexed_prefixes_and_stop_at_take(CancellationToken cancellationToken)
     {
         await using MemoryLibrarianDatabase database = Database();
         ILibrarianContainer container = await Populate(database);
@@ -81,12 +82,12 @@ public class QueryPlannerTests
         Check(root.Where(row => row.Status == "target").Where(row => row.Name.StartsWith("ok")).Take(3).ToArray().Length == 3 && PlannerRow.Created == 7,
             "Separate residual Where abandoned the index");
         Check(combined.Concat(root).Count() == 2003, "Residual replacement leaked into another query branch");
-        Check(await combined.Concat(root).CountAsync() == 2003, "Async execution lost the unfiltered query branch");
+        Check(await combined.Concat(root).CountAsync(cancellationToken: cancellationToken) == 2003, "Async execution lost the unfiltered query branch");
         Check(root.Where(row => row.Score == 1 && row.Name.StartsWith("ok")).Count() == 0, "Residual predicate was skipped by Count");
     }
 
     [Test]
-    public async ValueTask Multi_property_plans_match_reference_queries_across_bounds_and_pages()
+    public async ValueTask Multi_property_plans_match_reference_queries_across_bounds_and_pages(CancellationToken cancellationToken)
     {
         await using MemoryLibrarianDatabase database = Database();
         ILibrarianContainer container = await Populate(database);
@@ -115,7 +116,7 @@ public class QueryPlannerTests
     }
 
     [Test]
-    public async ValueTask Residual_short_circuiting_and_computed_projection_evaluation_are_preserved()
+    public async ValueTask Residual_short_circuiting_and_computed_projection_evaluation_are_preserved(CancellationToken cancellationToken)
     {
         await using MemoryLibrarianDatabase database = Database();
         ILibrarianContainer container = await Populate(database);
@@ -135,16 +136,16 @@ public class QueryPlannerTests
     private static bool Fails(PlannerRow row) => throw new InvalidOperationException("Expected");
 
     [Test]
-    public async ValueTask Composite_plans_remain_consistent_during_concurrent_creation_and_writes()
+    public async ValueTask Composite_plans_remain_consistent_during_concurrent_creation_and_writes(CancellationToken cancellationToken)
     {
         await using MemoryLibrarianDatabase database = Database();
-        ILibrarianContainer container = await database.GetContainer("concurrent");
+        ILibrarianContainer container = await database.GetContainer("concurrent", cancellationToken: cancellationToken);
         await Task.WhenAll(Enumerable.Range(0, 100).Select(i => Task.Run(async () =>
         {
-            await container.AddItem(i.ToString(), $"{{\"score\":{i},\"status\":\"target\",\"active\":true}}");
+            await container.AddItem(i.ToString(), $"{{\"score\":{i},\"status\":\"target\",\"active\":true}}", cancellationToken: cancellationToken);
             Check(container.BuildQueryable<PlannerRow>().Any(row => row.Score == i && row.Status == "target" && row.Active), "Concurrent insert missing");
-            await container.UpdateItemStrict(i.ToString(), $"{{\"score\":{i + 1000},\"status\":\"target\",\"active\":false}}");
-        })));
+            await container.UpdateItemStrict(i.ToString(), $"{{\"score\":{i + 1000},\"status\":\"target\",\"active\":false}}", cancellationToken: cancellationToken);
+        }, cancellationToken: cancellationToken)));
         Check(container.BuildQueryable<PlannerRow>().Count(row => row.Score >= 1000 && row.Status == "target" && !row.Active) == 100,
             "Concurrent index maintenance lost data");
     }

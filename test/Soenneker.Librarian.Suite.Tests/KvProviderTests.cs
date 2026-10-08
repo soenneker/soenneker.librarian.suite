@@ -6,27 +6,28 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Soenneker.Librarian.Abstractions;
 using Soenneker.Librarian.Kv;
 using Soenneker.Librarian.Kv.Registrars;
+using System.Threading;
 
 namespace Soenneker.Librarian.Suite.Tests;
 
 public class KvProviderTests
 {
     [Test]
-    public async ValueTask Oversized_snapshot_is_rejected_without_losing_pending_changes()
+    public async ValueTask Oversized_snapshot_is_rejected_without_losing_pending_changes(CancellationToken cancellationToken)
     {
         using var fixture = new CloudflareFixture("kv");
         await using ILibrarianDatabase db = fixture.Create();
-        ILibrarianContainer items = await db.GetContainer("items");
-        await items.AddItem("large", new string('x', 25 * 1024 * 1024));
+        ILibrarianContainer items = await db.GetContainer("items", cancellationToken: cancellationToken);
+        await items.AddItem("large", new string('x', 25 * 1024 * 1024), cancellationToken: cancellationToken);
         var rejected = false;
-        try { await db.Save(); }
+        try { await db.Save(cancellationToken: cancellationToken); }
         catch (InvalidOperationException) { rejected = true; }
         if (!rejected || fixture.Handler.Writes != 0)
             throw new Exception("Oversized snapshot reached Cloudflare.");
-        if (await items.GetItem("large") is null)
+        if (await items.GetItem("large", cancellationToken: cancellationToken) is null)
             throw new Exception("Failed save lost pending data.");
-        await items.DeleteItem("large");
-        await db.Save();
+        await items.DeleteItem("large", cancellationToken: cancellationToken);
+        await db.Save(cancellationToken: cancellationToken);
         if (fixture.Handler.Writes != 1) throw new Exception("Save did not recover.");
     }
 
@@ -58,7 +59,7 @@ public class KvProviderTests
     }
 
     [Test]
-    public async ValueTask Keyed_factory_registration_is_a_singleton_and_preserves_existing_registration()
+    public async ValueTask Keyed_factory_registration_is_a_singleton_and_preserves_existing_registration(CancellationToken cancellationToken)
     {
         using var fixture = new CloudflareFixture("kv");
         var services = new ServiceCollection();
@@ -68,8 +69,8 @@ public class KvProviderTests
         var db = provider.GetRequiredKeyedService<ILibrarianDatabase>("kv");
         if (!ReferenceEquals(db, provider.GetRequiredKeyedService<ILibrarianDatabase>("kv")))
             throw new Exception("Keyed registration is not a singleton.");
-        await (await db.GetContainer("items")).AddItem("a", "keyed");
-        await db.Save();
+        await (await db.GetContainer("items", cancellationToken: cancellationToken)).AddItem("a", "keyed", cancellationToken: cancellationToken);
+        await db.Save(cancellationToken: cancellationToken);
         if (fixture.Handler.Snapshot?.Contains("keyed", StringComparison.Ordinal) != true)
             throw new Exception("Keyed provider did not persist.");
     }

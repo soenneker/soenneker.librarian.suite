@@ -28,7 +28,7 @@ public sealed class MongoBatchTests
         return (new MongoLibrarianDatabase(store.Object, "test"), collection, session);
     }
     [Test]
-    public async Task Unmatched_version_aborts_without_applying_later_writes()
+    public async Task Unmatched_version_aborts_without_applying_later_writes(CancellationToken cancellationToken)
     {
         (MongoLibrarianDatabase database, Mock<IMongoCollection<BsonDocument>> collection, Mock<IClientSessionHandle> session) = Create();
         await using MongoLibrarianDatabase owned = database;
@@ -36,20 +36,20 @@ public sealed class MongoBatchTests
             .ReturnsAsync(new ReplaceOneResult.Acknowledged(0, 0, null));
         Check(!await database.Execute(new LibrarianBatch([
             new LibrarianWrite("items", "a", NativeDocumentJson.Create("a"), "stale"),
-            new LibrarianWrite("items", "b", NativeDocumentJson.Create("b"))])), "Stale batch committed.");
+            new LibrarianWrite("items", "b", NativeDocumentJson.Create("b"))]), cancellationToken: cancellationToken), "Stale batch committed.");
         session.Verify(s => s.AbortTransactionAsync(It.IsAny<CancellationToken>()), Times.Once);
         session.Verify(s => s.CommitTransactionAsync(It.IsAny<CancellationToken>()), Times.Never);
         collection.Verify(c => c.ReplaceOneAsync(session.Object, It.IsAny<FilterDefinition<BsonDocument>>(), It.IsAny<BsonDocument>(), It.IsAny<ReplaceOptions>(), It.IsAny<CancellationToken>()), Times.Once);
     }
     [Test]
-    public async Task Uncertain_commit_is_not_replayed()
+    public async Task Uncertain_commit_is_not_replayed(CancellationToken cancellationToken)
     {
         (MongoLibrarianDatabase database, Mock<IMongoCollection<BsonDocument>> collection, Mock<IClientSessionHandle> session) = Create();
         await using MongoLibrarianDatabase owned = database;
         collection.Setup(c => c.ReplaceOneAsync(session.Object, It.IsAny<FilterDefinition<BsonDocument>>(), It.IsAny<BsonDocument>(), It.IsAny<ReplaceOptions>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new ReplaceOneResult.Acknowledged(1, 1, null));
         session.Setup(s => s.CommitTransactionAsync(It.IsAny<CancellationToken>())).ThrowsAsync(new TimeoutException("Uncertain commit"));
-        try { await database.Execute(new LibrarianBatch([new LibrarianWrite("items", "a", NativeDocumentJson.Create("a"), "version")])); throw new Exception("Commit failure hidden."); }
+        try { await database.Execute(new LibrarianBatch([new LibrarianWrite("items", "a", NativeDocumentJson.Create("a"), "version")]), cancellationToken: cancellationToken); throw new Exception("Commit failure hidden."); }
         catch (TimeoutException) { }
         collection.Verify(c => c.ReplaceOneAsync(session.Object, It.IsAny<FilterDefinition<BsonDocument>>(), It.IsAny<BsonDocument>(), It.IsAny<ReplaceOptions>(), It.IsAny<CancellationToken>()), Times.Once);
         session.Verify(s => s.CommitTransactionAsync(It.IsAny<CancellationToken>()), Times.Once);

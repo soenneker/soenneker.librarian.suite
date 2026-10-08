@@ -8,95 +8,96 @@ using Microsoft.Extensions.DependencyInjection;
 using Soenneker.Librarian.Abstractions;
 using Soenneker.Librarian.Abstractions.Transactions;
 using Soenneker.Librarian.AzureBlob.Registrars;
+using System.Threading;
 
 namespace Soenneker.Librarian.Suite.Tests;
 
 public class AzureBlobProviderTests
 {
     [Test]
-    public async Task Save_unload_and_dispose_round_trip()
+    public async Task Save_unload_and_dispose_round_trip(CancellationToken cancellationToken)
     {
         var fixture = new AzureBlobFixture();
         await using (var db = fixture.Open())
         {
-            var items = await db.GetContainer("items");
-            await items.AddItem("a", "first");
+            var items = await db.GetContainer("items", cancellationToken: cancellationToken);
+            await items.AddItem("a", "first", cancellationToken: cancellationToken);
             Check(fixture.Snapshot is null, "Write persisted before Save.");
-            await db.Save();
-            await db.Save();
+            await db.Save(cancellationToken: cancellationToken);
+            await db.Save(cancellationToken: cancellationToken);
             Check(fixture.Writes == 1, "Unchanged save wrote again.");
-            await items.UpdateItem("a", "unloaded");
-            await db.UnloadContainer("items");
-            Check(await (await db.GetContainer("items")).GetItem("a") == "unloaded", "Unload lost data.");
-            await (await db.GetContainer("other")).AddItem("b", "disposed");
+            await items.UpdateItem("a", "unloaded", cancellationToken: cancellationToken);
+            await db.UnloadContainer("items", cancellationToken: cancellationToken);
+            Check(await (await db.GetContainer("items", cancellationToken: cancellationToken)).GetItem("a", cancellationToken: cancellationToken) == "unloaded", "Unload lost data.");
+            await (await db.GetContainer("other", cancellationToken: cancellationToken)).AddItem("b", "disposed", cancellationToken: cancellationToken);
         }
         await using var reopened = fixture.Open();
-        Check(await (await reopened.GetContainer("items")).GetItem("a") == "unloaded", "Reopen lost data.");
-        Check(await (await reopened.GetContainer("other")).GetItem("b") == "disposed", "Dispose did not save.");
+        Check(await (await reopened.GetContainer("items", cancellationToken: cancellationToken)).GetItem("a", cancellationToken: cancellationToken) == "unloaded", "Reopen lost data.");
+        Check(await (await reopened.GetContainer("other", cancellationToken: cancellationToken)).GetItem("b", cancellationToken: cancellationToken) == "disposed", "Dispose did not save.");
     }
 
     [Test]
-    public async Task Failed_save_and_batch_can_retry_without_publishing()
+    public async Task Failed_save_and_batch_can_retry_without_publishing(CancellationToken cancellationToken)
     {
         var fixture = new AzureBlobFixture();
         await using var db = fixture.Open();
-        var items = await db.GetContainer("items");
-        await items.AddItem("a", "before");
-        await db.Save();
+        var items = await db.GetContainer("items", cancellationToken: cancellationToken);
+        await items.AddItem("a", "before", cancellationToken: cancellationToken);
+        await db.Save(cancellationToken: cancellationToken);
         fixture.FailWrites = true;
         try
         {
-            await db.Execute(new LibrarianBatch([new LibrarianWrite("items", "a", "after")]));
+            await db.Execute(new LibrarianBatch([new LibrarianWrite("items", "a", "after")]), cancellationToken: cancellationToken);
             throw new Exception("Expected write failure.");
         }
         catch (RequestFailedException exception) when (exception.Status == 503) { }
-        Check(await items.GetItem("a") == "before", "Failed batch was published.");
-        await items.UpdateItem("a", "pending");
-        try { await db.Save(); throw new Exception("Expected save failure."); }
+        Check(await items.GetItem("a", cancellationToken: cancellationToken) == "before", "Failed batch was published.");
+        await items.UpdateItem("a", "pending", cancellationToken: cancellationToken);
+        try { await db.Save(cancellationToken: cancellationToken); throw new Exception("Expected save failure."); }
         catch (RequestFailedException exception) when (exception.Status == 503) { }
         fixture.FailWrites = false;
-        await db.Save();
+        await db.Save(cancellationToken: cancellationToken);
         Check(fixture.Snapshot!.Contains("pending", StringComparison.Ordinal), "Retry lost pending changes.");
     }
 
     [Test]
     [Arguments(false)]
     [Arguments(true)]
-    public async Task Stale_owner_cannot_overwrite_snapshot(bool existing)
+    public async Task Stale_owner_cannot_overwrite_snapshot(bool existing, CancellationToken cancellationToken)
     {
         var fixture = new AzureBlobFixture { Snapshot = existing ? "{}" : null };
         await using var first = fixture.Open();
         var second = fixture.Open();
-        await (await first.GetContainer("items")).AddItem("a", "winner");
-        await (await second.GetContainer("items")).AddItem("b", "stale");
-        await first.Save();
-        try { await second.Save(); throw new Exception("Expected concurrency conflict."); }
+        await (await first.GetContainer("items", cancellationToken: cancellationToken)).AddItem("a", "winner", cancellationToken: cancellationToken);
+        await (await second.GetContainer("items", cancellationToken: cancellationToken)).AddItem("b", "stale", cancellationToken: cancellationToken);
+        await first.Save(cancellationToken: cancellationToken);
+        try { await second.Save(cancellationToken: cancellationToken); throw new Exception("Expected concurrency conflict."); }
         catch (RequestFailedException exception) when (exception.Status == 412) { }
         await second.DiscardAndDispose();
         Check(fixture.Writes == 1 && !fixture.Snapshot!.Contains("stale", StringComparison.Ordinal), "Stale owner overwrote storage.");
     }
 
     [Test]
-    public async Task Missing_container_and_corrupt_snapshot_are_not_treated_as_empty()
+    public async Task Missing_container_and_corrupt_snapshot_are_not_treated_as_empty(CancellationToken cancellationToken)
     {
         var fixture = new AzureBlobFixture { ReadError = "ContainerNotFound" };
         await using var db = fixture.Open();
-        try { await db.GetContainer("items"); throw new Exception("Expected missing container error."); }
+        try { await db.GetContainer("items", cancellationToken: cancellationToken); throw new Exception("Expected missing container error."); }
         catch (RequestFailedException exception) when (exception.ErrorCode == "ContainerNotFound") { }
         fixture.ReadError = null;
         fixture.Snapshot = "null";
-        try { await db.GetContainer("items"); throw new Exception("Expected invalid snapshot error."); }
+        try { await db.GetContainer("items", cancellationToken: cancellationToken); throw new Exception("Expected invalid snapshot error."); }
         catch (InvalidDataException) { }
-        await db.Save();
+        await db.Save(cancellationToken: cancellationToken);
         Check(fixture.Writes == 0, "Failed load overwrote storage.");
         fixture.Snapshot = "{}";
-        await (await db.GetContainer("items")).AddItem("a", "recovered");
-        await db.Save();
+        await (await db.GetContainer("items", cancellationToken: cancellationToken)).AddItem("a", "recovered", cancellationToken: cancellationToken);
+        await db.Save(cancellationToken: cancellationToken);
         Check(fixture.Writes == 1, "Load did not recover.");
     }
 
     [Test]
-    public async Task Registrations_support_default_and_keyed_singletons()
+    public async Task Registrations_support_default_and_keyed_singletons(CancellationToken cancellationToken)
     {
         var first = new AzureBlobFixture();
         var second = new AzureBlobFixture();
@@ -108,13 +109,13 @@ public class AzureBlobProviderTests
         var keyed = provider.GetRequiredKeyedService<ILibrarianDatabase>("other");
         Check(ReferenceEquals(db, provider.GetRequiredService<ILibrarianDatabase>()), "Default registration is not singleton.");
         Check(!ReferenceEquals(db, keyed), "Keyed registration shares the default database.");
-        await (await keyed.GetContainer("items")).AddItem("a", "keyed");
-        await keyed.Save();
+        await (await keyed.GetContainer("items", cancellationToken: cancellationToken)).AddItem("a", "keyed", cancellationToken: cancellationToken);
+        await keyed.Save(cancellationToken: cancellationToken);
         Check(first.Snapshot is null && second.Snapshot is not null, "Keyed storage is not isolated.");
     }
 
     [Test]
-    public async Task Configuration_registration_resolves_without_network_access()
+    public async Task Configuration_registration_resolves_without_network_access(CancellationToken cancellationToken)
     {
         var services = new ServiceCollection();
         services.AddLogging();

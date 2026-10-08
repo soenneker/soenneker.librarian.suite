@@ -11,6 +11,7 @@ using Soenneker.Librarian.Mongo;
 using MongoDB.Bson.Serialization;
 using Soenneker.Librarian.Postgres;
 using Soenneker.Librarian.Redis;
+using System.Threading;
 
 namespace Soenneker.Librarian.Suite.Tests;
 
@@ -28,14 +29,14 @@ public sealed class GeneratedQueryTests
     }
 
     [Test]
-    public async Task Generated_lambdas_compose_through_branches_and_helpers()
+    public async Task Generated_lambdas_compose_through_branches_and_helpers(CancellationToken cancellationToken)
     {
         LibrarianJson.Register(GeneratedRowJsonContext.Default.GeneratedRow);
         await using var database = new MemoryLibrarianDatabase(NullLogger<MemoryLibrarianDatabase>.Instance);
-        ILibrarianContainer container = await database.GetContainer("generated");
-        await container.AddItem("1", "{\"age_value\":10,\"name\":\"Zoe\"}");
-        await container.AddItem("2", "{\"age_value\":30,\"name\":\"Amy\"}");
-        await container.AddItem("3", "{\"age_value\":40,\"name\":\"Bob\"}");
+        ILibrarianContainer container = await database.GetContainer("generated", cancellationToken: cancellationToken);
+        await container.AddItem("1", "{\"age_value\":10,\"name\":\"Zoe\"}", cancellationToken: cancellationToken);
+        await container.AddItem("2", "{\"age_value\":30,\"name\":\"Amy\"}", cancellationToken: cancellationToken);
+        await container.AddItem("3", "{\"age_value\":40,\"name\":\"Bob\"}", cancellationToken: cancellationToken);
         foreach (bool filter in new[] { true, false })
         {
             IQueryable<GeneratedRow> query = container.BuildQueryable<GeneratedRow>();

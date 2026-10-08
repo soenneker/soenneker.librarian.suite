@@ -26,7 +26,7 @@ public class ClientBrowserProviderTests
     [Arguments(0)]
     [Arguments(1)]
     [Arguments(2)]
-    public async Task Roundtrip_batches_and_conflicting_owners(int backend)
+    public async Task Roundtrip_batches_and_conflicting_owners(int backend, CancellationToken cancellationToken)
     {
         var storage = new Dictionary<string, string>();
         await using var firstModules = new ModuleImportUtil(new BrowserStorageRuntime(storage));
@@ -34,50 +34,50 @@ public class ClientBrowserProviderTests
         var staleRuntime = new BrowserStorageRuntime(storage);
         await using var staleModules = new ModuleImportUtil(staleRuntime);
         var stale = Open(backend, staleModules);
-        var a = await first.GetContainer("items");
-        var b = await stale.GetContainer("items");
-        await a.AddItem("one", "first");
-        await first.Save();
-        await b.AddItem("two", "stale");
-        try { await stale.Save(); throw new Exception("Conflict ignored"); }
+        var a = await first.GetContainer("items", cancellationToken: cancellationToken);
+        var b = await stale.GetContainer("items", cancellationToken: cancellationToken);
+        await a.AddItem("one", "first", cancellationToken: cancellationToken);
+        await first.Save(cancellationToken: cancellationToken);
+        await b.AddItem("two", "stale", cancellationToken: cancellationToken);
+        try { await stale.Save(cancellationToken: cancellationToken); throw new Exception("Conflict ignored"); }
         catch (LibrarianConcurrencyException) { }
         await stale.DiscardAsync();
         if (staleRuntime.Disposed) throw new Exception("Database disposed a shared module");
-        await first.Execute(new LibrarianBatch([new LibrarianWrite("items", "three", "batch")]));
+        await first.Execute(new LibrarianBatch([new LibrarianWrite("items", "three", "batch")]), cancellationToken: cancellationToken);
         await first.DisposeAsync();
         await using var reopenedModules = new ModuleImportUtil(new BrowserStorageRuntime(storage));
         await using var reopened = Open(backend, reopenedModules);
-        var items = await reopened.GetContainer("items");
-        if (await items.GetItem("one") != "first" || await items.GetItem("three") != "batch" || await items.GetItem("two") is not null)
+        var items = await reopened.GetContainer("items", cancellationToken: cancellationToken);
+        if (await items.GetItem("one", cancellationToken: cancellationToken) != "first" || await items.GetItem("three", cancellationToken: cancellationToken) != "batch" || await items.GetItem("two", cancellationToken: cancellationToken) is not null)
             throw new Exception("Stored data incorrect");
         await using var other = Open(backend, reopenedModules, "other-account");
-        if (await (await other.GetContainer("items")).GetItem("one") is not null) throw new Exception("Key isolation failed");
+        if (await (await other.GetContainer("items", cancellationToken: cancellationToken)).GetItem("one", cancellationToken: cancellationToken) is not null) throw new Exception("Key isolation failed");
     }
 
     [Test]
     [Arguments(0)]
     [Arguments(1)]
     [Arguments(2)]
-    public async Task Failed_batch_does_not_publish_and_save_can_retry(int backend)
+    public async Task Failed_batch_does_not_publish_and_save_can_retry(int backend, CancellationToken cancellationToken)
     {
         var runtime = new BrowserStorageRuntime(new Dictionary<string, string>());
         await using var modules = new ModuleImportUtil(runtime);
         await using var db = Open(backend, modules);
-        var items = await db.GetContainer("items");
-        await items.AddItem("one", "before");
-        await db.Save();
+        var items = await db.GetContainer("items", cancellationToken: cancellationToken);
+        await items.AddItem("one", "before", cancellationToken: cancellationToken);
+        await db.Save(cancellationToken: cancellationToken);
         runtime.FailWrite = true;
-        try { await db.Execute(new LibrarianBatch([new LibrarianWrite("items", "one", "after")])); throw new Exception("Failure ignored"); }
+        try { await db.Execute(new LibrarianBatch([new LibrarianWrite("items", "one", "after")]), cancellationToken: cancellationToken); throw new Exception("Failure ignored"); }
         catch (JSException) { }
-        if (await items.GetItem("one") != "before") throw new Exception("Failed batch published");
+        if (await items.GetItem("one", cancellationToken: cancellationToken) != "before") throw new Exception("Failed batch published");
         runtime.FailWrite = false;
-        await db.Execute(new LibrarianBatch([new LibrarianWrite("items", "one", "after")]));
+        await db.Execute(new LibrarianBatch([new LibrarianWrite("items", "one", "after")]), cancellationToken: cancellationToken);
         try { await db.GetContainer("items", new CancellationToken(true)); throw new Exception("Cancellation ignored"); }
         catch (OperationCanceledException) { }
     }
 
     [Test]
-    public async Task Browser_backends_share_the_scoped_module_importer()
+    public async Task Browser_backends_share_the_scoped_module_importer(CancellationToken cancellationToken)
     {
         var runtime = new BrowserStorageRuntime(new Dictionary<string, string>());
         var modules = new ModuleImportUtil(runtime);
@@ -86,14 +86,14 @@ public class ClientBrowserProviderTests
             await using var local = Open(0, modules);
             await using var indexed = Open(1, modules);
             await using var session = Open(2, modules);
-            await local.GetContainer("items");
-            var indexedItems = await indexed.GetContainer("items");
-            await session.GetContainer("items");
+            await local.GetContainer("items", cancellationToken: cancellationToken);
+            var indexedItems = await indexed.GetContainer("items", cancellationToken: cancellationToken);
+            await session.GetContainer("items", cancellationToken: cancellationToken);
             await local.DiscardAsync();
             if (runtime.Disposed || runtime.Imports != 1)
                 throw new Exception("Browser backends must share the importer-owned module.");
-            await indexedItems.AddItem("one", "value");
-            await indexed.Save();
+            await indexedItems.AddItem("one", "value", cancellationToken: cancellationToken);
+            await indexed.Save(cancellationToken: cancellationToken);
         }
         finally
         {

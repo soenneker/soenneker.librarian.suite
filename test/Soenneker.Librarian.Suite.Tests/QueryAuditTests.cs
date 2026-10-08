@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
 using Soenneker.Librarian.Abstractions;
 using Soenneker.Librarian.Memory;
+using System.Threading;
 
 namespace Soenneker.Librarian.Suite.Tests;
 
@@ -16,11 +17,11 @@ public class QueryAuditTests
     private static void Check(bool condition, string message) { if (!condition) throw new Exception(message); }
 
     [Test]
-    public async ValueTask Secondary_ordering_preserves_primary_order_and_paging()
+    public async ValueTask Secondary_ordering_preserves_primary_order_and_paging(CancellationToken cancellationToken)
     {
         await using var db = new MemoryLibrarianDatabase(NullLogger<MemoryLibrarianDatabase>.Instance);
-        ILibrarianContainer container = await db.GetContainer("audit");
-        for (var i = 0; i < 30; i++) await container.AddItem(i.ToString(), $"{{\"score\":{i % 3},\"name\":\"{30-i:D2}\"}}");
+        ILibrarianContainer container = await db.GetContainer("audit", cancellationToken: cancellationToken);
+        for (var i = 0; i < 30; i++) await container.AddItem(i.ToString(), $"{{\"score\":{i % 3},\"name\":\"{30-i:D2}\"}}", cancellationToken: cancellationToken);
         IQueryable<AuditRow> root = container.BuildQueryable<AuditRow>();
         AuditRow[] reference = root.ToArray();
         string[] actual = root.OrderBy(row => row.Score).ThenBy(row => row.Name).Skip(3).Take(12).Select(row => row.Name).ToArray();
@@ -30,11 +31,11 @@ public class QueryAuditTests
     }
 
     [Test]
-    public async ValueTask Separate_filters_stay_indexed_and_projection_only_reads_the_page()
+    public async ValueTask Separate_filters_stay_indexed_and_projection_only_reads_the_page(CancellationToken cancellationToken)
     {
         await using var db = new MemoryLibrarianDatabase(NullLogger<MemoryLibrarianDatabase>.Instance);
-        ILibrarianContainer container = await db.GetContainer("audit");
-        for (var i = 0; i < 300; i++) await container.AddItem(i.ToString(), $"{{\"score\":{i}}}");
+        ILibrarianContainer container = await db.GetContainer("audit", cancellationToken: cancellationToken);
+        for (var i = 0; i < 300; i++) await container.AddItem(i.ToString(), $"{{\"score\":{i}}}", cancellationToken: cancellationToken);
         IQueryable<AuditRow> root = container.BuildQueryable<AuditRow>();
         root.Count(row => row.Score == 0);
         AuditRow.Created = 0;
@@ -47,11 +48,11 @@ public class QueryAuditTests
     }
 
     [Test]
-    public async ValueTask Fallback_and_unindexed_paging_only_deserialize_consumed_documents()
+    public async ValueTask Fallback_and_unindexed_paging_only_deserialize_consumed_documents(CancellationToken cancellationToken)
     {
         await using var db = new MemoryLibrarianDatabase(NullLogger<MemoryLibrarianDatabase>.Instance);
-        ILibrarianContainer container = await db.GetContainer("audit");
-        for (var i = 0; i < 300; i++) await container.AddItem(i.ToString(), $"{{\"score\":{i}}}");
+        ILibrarianContainer container = await db.GetContainer("audit", cancellationToken: cancellationToken);
+        for (var i = 0; i < 300; i++) await container.AddItem(i.ToString(), $"{{\"score\":{i}}}", cancellationToken: cancellationToken);
         IQueryable<AuditRow> root = container.BuildQueryable<AuditRow>();
         AuditRow.Created = 0;
         Check(root.Take(10).ToArray().Length == 10 && AuditRow.Created == 10, "Unindexed Take deserialized everything");
@@ -60,16 +61,16 @@ public class QueryAuditTests
     }
 
     [Test]
-    public async ValueTask Reusable_projections_observe_closures_writes_and_preserve_exceptions()
+    public async ValueTask Reusable_projections_observe_closures_writes_and_preserve_exceptions(CancellationToken cancellationToken)
     {
         await using var db = new MemoryLibrarianDatabase(NullLogger<MemoryLibrarianDatabase>.Instance);
-        ILibrarianContainer container = await db.GetContainer("audit");
-        await container.AddItem("one", "{\"score\":1}");
+        ILibrarianContainer container = await db.GetContainer("audit", cancellationToken: cancellationToken);
+        await container.AddItem("one", "{\"score\":1}", cancellationToken: cancellationToken);
         var offset = 3;
         IQueryable<int> query = container.BuildQueryable<AuditRow>().Where(row => row.Score >= 0).Select(row => row.Score + offset);
         Check(query.Single() == 4, "Projection failed");
         offset = 7;
-        await container.UpdateItemStrict("one", "{\"score\":2}");
+        await container.UpdateItemStrict("one", "{\"score\":2}", cancellationToken: cancellationToken);
         Check(query.Single() == 9, "Projection cached data or closure value");
         Check(container.BuildQueryable<AuditRow>().Select((row, index) => row.Score + index).Single() == 2, "Indexed Select failed");
         IQueryable<int> fault = container.BuildQueryable<AuditRow>().Select(row => Fail(row));
@@ -81,11 +82,11 @@ public class QueryAuditTests
     private static int Fail(AuditRow row) => throw new InvalidOperationException("Expected");
 
     [Test]
-    public async ValueTask Field_backed_custom_getters_are_not_treated_as_stable_index_keys()
+    public async ValueTask Field_backed_custom_getters_are_not_treated_as_stable_index_keys(CancellationToken cancellationToken)
     {
         await using var db = new MemoryLibrarianDatabase(NullLogger<MemoryLibrarianDatabase>.Instance);
-        ILibrarianContainer container = await db.GetContainer("audit");
-        await container.AddItem("one", "{\"score\":5}");
+        ILibrarianContainer container = await db.GetContainer("audit", cancellationToken: cancellationToken);
+        await container.AddItem("one", "{\"score\":5}", cancellationToken: cancellationToken);
         IQueryable<FieldRow> root = container.BuildQueryable<FieldRow>();
         FieldRow.Adjustment = 0;
         Check(root.Count(row => row.Score == 5) == 1, "Custom getter failed");
@@ -94,11 +95,11 @@ public class QueryAuditTests
     }
 
     [Test]
-    public async ValueTask Randomized_composed_queries_match_linq_to_objects()
+    public async ValueTask Randomized_composed_queries_match_linq_to_objects(CancellationToken cancellationToken)
     {
         await using var db = new MemoryLibrarianDatabase(NullLogger<MemoryLibrarianDatabase>.Instance);
-        ILibrarianContainer container = await db.GetContainer("audit");
-        for (var i = 0; i < 80; i++) await container.AddItem(i.ToString(), $"{{\"score\":{i},\"name\":\"group-{i % 4}\"}}");
+        ILibrarianContainer container = await db.GetContainer("audit", cancellationToken: cancellationToken);
+        for (var i = 0; i < 80; i++) await container.AddItem(i.ToString(), $"{{\"score\":{i},\"name\":\"group-{i % 4}\"}}", cancellationToken: cancellationToken);
         IQueryable<AuditRow> root = container.BuildQueryable<AuditRow>();
         IQueryable<AuditRow> reference = root.ToArray().AsQueryable();
         var random = new Random(761);
@@ -124,32 +125,32 @@ public class QueryAuditTests
     }
 
     [Test]
-    public async ValueTask Scan_snapshots_are_detached_invalidated_on_mutation_and_skip_invalid_json()
+    public async ValueTask Scan_snapshots_are_detached_invalidated_on_mutation_and_skip_invalid_json(CancellationToken cancellationToken)
     {
         await using var db = new MemoryLibrarianDatabase(NullLogger<MemoryLibrarianDatabase>.Instance);
-        ILibrarianContainer container = await db.GetContainer("audit");
-        await container.AddItem("one", "{\"score\":1}");
-        await container.AddItem("bad", "invalid");
-        await container.AddItem("null", "null");
+        ILibrarianContainer container = await db.GetContainer("audit", cancellationToken: cancellationToken);
+        await container.AddItem("one", "{\"score\":1}", cancellationToken: cancellationToken);
+        await container.AddItem("bad", "invalid", cancellationToken: cancellationToken);
+        await container.AddItem("null", "null", cancellationToken: cancellationToken);
         IQueryable<AuditRow> root = container.BuildQueryable<AuditRow>();
         using IEnumerator<AuditRow> snapshot = root.GetEnumerator();
-        await container.UpdateItemStrict("one", "{\"score\":2}");
+        await container.UpdateItemStrict("one", "{\"score\":2}", cancellationToken: cancellationToken);
         Check(snapshot.MoveNext() && snapshot.Current.Score == 1 && !snapshot.MoveNext(), "Scan snapshot changed during enumeration");
         Check(root.Single().Score == 2, "Update did not invalidate scan");
-        await container.AddItem("two", "{\"score\":3}");
+        await container.AddItem("two", "{\"score\":3}", cancellationToken: cancellationToken);
         Check(root.Count() == 2, "Add did not invalidate scan");
-        await container.DeleteItem("one");
+        await container.DeleteItem("one", cancellationToken: cancellationToken);
         Check(root.Single().Score == 3, "Delete did not invalidate scan");
-        await container.DeleteAllItems();
+        await container.DeleteAllItems(cancellationToken: cancellationToken);
         Check(!root.Any(), "Clear did not invalidate scan");
     }
 
     [Test]
-    public async ValueTask Query_roots_are_cached_deferred_and_support_the_standard_provider_contract()
+    public async ValueTask Query_roots_are_cached_deferred_and_support_the_standard_provider_contract(CancellationToken cancellationToken)
     {
         await using var db = new MemoryLibrarianDatabase(NullLogger<MemoryLibrarianDatabase>.Instance);
-        ILibrarianContainer container = await db.GetContainer("audit");
-        await container.AddItem("one", "{\"score\":1}");
+        ILibrarianContainer container = await db.GetContainer("audit", cancellationToken: cancellationToken);
+        await container.AddItem("one", "{\"score\":1}", cancellationToken: cancellationToken);
         IQueryable<AuditRow> root = container.BuildQueryable<AuditRow>();
         AuditRow.Created = 0;
         long start = GC.GetAllocatedBytesForCurrentThread();

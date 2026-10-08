@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
 using Soenneker.Librarian.Abstractions;
 using Soenneker.Librarian.Memory;
+using System.Threading;
 
 namespace Soenneker.Librarian.Suite.Tests;
 
@@ -11,12 +12,12 @@ public class QueryBufferTests
 {
 
     [Test]
-    public async ValueTask Long_queries_and_many_indexes_preserve_paging_closures_and_empty_intersections()
+    public async ValueTask Long_queries_and_many_indexes_preserve_paging_closures_and_empty_intersections(CancellationToken cancellationToken)
     {
         await using var database = new MemoryLibrarianDatabase(NullLogger<MemoryLibrarianDatabase>.Instance);
-        ILibrarianContainer container = await database.GetContainer("wide");
+        ILibrarianContainer container = await database.GetContainer("wide", cancellationToken: cancellationToken);
         for (var i = 0; i < 40; i++)
-            await container.AddItem(i.ToString(), $"{{\"a\":{i},\"b\":{i % 2},\"c\":1,\"d\":1,\"e\":1,\"f\":1,\"g\":1,\"h\":1,\"i\":1,\"j\":1}}");
+            await container.AddItem(i.ToString(), $"{{\"a\":{i},\"b\":{i % 2},\"c\":1,\"d\":1,\"e\":1,\"f\":1,\"g\":1,\"h\":1,\"i\":1,\"j\":1}}", cancellationToken: cancellationToken);
         IQueryable<WideRow> root = container.BuildQueryable<WideRow>();
         var lower = 0;
         IQueryable<WideRow> wide = root.Where(row => row.A >= lower && row.B == 0 && row.C == 1 && row.D == 1 && row.E == 1

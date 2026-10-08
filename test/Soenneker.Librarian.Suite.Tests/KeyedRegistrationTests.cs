@@ -5,13 +5,14 @@ using Soenneker.Librarian.Abstractions;
 using Soenneker.Librarian.Memory.Registrars;
 using Soenneker.Librarian.Redis;
 using Soenneker.Librarian.Redis.Registrars;
+using System.Threading;
 
 namespace Soenneker.Librarian.Suite.Tests;
 
 public sealed class KeyedRegistrationTests
 {
     [Test]
-    public async Task Named_databases_coexist_and_memory_data_is_isolated()
+    public async Task Named_databases_coexist_and_memory_data_is_isolated(CancellationToken cancellationToken)
     {
         var services = new ServiceCollection();
         services.AddLogging();
@@ -31,13 +32,13 @@ public sealed class KeyedRegistrationTests
             throw new Exception("Default registration was replaced.");
         if (provider.GetRequiredKeyedService<ILibrarianDatabase>("redis") is not RedisLibrarianDatabase)
             throw new Exception("Wrong provider resolved.");
-        await (await first.GetContainer("items")).AddItem("one", "value");
-        if (await (await second.GetContainer("items")).CountItems() != 0)
+        await (await first.GetContainer("items", cancellationToken: cancellationToken)).AddItem("one", "value", cancellationToken: cancellationToken);
+        if (await (await second.GetContainer("items", cancellationToken: cancellationToken)).CountItems(cancellationToken: cancellationToken) != 0)
             throw new Exception("Named databases share memory data.");
     }
 
     [Test]
-    public async Task Named_scoped_databases_are_reused_only_within_the_scope()
+    public async Task Named_scoped_databases_are_reused_only_within_the_scope(CancellationToken cancellationToken)
     {
         var services = new ServiceCollection();
         services.AddLogging();

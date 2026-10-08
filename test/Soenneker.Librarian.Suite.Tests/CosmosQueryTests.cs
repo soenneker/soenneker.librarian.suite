@@ -16,20 +16,20 @@ namespace Soenneker.Librarian.Suite.Tests;
 public sealed class CosmosQueryTests
 {
     [Test]
-    public async Task EnsureIndex_validates_without_reading_or_changing_the_policy()
+    public async Task EnsureIndex_validates_without_reading_or_changing_the_policy(CancellationToken cancellationToken)
     {
         var store = new Mock<Container>(MockBehavior.Strict);
         store.SetupGet(c => c.Id).Returns("items");
         await using var database = new CosmosLibrarianDatabase(store.Object);
-        ILibrarianContainer items = await database.GetContainer("items");
-        await items.EnsureIndex("details.region");
-        try { await items.EnsureIndex("details..region"); throw new Exception("Invalid path accepted."); } catch (ArgumentException) { }
+        ILibrarianContainer items = await database.GetContainer("items", cancellationToken: cancellationToken);
+        await items.EnsureIndex("details.region", cancellationToken: cancellationToken);
+        try { await items.EnsureIndex("details..region", cancellationToken: cancellationToken); throw new Exception("Invalid path accepted."); } catch (ArgumentException) { }
         try { await items.EnsureIndex("name", new CancellationToken(true)); throw new Exception("Cancellation ignored."); } catch (OperationCanceledException) { }
         store.VerifyGet(c => c.Id, Times.Once);
         store.VerifyNoOtherCalls();
     }
     [Test]
-    public async Task Equality_and_range_pages_do_not_require_composite_ordering_or_policy_changes()
+    public async Task Equality_and_range_pages_do_not_require_composite_ordering_or_policy_changes(CancellationToken cancellationToken)
     {
         var store = new Mock<Container>(MockBehavior.Strict);
         store.SetupGet(c => c.Id).Returns("items");
@@ -46,9 +46,9 @@ public sealed class CosmosQueryTests
                 return iterator.Object;
             });
         await using var database = new CosmosLibrarianDatabase(store.Object);
-        ILibrarianContainer items = await database.GetContainer("items", "org-a");
-        await items.FindRangeByIndex<NativeDocument>("score_value", 1, 3, descending: true);
-        await items.FindByIndex<NativeDocument>("score_value", 2);
+        ILibrarianContainer items = await database.GetContainer("items", "org-a", cancellationToken: cancellationToken);
+        await items.FindRangeByIndex<NativeDocument>("score_value", 1, 3, descending: true, cancellationToken: cancellationToken);
+        await items.FindByIndex<NativeDocument>("score_value", 2, cancellationToken: cancellationToken);
         Check(queries[0].Contains("ORDER BY c[\"score_value\"] DESC OFFSET") && queries[1].Contains("ORDER BY c.id ASC OFFSET"), "Queries still inject composite ordering.");
         store.Verify(c => c.GetItemQueryStreamIterator(It.IsAny<QueryDefinition>(), It.IsAny<string>(), It.IsAny<QueryRequestOptions>()), Times.Exactly(2));
         store.VerifyGet(c => c.Id, Times.Once);

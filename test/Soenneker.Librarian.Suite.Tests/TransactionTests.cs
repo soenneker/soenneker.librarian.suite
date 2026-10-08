@@ -21,23 +21,23 @@ public class TransactionTests
     [Arguments("filesystem")]
     [Arguments("redis")]
     [Arguments("postgres")]
-    public async ValueTask Cross_container_conditions_and_writes_commit_together(string provider)
+    public async ValueTask Cross_container_conditions_and_writes_commit_together(string provider, CancellationToken cancellationToken)
     {
         await using var fixture = new BatchFixture(provider);
         ILibrarianDatabase db = fixture.Database;
-        ILibrarianContainer jobs = await db.GetContainer("jobs");
-        ILibrarianContainer leases = await db.GetContainer("leases");
-        await jobs.AddItem("job", "queued");
+        ILibrarianContainer jobs = await db.GetContainer("jobs", cancellationToken: cancellationToken);
+        ILibrarianContainer leases = await db.GetContainer("leases", cancellationToken: cancellationToken);
+        await jobs.AddItem("job", "queued", cancellationToken: cancellationToken);
         var claim = new LibrarianBatch(
             [new LibrarianWrite("jobs", "JOB", "running"), new LibrarianWrite("leases", "job", "token-1")],
             [new LibrarianCondition("jobs", "job", "queued"), new LibrarianCondition("leases", "job", null)]);
-        Check(await db.Execute(claim), "Claim did not commit.");
-        Check(await jobs.GetItem("job") == "running" && await leases.GetItem("job") == "token-1", "Claim was incomplete.");
-        Check(!await db.Execute(claim), "Stale condition succeeded.");
-        Check(await db.Execute(new LibrarianBatch([new LibrarianWrite("jobs", "job", "done"), new LibrarianWrite("leases", "JOB", null)], [new LibrarianCondition("leases", "job", "token-1")])), "Finish failed.");
-        Check(await jobs.GetItem("job") == "done" && await leases.GetItem("job") is null, "Finish was incomplete.");
-        await (await db.GetContainer("Jobs")).AddItem("job", "separate");
-        Check(await jobs.GetItem("job") == "done", "Container case sensitivity changed.");
+        Check(await db.Execute(claim, cancellationToken: cancellationToken), "Claim did not commit.");
+        Check(await jobs.GetItem("job", cancellationToken: cancellationToken) == "running" && await leases.GetItem("job", cancellationToken: cancellationToken) == "token-1", "Claim was incomplete.");
+        Check(!await db.Execute(claim, cancellationToken: cancellationToken), "Stale condition succeeded.");
+        Check(await db.Execute(new LibrarianBatch([new LibrarianWrite("jobs", "job", "done"), new LibrarianWrite("leases", "JOB", null)], [new LibrarianCondition("leases", "job", "token-1")]), cancellationToken: cancellationToken), "Finish failed.");
+        Check(await jobs.GetItem("job", cancellationToken: cancellationToken) == "done" && await leases.GetItem("job", cancellationToken: cancellationToken) is null, "Finish was incomplete.");
+        await (await db.GetContainer("Jobs", cancellationToken: cancellationToken)).AddItem("job", "separate", cancellationToken: cancellationToken);
+        Check(await jobs.GetItem("job", cancellationToken: cancellationToken) == "done", "Container case sensitivity changed.");
     }
 
     [Test]
@@ -45,16 +45,16 @@ public class TransactionTests
     [Arguments("filesystem")]
     [Arguments("redis")]
     [Arguments("postgres")]
-    public async ValueTask Rejected_or_cancelled_batch_changes_nothing(string provider)
+    public async ValueTask Rejected_or_cancelled_batch_changes_nothing(string provider, CancellationToken cancellationToken)
     {
         await using var fixture = new BatchFixture(provider);
         ILibrarianDatabase db = fixture.Database;
-        ILibrarianContainer items = await db.GetContainer("items");
-        await items.AddItem("a", "original");
-        Check(!await db.Execute(new LibrarianBatch([new LibrarianWrite("items", "a", "changed"), new LibrarianWrite("other", "new", "new")], [new LibrarianCondition("items", "a", "stale")])), "Condition ignored.");
+        ILibrarianContainer items = await db.GetContainer("items", cancellationToken: cancellationToken);
+        await items.AddItem("a", "original", cancellationToken: cancellationToken);
+        Check(!await db.Execute(new LibrarianBatch([new LibrarianWrite("items", "a", "changed"), new LibrarianWrite("other", "new", "new")], [new LibrarianCondition("items", "a", "stale")]), cancellationToken: cancellationToken), "Condition ignored.");
         try { await db.Execute(new LibrarianBatch([new LibrarianWrite("items", "a", "cancelled")]), new CancellationToken(true)); throw new Exception("Cancellation ignored."); }
         catch (OperationCanceledException) { }
-        Check(await items.GetItem("a") == "original" && await (await db.GetContainer("other")).GetItem("new") is null, "Rejected batch leaked changes.");
+        Check(await items.GetItem("a", cancellationToken: cancellationToken) == "original" && await (await db.GetContainer("other", cancellationToken: cancellationToken)).GetItem("new", cancellationToken: cancellationToken) is null, "Rejected batch leaked changes.");
     }
 
     [Test]
@@ -62,26 +62,26 @@ public class TransactionTests
     [Arguments("filesystem")]
     [Arguments("redis")]
     [Arguments("postgres")]
-    public async ValueTask Index_validation_rolls_back_the_whole_batch_and_success_updates_indexes(string provider)
+    public async ValueTask Index_validation_rolls_back_the_whole_batch_and_success_updates_indexes(string provider, CancellationToken cancellationToken)
     {
         await using var fixture = new BatchFixture(provider);
         ILibrarianDatabase db = fixture.Database;
-        ILibrarianContainer items = await db.GetContainer("items");
-        await items.AddItem("a", "{\"amount\":1}");
-        await items.AddItem("b", "{\"amount\":1}");
-        await items.EnsureIndex("amount");
+        ILibrarianContainer items = await db.GetContainer("items", cancellationToken: cancellationToken);
+        await items.AddItem("a", "{\"amount\":1}", cancellationToken: cancellationToken);
+        await items.AddItem("b", "{\"amount\":1}", cancellationToken: cancellationToken);
+        await items.EnsureIndex("amount", cancellationToken: cancellationToken);
         Check(items.BuildQueryable<RedisRow>().Count(row => row.Amount == 1) == 2, "Query setup failed.");
         try
         {
-            await db.Execute(new LibrarianBatch([new LibrarianWrite("other", "x", "leaked"), new LibrarianWrite("items", "a", "{\"amount\":{}}") ]));
+            await db.Execute(new LibrarianBatch([new LibrarianWrite("other", "x", "leaked"), new LibrarianWrite("items", "a", "{\"amount\":{}}") ]), cancellationToken: cancellationToken);
             throw new Exception("Invalid index value accepted.");
         }
         catch (ArgumentException) { }
-        Check(await (await db.GetContainer("other")).GetItem("x") is null && await items.CountByIndex("amount", 1) == 2, "Validation leaked changes.");
-        Check(await db.Execute(new LibrarianBatch([new LibrarianWrite("items", "a", null), new LibrarianWrite("items", "b", "{\"amount\":2}"), new LibrarianWrite("items", "c", "{\"amount\":1}")])), "Indexed batch failed.");
-        Check(await items.CountByIndex("amount", 1) == 1 && await items.CountByIndex("amount", 2) == 1, "Explicit indexes are stale.");
+        Check(await (await db.GetContainer("other", cancellationToken: cancellationToken)).GetItem("x", cancellationToken: cancellationToken) is null && await items.CountByIndex("amount", 1, cancellationToken: cancellationToken) == 2, "Validation leaked changes.");
+        Check(await db.Execute(new LibrarianBatch([new LibrarianWrite("items", "a", null), new LibrarianWrite("items", "b", "{\"amount\":2}"), new LibrarianWrite("items", "c", "{\"amount\":1}")]), cancellationToken: cancellationToken), "Indexed batch failed.");
+        Check(await items.CountByIndex("amount", 1, cancellationToken: cancellationToken) == 1 && await items.CountByIndex("amount", 2, cancellationToken: cancellationToken) == 1, "Explicit indexes are stale.");
         Check(items.BuildQueryable<RedisRow>().Count(row => row.Amount == 1 || row.Amount == 2) == 2, "Automatic indexes are stale.");
-        Check(await db.Execute(new LibrarianBatch([new LibrarianWrite("items", "c", null), new LibrarianWrite("items", "d", "{\"amount\":1}")])), "Bucket replacement failed.");
+        Check(await db.Execute(new LibrarianBatch([new LibrarianWrite("items", "c", null), new LibrarianWrite("items", "d", "{\"amount\":1}")]), cancellationToken: cancellationToken), "Bucket replacement failed.");
         Check(items.BuildQueryable<RedisRow>().Count(row => row.Amount == 1) == 1, "Same-value replacement lost the distinct index.");
     }
 
@@ -90,13 +90,13 @@ public class TransactionTests
     [Arguments("filesystem")]
     [Arguments("redis")]
     [Arguments("postgres")]
-    public async ValueTask Only_one_competing_claim_commits(string provider)
+    public async ValueTask Only_one_competing_claim_commits(string provider, CancellationToken cancellationToken)
     {
         await using var fixture = new BatchFixture(provider);
         ILibrarianDatabase db = fixture.Database;
-        await (await db.GetContainer("jobs")).AddItem("job", "queued");
+        await (await db.GetContainer("jobs", cancellationToken: cancellationToken)).AddItem("job", "queued", cancellationToken: cancellationToken);
         bool[] results = await Task.WhenAll(Enumerable.Range(0, 12).Select(i => db.Execute(new LibrarianBatch(
-            [new LibrarianWrite("jobs", "job", "running"), new LibrarianWrite("leases", "job", i.ToString())], [new LibrarianCondition("jobs", "job", "queued")])).AsTask()));
+            [new LibrarianWrite("jobs", "job", "running"), new LibrarianWrite("leases", "job", i.ToString())], [new LibrarianCondition("jobs", "job", "queued")]), cancellationToken: cancellationToken).AsTask()));
         Check(results.Count(success => success) == 1, "More than one worker claimed the job.");
     }
 
@@ -105,54 +105,54 @@ public class TransactionTests
     [Arguments("filesystem")]
     [Arguments("redis")]
     [Arguments("postgres")]
-    public async ValueTask Ordinary_reads_never_observe_half_a_batch(string provider)
+    public async ValueTask Ordinary_reads_never_observe_half_a_batch(string provider, CancellationToken cancellationToken)
     {
         await using var fixture = new BatchFixture(provider);
         ILibrarianDatabase db = fixture.Database;
-        ILibrarianContainer items = await db.GetContainer("items");
-        await db.Execute(new LibrarianBatch([new LibrarianWrite("items", "a", "0"), new LibrarianWrite("items", "b", "0")]));
+        ILibrarianContainer items = await db.GetContainer("items", cancellationToken: cancellationToken);
+        await db.Execute(new LibrarianBatch([new LibrarianWrite("items", "a", "0"), new LibrarianWrite("items", "b", "0")]), cancellationToken: cancellationToken);
         Task writer = Task.Run(async () =>
         {
-            for (var i = 1; i <= 20; i++) await db.Execute(new LibrarianBatch([new LibrarianWrite("items", "a", i.ToString()), new LibrarianWrite("items", "b", i.ToString())]));
-        });
+            for (var i = 1; i <= 20; i++) await db.Execute(new LibrarianBatch([new LibrarianWrite("items", "a", i.ToString()), new LibrarianWrite("items", "b", i.ToString())]), cancellationToken: cancellationToken);
+        }, cancellationToken: cancellationToken);
         for (var i = 0; i < 30; i++)
         {
-            List<string> values = await items.GetAllItems();
+            List<string> values = await items.GetAllItems(cancellationToken: cancellationToken);
             Check(values.Count == 2 && values[0] == values[1], "Observed a partially published batch.");
         }
         await writer;
     }
 
     [Test]
-    public async ValueTask Filesystem_failed_write_preserves_disk_and_memory_and_can_retry()
+    public async ValueTask Filesystem_failed_write_preserves_disk_and_memory_and_can_retry(CancellationToken cancellationToken)
     {
         await using var fixture = new PersistenceFixture();
         FileSystemLibrarianDatabase db = fixture.Database;
-        ILibrarianContainer items = await db.GetContainer("items");
-        await items.AddItem("a", "original");
-        await db.Save();
-        string before = (await fixture.Files.Inner.Read(fixture.Path));
+        ILibrarianContainer items = await db.GetContainer("items", cancellationToken: cancellationToken);
+        await items.AddItem("a", "original", cancellationToken: cancellationToken);
+        await db.Save(cancellationToken: cancellationToken);
+        string before = (await fixture.Files.Inner.Read(fixture.Path, cancellationToken: cancellationToken));
         var batch = new LibrarianBatch([new LibrarianWrite("items", "a", "changed"), new LibrarianWrite("other", "b", "new")]);
         fixture.Files.BeforeWrite = (_, _) => throw new IOException("Injected batch failure");
-        try { await db.Execute(batch); throw new Exception("Expected IO failure."); }
+        try { await db.Execute(batch, cancellationToken: cancellationToken); throw new Exception("Expected IO failure."); }
         catch (IOException) { }
         finally { fixture.Files.BeforeWrite = null; }
-        Check((await fixture.Files.Inner.Read(fixture.Path)) == before && await items.GetItem("a") == "original", "Failed persistence leaked changes.");
-        Check(await db.Execute(batch), "Retry failed.");
-        Check((await fixture.Files.Inner.Read(fixture.Path)).Contains("changed") && (await fixture.Files.Inner.Read(fixture.Path)).Contains("new"), "Execute returned before persistence.");
+        Check((await fixture.Files.Inner.Read(fixture.Path, cancellationToken: cancellationToken)) == before && await items.GetItem("a", cancellationToken: cancellationToken) == "original", "Failed persistence leaked changes.");
+        Check(await db.Execute(batch, cancellationToken: cancellationToken), "Retry failed.");
+        Check((await fixture.Files.Inner.Read(fixture.Path, cancellationToken: cancellationToken)).Contains("changed") && (await fixture.Files.Inner.Read(fixture.Path, cancellationToken: cancellationToken)).Contains("new"), "Execute returned before persistence.");
     }
 
     [Test]
-    public async ValueTask Redis_independent_instances_compete_on_the_same_condition()
+    public async ValueTask Redis_independent_instances_compete_on_the_same_condition(CancellationToken cancellationToken)
     {
         await using var fixture = new RedisPersistenceFixture();
         await using RedisLibrarianDatabase other = fixture.CreateDatabase();
-        await (await fixture.Database.GetContainer("jobs")).AddItem("job", "queued");
+        await (await fixture.Database.GetContainer("jobs", cancellationToken: cancellationToken)).AddItem("job", "queued", cancellationToken: cancellationToken);
         var first = new LibrarianBatch([new LibrarianWrite("jobs", "job", "running"), new LibrarianWrite("leases", "job", "first")], [new LibrarianCondition("jobs", "job", "queued")]);
         var second = new LibrarianBatch([new LibrarianWrite("jobs", "job", "running"), new LibrarianWrite("leases", "job", "second")], [new LibrarianCondition("jobs", "job", "queued")]);
-        bool[] results = await Task.WhenAll(fixture.Database.Execute(first).AsTask(), other.Execute(second).AsTask());
+        bool[] results = await Task.WhenAll(fixture.Database.Execute(first, cancellationToken: cancellationToken).AsTask(), other.Execute(second, cancellationToken: cancellationToken).AsTask());
         Check(results.Count(success => success) == 1, "Cross-instance claim was not atomic.");
-        Check(await (await other.GetContainer("leases")).GetItem("job") == (results[0] ? "first" : "second"), "Lease did not match the winner.");
+        Check(await (await other.GetContainer("leases", cancellationToken: cancellationToken)).GetItem("job", cancellationToken: cancellationToken) == (results[0] ? "first" : "second"), "Lease did not match the winner.");
     }
 
     [Test]
