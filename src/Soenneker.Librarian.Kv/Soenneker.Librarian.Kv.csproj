@@ -44,7 +44,7 @@
     </ItemGroup>
 
     <ItemGroup>
-        <PackageReference Include="Soenneker.Cloudflare.Workers.Kv" Version="4.0.165" />
+        <PackageReference Include="Soenneker.Cloudflare.Workers.Kv" Version="4.0.166" />
         <ProjectReference Include="../Soenneker.Librarian.Core/Soenneker.Librarian.Core.csproj" />
     </ItemGroup>
 </Project>
