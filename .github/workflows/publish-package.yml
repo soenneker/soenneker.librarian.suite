@@ -71,7 +71,10 @@ jobs:
         shell: bash
         run: |
           notes="$(git log -1 --pretty=%B | sed '/^Co-authored-by:/d')"
-          delimiter="NOTES_$(openssl rand -hex 16)"
+          delimiter="RELEASE_NOTES_${RANDOM}_${RANDOM}_${RANDOM}"
+          while [[ "$notes" == *"$delimiter"* ]]; do
+            delimiter="RELEASE_NOTES_${RANDOM}_${RANDOM}_${RANDOM}"
+          done
           {
             echo "PACKAGE_RELEASE_NOTES<<$delimiter"
             printf '%s\n' "$notes"
