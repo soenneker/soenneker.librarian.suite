@@ -45,7 +45,7 @@
 
     <ItemGroup>
         <PackageReference Include="Microsoft.JSInterop" Version="10.0.12" />
-        <PackageReference Include="Soenneker.Blazor.Utils.ModuleImport" Version="4.0.1909" />
+        <PackageReference Include="Soenneker.Blazor.Utils.ModuleImport" Version="4.0.1910" />
         <ProjectReference Include="../Soenneker.Librarian.Core/Soenneker.Librarian.Core.csproj" />
     </ItemGroup>
 </Project>
