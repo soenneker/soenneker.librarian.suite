@@ -50,7 +50,7 @@
         <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" Version="10.0.12" />
         <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.12" />
         <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
-        <PackageReference Include="Soenneker.Cosmos.Container" Version="4.0.2581" />
+        <PackageReference Include="Soenneker.Cosmos.Container" Version="4.0.2582" />
         <ProjectReference Include="../Soenneker.Librarian.Abstractions/Soenneker.Librarian.Abstractions.csproj" />
     </ItemGroup>
 </Project>
