@@ -11,8 +11,8 @@
     <DefaultItemExcludes>$(DefaultItemExcludes);artifacts/**;out/**;node_modules/**</DefaultItemExcludes>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="Soenneker.Gen.Razor.Sitemaps" Version="4.0.143" PrivateAssets="all" />
-    <PackageReference Include="Soenneker.Quark.Suite" Version="4.0.1548" />
+    <PackageReference Include="Soenneker.Gen.Razor.Sitemaps" Version="4.0.146" PrivateAssets="all" />
+    <PackageReference Include="Soenneker.Quark.Suite" Version="4.0.1554" />
     <EmbeddedResource Include="../../benchmarks/Soenneker.Librarian.Benchmarks/sqlite-net-results.csv" LogicalName="Librarian.BenchmarkComparison.csv" />
   </ItemGroup>
 </Project>

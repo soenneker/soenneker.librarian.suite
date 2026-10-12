@@ -44,13 +44,13 @@
     </ItemGroup>
 
     <ItemGroup>
-        <PackageReference Include="Soenneker.Asyncs.Semaphores" Version="4.0.18" />
-        <PackageReference Include="Soenneker.Atomics.ValueBools" Version="4.0.46" />
+        <PackageReference Include="Soenneker.Asyncs.Semaphores" Version="4.0.20" />
+        <PackageReference Include="Soenneker.Atomics.ValueBools" Version="4.0.47" />
         <PackageReference Include="Microsoft.Azure.Cosmos" Version="3.63.2" />
         <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" Version="10.0.12" />
         <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.12" />
         <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
-        <PackageReference Include="Soenneker.Cosmos.Container" Version="4.0.2581" />
+        <PackageReference Include="Soenneker.Cosmos.Container" Version="4.0.2584" />
         <ProjectReference Include="../Soenneker.Librarian.Abstractions/Soenneker.Librarian.Abstractions.csproj" />
     </ItemGroup>
 </Project>
