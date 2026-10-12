@@ -43,10 +43,10 @@ internal sealed class CosmosQueryable<T>
     public IQueryable<TElement> CreateQuery<TElement>(Expression expression) => new CosmosQueryable<TElement>(_native.Provider.CreateQuery<TElement>(expression), _check, _store, _options, _scope);
     public IQueryable CreateQuery(Expression expression) => QueryTypes.CreateQuery(this, expression);
 
-    public IEnumerator<T> GetEnumerator() => Execute<IEnumerable<T>>(Expression).GetEnumerator();
+    public IEnumerator<T> GetEnumerator() => throw new NotSupportedException("Synchronous query execution is not supported by this provider. Use Librarian asynchronous query operations.");
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
-    public object? Execute(Expression expression) { _check(); return _native.Provider.Execute(expression); }
-    public TResult Execute<TResult>(Expression expression) => ExecuteAsync<TResult>(expression).AsTask().GetAwaiter().GetResult();
+    object? IQueryProvider.Execute(Expression expression) => throw new NotSupportedException("Synchronous query execution is not supported by this provider. Use Librarian asynchronous query operations.");
+    TResult IQueryProvider.Execute<TResult>(Expression expression) => throw new NotSupportedException("Synchronous query execution is not supported by this provider. Use Librarian asynchronous query operations.");
 
     public async ValueTask<LibrarianPage<TElement>> ReadPage<TElement>(Expression expression, int pageSize, string? continuationToken = null,
         CancellationToken cancellationToken = default)
@@ -82,7 +82,7 @@ internal sealed class CosmosQueryable<T>
         return new LibrarianPage<TElement>(page.ToList(), next);
     }
 
-    public async ValueTask<TResult> ExecuteAsync<TResult>(Expression expression, CancellationToken cancellationToken = default)
+    public async ValueTask<TResult> Execute<TResult>(Expression expression, CancellationToken cancellationToken = default)
     {
         _check();
         cancellationToken.ThrowIfCancellationRequested();

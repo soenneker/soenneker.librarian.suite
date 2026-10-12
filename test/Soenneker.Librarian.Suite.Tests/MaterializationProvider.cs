@@ -10,10 +10,10 @@ namespace Soenneker.Librarian.Suite.Tests;
 
 internal sealed class MaterializationProvider<T>(Func<IEnumerable<T>> source) : ILibrarianAsyncQueryProvider
 {
-    public ValueTask<TResult> ExecuteAsync<TResult>(Expression expression, CancellationToken cancellationToken = default)
+    public ValueTask<TResult> Execute<TResult>(Expression expression, CancellationToken cancellationToken = default)
         => ValueTask.FromResult((TResult)(object)source());
     public IQueryable CreateQuery(Expression expression) => throw new NotSupportedException();
     public IQueryable<TElement> CreateQuery<TElement>(Expression expression) => throw new NotSupportedException();
-    public object? Execute(Expression expression) => throw new NotSupportedException();
-    public TResult Execute<TResult>(Expression expression) => throw new NotSupportedException();
+    object? IQueryProvider.Execute(Expression expression) => throw new NotSupportedException();
+    TResult IQueryProvider.Execute<TResult>(Expression expression) => throw new NotSupportedException();
 }

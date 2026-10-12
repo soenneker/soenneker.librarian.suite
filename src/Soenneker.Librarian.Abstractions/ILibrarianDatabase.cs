@@ -9,6 +9,23 @@ namespace Soenneker.Librarian.Abstractions;
 /// <summary>
 /// A document database implemented by a memory, filesystem, secure MAUI, browser, Redis, PostgreSQL, MongoDB, Cosmos DB, CouchDB, or Cloudflare provider.
 /// </summary>
+/// <remarks>
+/// Turso and SurrealDB persist individual JSON documents immediately; Save and MarkDirty perform no I/O.
+/// Configure Librarian:Turso:ConnectionString (Turso ADO.NET) or Librarian:SurrealDb:ConnectionString
+/// (Server=...;Namespace=...;Database=...;Username=...;Password=...), with an optional Key defaulting to librarian.
+/// Turso supports remote connections and persistent local files, but rejects private in-memory databases and replica mode.
+/// Turso document IDs are case-insensitive; SurrealDB IDs are case-sensitive. Container names and database keys are case-sensitive.
+/// Turso accepts raw-value conditions, expected revisions, and create-only batch writes. SurrealDB batches accept
+/// expected revisions and create-only writes, and reject raw-value conditions. Each provider coordinates all writes
+/// for one logical database; SurrealDB writes share a guard record to protect conditions under snapshot isolation.
+/// External writers must preserve provider metadata and participate in that coordination protocol.
+/// Batches are never automatically replayed; a transport failure after dispatch may leave the commit outcome unknown.
+/// SurrealDB requires version 3.3 or later, a provisioned namespace/database, and permission to define tables and indexes.
+/// Its provider preserves the original JSON string and stores encoded scalar fields for indexing; numeric scalars must fit decimal.
+/// SurrealDB clients supplied by the caller remain caller-owned. Unload invalidates handles without deleting stored data.
+/// Both providers include trimming/AOT analyzers, but their SDK dependency chains produce publish warnings; full
+/// Native AOT compatibility is not guaranteed. The local Turso path has a separate native smoke test.
+/// </remarks>
 public interface ILibrarianDatabase : IAsyncDisposable
 {
     /// <summary>Gets a container scoped to an explicit, case-sensitive partition. Requires partition support.</summary>
@@ -47,7 +64,7 @@ public interface ILibrarianDatabase : IAsyncDisposable
     /// MongoDB batches span collections and require a replica set or sharded cluster. Confirmed pre-commit conflicts return false.
     /// Cosmos uses TransactionalBatch: at most 100 writes in one container and one Document.PartitionKey. SDK size limits apply.
     /// Neither provider automatically replays a batch. Transport failures or cancellation can leave the commit outcome unknown.
-    /// Other providers reject ExpectedVersion and CreateOnly instead of silently ignoring them.
+    /// Turso and SurrealDB also accept ExpectedVersion and CreateOnly. Other providers reject these options instead of silently ignoring them.
     /// MongoDB writes outside Librarian must preserve its identity and revision metadata to maintain version checks.</remarks>
     ValueTask<bool> Execute(LibrarianBatch batch, CancellationToken cancellationToken = default) =>
         throw new NotSupportedException("This provider does not support atomic batches.");

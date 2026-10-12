@@ -14,6 +14,8 @@
     </ItemGroup>
 
     <ItemGroup>
+        <ProjectReference Include="../../src/Soenneker.Librarian.SurrealDb/Soenneker.Librarian.SurrealDb.csproj" />
+        <ProjectReference Include="../../src/Soenneker.Librarian.Turso/Soenneker.Librarian.Turso.csproj" />
         <ProjectReference Include="../../src/Soenneker.Librarian.LocalStorage/Soenneker.Librarian.LocalStorage.csproj" />
         <ProjectReference Include="../../src/Soenneker.Librarian.SessionStorage/Soenneker.Librarian.SessionStorage.csproj" />
         <ProjectReference Include="../../src/Soenneker.Librarian.IndexedDb/Soenneker.Librarian.IndexedDb.csproj" />

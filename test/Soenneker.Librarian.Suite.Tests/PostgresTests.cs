@@ -46,23 +46,23 @@ public class PostgresTests
         for (var i = 0; i < 20; i++) await items.AddItem(i.ToString("D2"), $"{{\"amount\":{i},\"name\":\"row-{i}\",\"active\":{(i % 2 == 0 ? "true" : "false")}}}", cancellationToken: cancellationToken);
         IQueryable<PostgresRow> query = items.BuildQueryable<PostgresRow>();
         PostgresRow.Reads.Value = 0;
-        Check(query.Count(row => row.Amount >= 5 && (row.Amount < 10 || row.Amount == 15)) == 6, "Boolean SQL filtering failed.");
-        Check(query.LongCount(row => !row.Active) == 10 && query.Any(row => row.Amount == 19), "SQL aggregates failed.");
+        Check((await query.ExecuteAsync(q => q.Count(row => row.Amount >= 5 && (row.Amount < 10 || row.Amount == 15)), cancellationToken)) == 6, "Boolean SQL filtering failed.");
+        Check((await query.ExecuteAsync(q => q.LongCount(row => !row.Active), cancellationToken)) == 10 && (await query.ExecuteAsync(q => q.Any(row => row.Amount == 19), cancellationToken)), "SQL aggregates failed.");
         Check(PostgresRow.Reads.Value == 0, "Aggregate deserialized documents.");
-        PostgresRow[] page = query.Where(row => row.Amount >= 5).OrderByDescending(row => row.Amount).Skip(2).Take(3).ToArray();
+        PostgresRow[] page = (await query.Where(row => row.Amount >= 5).OrderByDescending(row => row.Amount).Skip(2).Take(3).ToArrayAsync(cancellationToken));
         Check(page.Select(row => row.Amount).SequenceEqual(new decimal[] { 17, 16, 15 }), "SQL page order failed.");
         Check(PostgresRow.Reads.Value == 3, "Page deserialized extra documents.");
-        Check(query.Take(7).Skip(2).Take(3).Count() == 3 && !query.Take(0).Any(), "Composed paging failed.");
-        Check(query.Single(row => row.Amount == 12).Amount == 12, "Single failed.");
-        Check(query.First(row => row.Amount >= 18).Amount == 18, "First failed.");
-        Check(query.FirstOrDefault(row => row.Amount == 99) is null, "Empty FirstOrDefault failed.");
-        try { query.Single(); throw new Exception("Single accepted multiple rows."); } catch (InvalidOperationException) { }
-        try { query.Where(row => row.Name!.Trim() == "row").ToArray(); throw new Exception("Unsupported query scanned locally."); } catch (NotSupportedException) { }
-        Check(query.Take(5).Where(row => row.Active).Count() == 3, "Post-page filter moved before paging.");
-        Check(query.Count(row => row.Name!.Length > 2) == 20, "String length failed.");
+        Check((await query.ExecuteAsync(q => q.Take(7).Skip(2).Take(3).Count(), cancellationToken)) == 3 && !(await query.ExecuteAsync(q => q.Take(0).Any(), cancellationToken)), "Composed paging failed.");
+        Check((await query.ExecuteAsync(q => q.Single(row => row.Amount == 12), cancellationToken)).Amount == 12, "Single failed.");
+        Check((await query.ExecuteAsync(q => q.First(row => row.Amount >= 18), cancellationToken)).Amount == 18, "First failed.");
+        Check((await query.ExecuteAsync(q => q.FirstOrDefault(row => row.Amount == 99), cancellationToken)) is null, "Empty FirstOrDefault failed.");
+        try { _ = (await query.ExecuteAsync(q => q.Single(), cancellationToken)); throw new Exception("Single accepted multiple rows."); } catch (InvalidOperationException) { }
+        try { _ = (await query.Where(row => row.Name!.Trim() == "row").ToArrayAsync(cancellationToken)); throw new Exception("Unsupported query scanned locally."); } catch (NotSupportedException) { }
+        Check((await query.ExecuteAsync(q => q.Take(5).Where(row => row.Active).Count(), cancellationToken)) == 3, "Post-page filter moved before paging.");
+        Check((await query.ExecuteAsync(q => q.Count(row => row.Name!.Length > 2), cancellationToken)) == 20, "String length failed.");
         IQueryable<PostgresRow> deferred = query.Where(row => row.Amount == 99);
         await items.AddItem("new", "{\"amount\":99}", cancellationToken: cancellationToken);
-        Check(deferred.Any(), "Deferred query retained stale data.");
+        Check((await deferred.ExecuteAsync(q => q.Any(), cancellationToken)), "Deferred query retained stale data.");
     }
 
     [Test]
@@ -82,7 +82,7 @@ public class PostgresTests
         Check(range.Items.Select(row => row.Amount).SequenceEqual(new[] { decimal.MinValue, 0.0000000000000000000000000001m, decimal.MaxValue }), "Decimal precision lost.");
         LibrarianQueryResult<PostgresRow> strings = await items.FindRangeByIndex<PostgresRow>("name", cancellationToken: cancellationToken);
         Check(strings.Items.Select(row => row.Name).SequenceEqual(new string?[] { null, "😀", "\uE000" }), "Ordinal UTF-16 ordering changed.");
-        Check(items.BuildQueryable<PostgresRow>().Count(row => row.Name != null) == 3, "Missing-property complement changed.");
+        Check((await items.BuildQueryable<PostgresRow>().ExecuteAsync(q => q.Count(row => row.Name != null), cancellationToken)) == 3, "Missing-property complement changed.");
     }
 
     [Test]

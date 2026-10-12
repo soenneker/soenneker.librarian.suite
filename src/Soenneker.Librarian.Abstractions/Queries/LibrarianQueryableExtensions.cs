@@ -27,7 +27,7 @@ public static class LibrarianQueryableExtensions
     public static async ValueTask<List<T>> ToListAsync<T>(this IQueryable<T> query,
         CancellationToken cancellationToken = default)
     {
-        IEnumerable<T> source = await Provider(query).ExecuteAsync<IEnumerable<T>>(query.Expression, cancellationToken)
+        IEnumerable<T> source = await Provider(query).Execute<IEnumerable<T>>(query.Expression, cancellationToken)
                                                      .NoSync();
         var results = new List<T>(source.TryGetNonEnumeratedCount(out int count) ? count : 0);
         foreach (T item in source)
@@ -44,7 +44,7 @@ public static class LibrarianQueryableExtensions
     public static async ValueTask<T[]> ToArrayAsync<T>(this IQueryable<T> query,
         CancellationToken cancellationToken = default)
     {
-        IEnumerable<T> source = await Provider(query).ExecuteAsync<IEnumerable<T>>(query.Expression, cancellationToken).NoSync();
+        IEnumerable<T> source = await Provider(query).Execute<IEnumerable<T>>(query.Expression, cancellationToken).NoSync();
         cancellationToken.ThrowIfCancellationRequested();
         T[] result = (source is ICollection<T> || !cancellationToken.CanBeCanceled
             ? source : WithCancellation(source, cancellationToken)).ToArray();
@@ -120,7 +120,7 @@ public static class LibrarianQueryableExtensions
         ArgumentNullException.ThrowIfNull(operation);
         ILibrarianAsyncQueryProvider provider = Provider(query);
         Expression expression = new QueryExpressionReplacement(operation.Parameters[0], query.Expression).Visit(operation.Body)!;
-        return provider.ExecuteAsync<TResult>(expression, cancellationToken);
+        return provider.Execute<TResult>(expression, cancellationToken);
     }
 
     private static ValueTask<bool> All<T>(IQueryable<T> query, Expression<Func<T, bool>> predicate,
@@ -129,7 +129,7 @@ public static class LibrarianQueryableExtensions
         ArgumentNullException.ThrowIfNull(predicate);
         var call = (MethodCallExpression)QueryTerminals<T>.All.Body;
         return Provider(query)
-            .ExecuteAsync<bool>(call.Update(null, [query.Expression, Expression.Quote(predicate)]), token);
+            .Execute<bool>(call.Update(null, [query.Expression, Expression.Quote(predicate)]), token);
     }
 
     private static ILibrarianAsyncQueryProvider Provider<T>(IQueryable<T> query)

@@ -1,3 +1,4 @@
+using Soenneker.Librarian.Abstractions.Queries;
 using Soenneker.Utils.Json;
 using System;
 using System.Collections.Generic;
@@ -23,23 +24,23 @@ public class PostgresExpandedQueryTests
         await container.AddItem("d", "{\"name\":\"D\",\"amount\":2,\"active\":false}", cancellationToken: cancellationToken);
         IQueryable<PostgresRow> query = container.BuildQueryable<PostgresRow>();
         PostgresRow.Reads.Value = 0;
-        var page = query.OrderBy(row => row.Amount).ThenByDescending(row => row.Name)
-            .Skip(1).Take(2).Select(row => new { row.Name, row.Active }).ToArray();
+        var page = (await query.OrderBy(row => row.Amount).ThenByDescending(row => row.Name)
+            .Skip(1).Take(2).Select(row => new { row.Name, row.Active }).ToArrayAsync(cancellationToken));
         Check(page.Select(row => row.Name).SequenceEqual(new[] { "A", "D" }), "Multiple ordering keys or page boundaries changed.");
         Check(PostgresRow.Reads.Value == 0, "Projection deserialized the source document.");
-        string?[] scalar = query.OrderByDescending(row => row.Amount).ThenBy(row => row.Name).Select(row => row.Name).Skip(1).Take(2).ToArray();
+        string?[] scalar = (await query.OrderByDescending(row => row.Amount).ThenBy(row => row.Name).Select(row => row.Name).Skip(1).Take(2).ToArrayAsync(cancellationToken));
         Check(scalar.SequenceEqual(new[] { "D", "A" }), "Paging after projection changed ordering.");
-        ProjectionDto dto = query.Where(row => row.Name == "B").Select(row => new ProjectionDto { Label = row.Name, Value = row.Amount }).Single();
+        ProjectionDto dto = (await query.ExecuteAsync(q => q.Where(row => row.Name == "B").Select(row => new ProjectionDto { Label = row.Name, Value = row.Amount }).Single(), cancellationToken));
         Check(dto.Label == "B" && dto.Value == 1, "Member initializer projection failed.");
-        Check(query.Where(row => row.Name == "C").Select(row => new ProjectionRecord(row.Name!, row.Amount)).First().Amount == 2,
+        Check((await query.ExecuteAsync(q => q.Where(row => row.Name == "C").Select(row => new ProjectionRecord(row.Name!, row.Amount)).First(), cancellationToken)).Amount == 2,
             "Constructor projection failed.");
-        Check(query.Select(row => row.Name).Count() == 4, "Projection aggregate failed.");
-        Check(query.Where(row => row.Amount == 9).Select(row => row.Amount).FirstOrDefault() == 0, "Scalar default was incorrect.");
-        Check(query.Where(row => row.Amount == 9).Select(row => new { row.Name }).FirstOrDefault() is null, "Reference default was incorrect.");
+        Check((await query.ExecuteAsync(q => q.Select(row => row.Name).Count(), cancellationToken)) == 4, "Projection aggregate failed.");
+        Check((await query.ExecuteAsync(q => q.Where(row => row.Amount == 9).Select(row => row.Amount).FirstOrDefault(), cancellationToken)) == 0, "Scalar default was incorrect.");
+        Check((await query.ExecuteAsync(q => q.Where(row => row.Amount == 9).Select(row => new { row.Name }).FirstOrDefault(), cancellationToken)) is null, "Reference default was incorrect.");
         Check(PostgresRow.Reads.Value == 0, "Scalar projection fetched full objects.");
-        Check(query.Select(row => row.Amount + 1).First() == 2, "Computed projection failed.");
-        Check(query.Select(row => row.Name).Where(name => name == "A").Single() == "A", "Projected filter failed.");
-        Reject(() => query.OrderBy(row => row.Name, StringComparer.OrdinalIgnoreCase).ToArray());
+        Check((await query.ExecuteAsync(q => q.Select(row => row.Amount + 1).First(), cancellationToken)) == 2, "Computed projection failed.");
+        Check((await query.ExecuteAsync(q => q.Select(row => row.Name).Where(name => name == "A").Single(), cancellationToken)) == "A", "Projected filter failed.");
+        await Reject(async () => { _ = (await query.OrderBy(row => row.Name, StringComparer.OrdinalIgnoreCase).ToArrayAsync(cancellationToken)); });
     }
 
     [Test]
@@ -54,13 +55,13 @@ public class PostgresExpandedQueryTests
         IQueryable<PostgresRow> query = container.BuildQueryable<PostgresRow>();
         foreach (string term in new[] { "prefix", "tail", "%_\\", "😀", "' OR 1=1 --", "", "\u1004" })
         {
-            Check(query.Count(row => row.Name!.StartsWith(term)) == names.Count(name => name.StartsWith(term, StringComparison.Ordinal)), "Prefix mismatch.");
-            Check(query.Count(row => row.Name!.EndsWith(term, StringComparison.Ordinal)) == names.Count(name => name.EndsWith(term, StringComparison.Ordinal)), "Suffix mismatch.");
-            Check(query.Count(row => row.Name!.Contains(term)) == names.Count(name => name.Contains(term, StringComparison.Ordinal)), "Substring mismatch.");
+            Check((await query.ExecuteAsync(q => q.Count(row => row.Name!.StartsWith(term)), cancellationToken)) == names.Count(name => name.StartsWith(term, StringComparison.Ordinal)), "Prefix mismatch.");
+            Check((await query.ExecuteAsync(q => q.Count(row => row.Name!.EndsWith(term, StringComparison.Ordinal)), cancellationToken)) == names.Count(name => name.EndsWith(term, StringComparison.Ordinal)), "Suffix mismatch.");
+            Check((await query.ExecuteAsync(q => q.Count(row => row.Name!.Contains(term)), cancellationToken)) == names.Count(name => name.Contains(term, StringComparison.Ordinal)), "Substring mismatch.");
         }
-        Check(query.Count(row => row.Name!.StartsWith("prefix") && row.Name.EndsWith("tail")) == 2, "Composed string predicates failed.");
-        Reject(() => query.Count(row => row.Name!.Contains("PREFIX", StringComparison.OrdinalIgnoreCase)));
-        Reject(() => query.Count(row => row.Name!.StartsWith("prefix", StringComparison.CurrentCulture)));
+        Check((await query.ExecuteAsync(q => q.Count(row => row.Name!.StartsWith("prefix") && row.Name.EndsWith("tail")), cancellationToken)) == 2, "Composed string predicates failed.");
+        await Reject(async () => { _ = (await query.ExecuteAsync(q => q.Count(row => row.Name!.Contains("PREFIX", StringComparison.OrdinalIgnoreCase)), cancellationToken)); });
+        await Reject(async () => { _ = (await query.ExecuteAsync(q => q.Count(row => row.Name!.StartsWith("prefix", StringComparison.CurrentCulture)), cancellationToken)); });
     }
 
     [Test]
@@ -76,20 +77,20 @@ public class PostgresExpandedQueryTests
         string?[] names = ["A", null, "A"];
         var numbers = new List<decimal> { 2, 3 };
         var set = new HashSet<string> { "A", "B" };
-        Check(query.Count(row => names.Contains(row.Name)) == 2, "IN did not preserve explicit null or duplicate semantics.");
-        Check(query.Count(row => numbers.Contains(row.Amount)) == 2, "List membership failed.");
-        Check(query.Count(row => set.Contains(row.Name!)) == 2, "Set membership failed.");
-        Check(query.Count(row => new[] { "A", "B" }.Contains(row.Name)) == 2, "Inline array membership failed.");
+        Check((await query.ExecuteAsync(q => q.Count(row => names.Contains(row.Name)), cancellationToken)) == 2, "IN did not preserve explicit null or duplicate semantics.");
+        Check((await query.ExecuteAsync(q => q.Count(row => numbers.Contains(row.Amount)), cancellationToken)) == 2, "List membership failed.");
+        Check((await query.ExecuteAsync(q => q.Count(row => set.Contains(row.Name!)), cancellationToken)) == 2, "Set membership failed.");
+        Check((await query.ExecuteAsync(q => q.Count(row => new[] { "A", "B" }.Contains(row.Name)), cancellationToken)) == 2, "Inline array membership failed.");
         decimal[] empty = [];
-        Check(!query.Any(row => empty.Contains(row.Amount)), "Empty membership matched rows.");
-        Check(query.All(row => row.Amount >= 1) && !query.All(row => row.Amount > 1), "All failed.");
-        Check(query.Where(row => row.Amount > 99).All(row => row.Amount < 0), "Empty All must be true.");
-        Check(query.Count(row => true) == 4 && !query.Any(row => false), "Constant predicate failed.");
+        Check(!(await query.ExecuteAsync(q => q.Any(row => empty.Contains(row.Amount)), cancellationToken)), "Empty membership matched rows.");
+        Check((await query.ExecuteAsync(q => q.All(row => row.Amount >= 1), cancellationToken)) && !(await query.ExecuteAsync(q => q.All(row => row.Amount > 1), cancellationToken)), "All failed.");
+        Check((await query.ExecuteAsync(q => q.Where(row => row.Amount > 99).All(row => row.Amount < 0), cancellationToken)), "Empty All must be true.");
+        Check((await query.ExecuteAsync(q => q.Count(row => true), cancellationToken)) == 4 && !(await query.ExecuteAsync(q => q.Any(row => false), cancellationToken)), "Constant predicate failed.");
         PostgresRow.Reads.Value = 0;
-        Check(query.All(row => !empty.Contains(row.Amount)), "Negated membership failed.");
+        Check((await query.ExecuteAsync(q => q.All(row => !empty.Contains(row.Amount)), cancellationToken)), "Negated membership failed.");
         Check(PostgresRow.Reads.Value == 0, "All deserialized documents.");
         var insensitive = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "a" };
-        Reject(() => query.Count(row => insensitive.Contains(row.Name!)));
+        await Reject(async () => { _ = (await query.ExecuteAsync(q => q.Count(row => insensitive.Contains(row.Name!)), cancellationToken)); });
     }
 
     [Test]
@@ -102,30 +103,30 @@ public class PostgresExpandedQueryTests
             new() { Number = 3, Amount = 0.3m, Optional = 4, Fraction = 3.75 }];
         for (var i = 0; i < rows.Length; i++) await container.AddItem(i.ToString(), JsonUtil.Serialize(rows[i], TestJsonContext.Default.PostgresExpandedQueryTestsNumericRow), cancellationToken: cancellationToken);
         IQueryable<NumericRow> query = container.BuildQueryable<NumericRow>();
-        Check(query.Sum(row => row.Number) == 6, "Integer Sum failed.");
-        Check(query.Average(row => row.Number) == 2d, "Integer Average return type failed.");
-        Check(query.Sum(row => row.Amount) == 0.6m && query.Average(row => row.Amount) == 0.2m, "Decimal aggregate precision failed.");
-        Check(query.Min(row => row.Amount) == 0.1m && query.Max(row => row.Amount) == 0.3m, "Min/Max failed.");
-        Check(query.Sum(row => row.Optional) == 6 && query.Average(row => row.Optional) == 3d, "Nullable aggregates failed.");
-        Check(query.Sum(row => row.Fraction) == 7.5, "Floating point sum failed.");
-        Check(query.OrderByDescending(row => row.Number).Skip(1).Take(1).Sum(row => row.Amount) == 0.2m, "Aggregate ignored paging.");
-        Check(query.Select(row => row.Amount).Sum() == 0.6m && query.Select(row => row.Number).Average() == 2d, "Projected aggregate failed.");
+        Check((await query.ExecuteAsync(q => q.Sum(row => row.Number), cancellationToken)) == 6, "Integer Sum failed.");
+        Check((await query.ExecuteAsync(q => q.Average(row => row.Number), cancellationToken)) == 2d, "Integer Average return type failed.");
+        Check((await query.ExecuteAsync(q => q.Sum(row => row.Amount), cancellationToken)) == 0.6m && (await query.ExecuteAsync(q => q.Average(row => row.Amount), cancellationToken)) == 0.2m, "Decimal aggregate precision failed.");
+        Check((await query.ExecuteAsync(q => q.Min(row => row.Amount), cancellationToken)) == 0.1m && (await query.ExecuteAsync(q => q.Max(row => row.Amount), cancellationToken)) == 0.3m, "Min/Max failed.");
+        Check((await query.ExecuteAsync(q => q.Sum(row => row.Optional), cancellationToken)) == 6 && (await query.ExecuteAsync(q => q.Average(row => row.Optional), cancellationToken)) == 3d, "Nullable aggregates failed.");
+        Check((await query.ExecuteAsync(q => q.Sum(row => row.Fraction), cancellationToken)) == 7.5, "Floating point sum failed.");
+        Check((await query.ExecuteAsync(q => q.OrderByDescending(row => row.Number).Skip(1).Take(1).Sum(row => row.Amount), cancellationToken)) == 0.2m, "Aggregate ignored paging.");
+        Check((await query.ExecuteAsync(q => q.Select(row => row.Amount).Sum(), cancellationToken)) == 0.6m && (await query.ExecuteAsync(q => q.Select(row => row.Number).Average(), cancellationToken)) == 2d, "Projected aggregate failed.");
         IQueryable<NumericRow> empty = query.Where(row => row.Number > 99);
-        Check(empty.Sum(row => row.Number) == 0 && empty.Sum(row => row.Optional) == 0, "Empty Sum failed.");
-        Check(empty.Min(row => row.Optional) is null && empty.Average(row => row.Optional) is null, "Empty nullable result failed.");
-        try { empty.Average(row => row.Number); throw new Exception("Empty Average accepted."); } catch (InvalidOperationException) { }
-        try { empty.Max(row => row.Amount); throw new Exception("Empty Max accepted."); } catch (InvalidOperationException) { }
-        Check(query.Where(row => row.Number == 2).Sum(row => row.Optional) == 0, "All-null Sum failed.");
-        Check(query.Where(row => row.Number == 2).Max(row => row.Optional) is null, "All-null Max failed.");
-        var projected = query.Select(row => new { row.Number, row.Optional }).ToArray();
+        Check((await empty.ExecuteAsync(q => q.Sum(row => row.Number), cancellationToken)) == 0 && (await empty.ExecuteAsync(q => q.Sum(row => row.Optional), cancellationToken)) == 0, "Empty Sum failed.");
+        Check((await empty.ExecuteAsync(q => q.Min(row => row.Optional), cancellationToken)) is null && (await empty.ExecuteAsync(q => q.Average(row => row.Optional), cancellationToken)) is null, "Empty nullable result failed.");
+        try { _ = (await empty.ExecuteAsync(q => q.Average(row => row.Number), cancellationToken)); throw new Exception("Empty Average accepted."); } catch (InvalidOperationException) { }
+        try { _ = (await empty.ExecuteAsync(q => q.Max(row => row.Amount), cancellationToken)); throw new Exception("Empty Max accepted."); } catch (InvalidOperationException) { }
+        Check((await query.ExecuteAsync(q => q.Where(row => row.Number == 2).Sum(row => row.Optional), cancellationToken)) == 0, "All-null Sum failed.");
+        Check((await query.ExecuteAsync(q => q.Where(row => row.Number == 2).Max(row => row.Optional), cancellationToken)) is null, "All-null Max failed.");
+        var projected = (await query.Select(row => new { row.Number, row.Optional }).ToArrayAsync(cancellationToken));
         Check(projected.Length == 3 && projected[1].Optional is null, "JSON name mapping or nullable projection failed.");
         await container.AddItem("overflow", "{\"integer_value\":2147483647,\"amount\":0}", cancellationToken: cancellationToken);
-        try { query.Sum(row => row.Number); throw new Exception("Integer overflow was ignored."); } catch (OverflowException) { }
+        try { _ = (await query.ExecuteAsync(q => q.Sum(row => row.Number), cancellationToken)); throw new Exception("Integer overflow was ignored."); } catch (OverflowException) { }
     }
 
-    private static void Reject(Action action)
+    private static async ValueTask Reject(Func<ValueTask> action)
     {
-        try { action(); throw new Exception("Unsupported expression was accepted."); }
+        try { await action(); throw new Exception("Unsupported expression was accepted."); }
         catch (NotSupportedException) { }
     }
 

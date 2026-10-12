@@ -125,7 +125,9 @@ public interface ILibrarianContainer : IDisposable
     /// Missing indexed properties are excluded from ordering; negated equality includes missing properties.
     /// PostgreSQL unsupported expressions throw NotSupportedException. SQL OFFSET may visit skipped index entries.</remarks>
     /// <remarks>All built-in providers except CouchDB support the async terminal extensions in LibrarianQueryableExtensions.
-    /// Remote providers await I/O; local providers run cancellable CPU work without Task.Run.</remarks>
+    /// Remote providers await I/O; local providers run cancellable CPU work without Task.Run.
+    /// Redis, PostgreSQL, Cosmos, Turso, and SurrealDB require asynchronous terminal operations;
+    /// synchronous LINQ execution and enumeration throw NotSupportedException.</remarks>
     /// <remarks>MongoDB delegates LINQ translation to the MongoDB driver's LINQ3 provider. Filtering, ordering,
     /// grouping, aggregates, nested arrays, and supported projections execute on the server without requiring a bounded page.
     /// Registered JSON contracts supply member names and serialization directly over top-level BSON document fields.
@@ -140,6 +142,11 @@ public interface ILibrarianContainer : IDisposable
     /// Cosmos indexing policies for additional composite ordering. Unsupported expressions are rejected by the SDK.</remarks>
     /// <remarks>CouchDB rejects LINQ translation. Use explicit JSON-path index methods for reflection-free server queries.
     /// An unscoped CouchDB container queries all Document partitions; explicit handles filter one partition.</remarks>
+    /// <remarks>Turso and SurrealDB support a single field == constant predicate, one indexed OrderBy/OrderByDescending,
+    /// Skip, Take, Count, LongCount, and Any. Filtering and ordering must use the same field; descending equality queries
+    /// are unsupported. Sequence queries require an indexed field and bounded Take. Field mapping requires generated query
+    /// metadata. Captured predicate values, projections, and other expressions throw; explicit index APIs accept runtime values.
+    /// SurrealDB ensures native indexes on demand. Neither provider downloads a container to execute unsupported LINQ locally.</remarks>
     IQueryable<T> BuildQueryable<T>();
 
     /// <summary>

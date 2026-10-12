@@ -1,3 +1,4 @@
+using Soenneker.Librarian.Abstractions.Queries;
 using System.Diagnostics;
 using Soenneker.Librarian.Redis;
 using StackExchange.Redis;
@@ -27,15 +28,15 @@ internal static class RedisBenchmarks
             for (var i = 0; i < 100; i++)
                 await container.AddItem(i.ToString(), $"{{\"score\":{i},\"group\":\"same\",\"payload\":\"0\"}}");
             var root = container.BuildQueryable<Row>();
-            if (root.Count(row => row.Score == 50) != 1 || root.Count(row => row.Group == "same") != 100)
+            if (await root.CountAsync(row => row.Score == 50) != 1 || await root.CountAsync(row => row.Group == "same") != 100)
                 throw new Exception("Redis benchmark result mismatch.");
             // Warm schemas before measuring calls; mutations change only an unindexed payload.
             string[] json = ["{\"score\":50,\"group\":\"same\",\"payload\":\"0\"}", "{\"score\":50,\"group\":\"same\",\"payload\":\"1\"}"];
             Console.WriteLine("Operation,MedianMicroseconds,ProcessBytesPerOperation,CommandsPerOperation");
-            await Measure("Redis-equality-count", _ => ValueTask.FromResult(root.Count(row => row.Score == 50)), connection);
-            await Measure("Redis-equality-page-10", _ => ValueTask.FromResult(root.Where(row => row.Group == "same").Take(10).ToArray().Length), connection);
+            await Measure("Redis-equality-count", _ => root.CountAsync(row => row.Score == 50), connection);
+            await Measure("Redis-equality-page-10", async _ => (await root.Where(row => row.Group == "same").Take(10).ToArrayAsync()).Length, connection);
             await Measure("Redis-update-unchanged-index-values", async i => (await container.UpdateItemStrict("50", json[i % 2])).Length, connection);
-            if (root.Count(row => row.Score == 50) != 1 || root.Count(row => row.Group == "same") != 100)
+            if (await root.CountAsync(row => row.Score == 50) != 1 || await root.CountAsync(row => row.Group == "same") != 100)
                 throw new Exception("Redis benchmark indexes changed.");
         }
         finally

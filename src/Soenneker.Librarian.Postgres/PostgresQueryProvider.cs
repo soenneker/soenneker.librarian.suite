@@ -27,11 +27,11 @@ public sealed class PostgresQueryProvider<T>(PostgresLibrarianContainer containe
         return new LibrarianQueryable<TElement>(this, expression);
     }
 
-    public object? Execute(Expression expression) => Execute<object?>(expression);
+    object? IQueryProvider.Execute(Expression expression) => throw new NotSupportedException("Synchronous query execution is not supported by this provider. Use Librarian asynchronous query operations.");
 
-    public TResult Execute<TResult>(Expression expression) => ExecuteAsync<TResult>(expression).AsTask().GetAwaiter().GetResult();
+    TResult IQueryProvider.Execute<TResult>(Expression expression) => throw new NotSupportedException("Synchronous query execution is not supported by this provider. Use Librarian asynchronous query operations.");
 
-    public async ValueTask<TResult> ExecuteAsync<TResult>(Expression expression, CancellationToken cancellationToken = default)
+    public async ValueTask<TResult> Execute<TResult>(Expression expression, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var plan = PostgresQueryPlan.Create(expression, this);

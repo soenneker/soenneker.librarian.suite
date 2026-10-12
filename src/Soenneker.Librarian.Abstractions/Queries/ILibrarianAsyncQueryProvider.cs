@@ -11,5 +11,8 @@ public interface ILibrarianAsyncQueryProvider : IQueryProvider
     /// <summary>Executes a terminal or sequence expression with cancellation.</summary>
     /// <remarks>Remote providers await server operations. Local providers execute CPU work on the caller's thread.
     /// Cancellation does not undo an index construction or server operation already dispatched.</remarks>
-    ValueTask<TResult> ExecuteAsync<TResult>(Expression expression, CancellationToken cancellationToken = default);
+    ValueTask<TResult> Execute<TResult>(Expression expression, CancellationToken cancellationToken);
+
+    /// <summary>Executes asynchronously without cancellation, hiding the synchronous framework member.</summary>
+    new ValueTask<TResult> Execute<TResult>(Expression expression) => Execute<TResult>(expression, default);
 }

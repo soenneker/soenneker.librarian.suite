@@ -15,7 +15,7 @@ namespace Soenneker.Librarian.Mongo;
 
 // Only adapts lifetime checks and asynchronous execution; the driver translates every expression.
 internal sealed class MongoQueryable<T>
-    : IOrderedQueryable<T>, ILibrarianAsyncQueryProvider, IMongoQueryProvider, IAsyncCursorSource<T>
+    : IOrderedQueryable<T>, ILibrarianAsyncQueryProvider, ILibrarianSyncQueryProvider, IMongoQueryProvider, IAsyncCursorSource<T>
 {
     private readonly IQueryable<T> _native;
     private readonly Action<CancellationToken> _check;
@@ -41,17 +41,20 @@ internal sealed class MongoQueryable<T>
         return _native.GetEnumerator();
     }
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
-    public object? Execute(Expression expression)
+    object? IQueryProvider.Execute(Expression expression) => ExecuteSync(expression);
+    TResult IQueryProvider.Execute<TResult>(Expression expression) => ExecuteSync<TResult>(expression);
+
+    public object? ExecuteSync(Expression expression)
     {
         _check(default);
         return _native.Provider.Execute(expression);
     }
-    public TResult Execute<TResult>(Expression expression)
+    public TResult ExecuteSync<TResult>(Expression expression)
     {
         _check(default);
         return _native.Provider.Execute<TResult>(expression);
     }
-    public async ValueTask<TResult> ExecuteAsync<TResult>(Expression expression, CancellationToken cancellationToken = default)
+    public async ValueTask<TResult> Execute<TResult>(Expression expression, CancellationToken cancellationToken = default)
     {
         _check(cancellationToken);
         if (typeof(IQueryable).IsAssignableFrom(expression.Type))
@@ -62,7 +65,7 @@ internal sealed class MongoQueryable<T>
         return await ((IMongoQueryProvider)_native.Provider).ExecuteAsync<TResult>(expression, cancellationToken).NoSync();
     }
     Task<TResult> IMongoQueryProvider.ExecuteAsync<TResult>(Expression expression, CancellationToken cancellationToken) =>
-        ExecuteAsync<TResult>(expression, cancellationToken).AsTask();
+        Execute<TResult>(expression, cancellationToken).AsTask();
     public IAsyncCursor<T> ToCursor(CancellationToken cancellationToken = default)
     {
         _check(cancellationToken);

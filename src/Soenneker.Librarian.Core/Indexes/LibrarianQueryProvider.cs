@@ -9,7 +9,7 @@ using Soenneker.Librarian.Abstractions.Queries;
 
 namespace Soenneker.Librarian.Core.Indexes;
 
-internal sealed class LibrarianQueryProvider<T>(LibrarianContainer container) : ILibrarianAsyncQueryProvider, ILibrarianSequenceProvider
+internal sealed class LibrarianQueryProvider<T>(LibrarianContainer container) : ILibrarianAsyncQueryProvider, ILibrarianSyncQueryProvider, ILibrarianSequenceProvider
 {
     public IEnumerable<TElement> ExecuteSequence<TElement>(Expression expression)
     {
@@ -56,7 +56,7 @@ internal sealed class LibrarianQueryProvider<T>(LibrarianContainer container) : 
             if (method == nameof(Queryable.Select) && call.Arguments[1] is UnaryExpression { Operand: Expression<Func<T, TElement>> selector })
                 return SequenceSource<T>(call.Arguments[0]).Select(QueryFunction<T, TElement>.Get(selector));
         }
-        return Execute<IEnumerable<TElement>>(expression);
+        return ExecuteSync<IEnumerable<TElement>>(expression);
     }
 
     private IEnumerable<TElement> SequenceSource<TElement>(Expression expression)
@@ -117,7 +117,10 @@ internal sealed class LibrarianQueryProvider<T>(LibrarianContainer container) : 
             throw new ArgumentException("Expression must represent a queryable sequence of the requested type.", nameof(expression));
         return new LibrarianQueryable<TElement>(this, expression);
     }
-    public object? Execute(Expression expression)
+    object? IQueryProvider.Execute(Expression expression) => ExecuteSync(expression);
+    TResult IQueryProvider.Execute<TResult>(Expression expression) => ExecuteSync<TResult>(expression);
+
+    public object? ExecuteSync(Expression expression)
     {
         ArgumentNullException.ThrowIfNull(expression);
         if (TryElement(expression, out object? element)) return element;
@@ -126,7 +129,7 @@ internal sealed class LibrarianQueryProvider<T>(LibrarianContainer container) : 
         return ExecuteLocal(expression);
     }
 
-    public TResult Execute<TResult>(Expression expression)
+    public TResult ExecuteSync<TResult>(Expression expression)
     {
         ArgumentNullException.ThrowIfNull(expression);
         if (TryElement(expression, out object? element)) return (TResult)element!;
@@ -143,7 +146,7 @@ internal sealed class LibrarianQueryProvider<T>(LibrarianContainer container) : 
         return (TResult)ExecuteLocal(expression)!;
     }
 
-    public async ValueTask<TResult> ExecuteAsync<TResult>(Expression expression, CancellationToken cancellationToken = default)
+    public async ValueTask<TResult> Execute<TResult>(Expression expression, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         expression = NormalizeProjectedPaging(NormalizeTerminal(NormalizeProjectedCount(expression)));

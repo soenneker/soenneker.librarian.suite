@@ -24,10 +24,10 @@ public sealed class RedisQueryProvider<T>(RedisLibrarianContainer container) : I
         if (!typeof(IQueryable<TElement>).IsAssignableFrom(expression.Type)) throw new ArgumentException("Invalid query element type.", nameof(expression));
         return new LibrarianQueryable<TElement>(this, expression);
     }
-    public object? Execute(Expression expression) => Execute<object?>(expression);
-    public TResult Execute<TResult>(Expression expression) => ExecuteAsync<TResult>(expression).AsTask().GetAwaiter().GetResult();
+    object? IQueryProvider.Execute(Expression expression) => throw new NotSupportedException("Synchronous query execution is not supported by this provider. Use Librarian asynchronous query operations.");
+    TResult IQueryProvider.Execute<TResult>(Expression expression) => throw new NotSupportedException("Synchronous query execution is not supported by this provider. Use Librarian asynchronous query operations.");
 
-    public async ValueTask<TResult> ExecuteAsync<TResult>(Expression expression, CancellationToken cancellationToken = default)
+    public async ValueTask<TResult> Execute<TResult>(Expression expression, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var plan = RedisQueryPlan.Create(expression, this);
