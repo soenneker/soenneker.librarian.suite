@@ -68,18 +68,7 @@ jobs:
           echo "BUILD_VERSION=4.0.${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
 
       - name: Get release notes from latest commit
-        shell: bash
-        run: |
-          notes="$(git log -1 --pretty=%B | sed '/^Co-authored-by:/d')"
-          delimiter="RELEASE_NOTES_${RANDOM}_${RANDOM}_${RANDOM}"
-          while [[ "$notes" == *"$delimiter"* ]]; do
-            delimiter="RELEASE_NOTES_${RANDOM}_${RANDOM}_${RANDOM}"
-          done
-          {
-            echo "PACKAGE_RELEASE_NOTES<<$delimiter"
-            printf '%s\n' "$notes"
-            echo "$delimiter"
-          } >> "$GITHUB_ENV"
+        uses: soenneker/release-notes-from-commits@v2
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
@@ -158,57 +147,10 @@ jobs:
           user: soenneker
 
       - name: Publish to NuGet
-        shell: bash
-        env:
-          NUGET_API_KEY: ${{ steps.nuget-login.outputs.NUGET_API_KEY }}
-        run: |
-          set -euo pipefail
-
-          output_file="$(mktemp)"
-          trap 'rm -f "$output_file"' EXIT
-
-          push_package() {
-            local package="$1"
-            shift
-            local attempt exit_code
-
-            for attempt in 1 2 3; do
-              set +e
-              dotnet nuget push "$package" \
-                --source "https://api.nuget.org/v3/index.json" \
-                --api-key "$NUGET_API_KEY" \
-                --timeout 600 \
-                --skip-duplicate "$@" 2>&1 | tee "$output_file"
-              exit_code=${PIPESTATUS[0]}
-              set -e
-
-              if [ "$exit_code" -eq 0 ]; then
-                return 0
-              fi
-
-              if grep -qiE 'Quota Exceeded|retry after:|429|Too Many Requests' "$output_file"; then
-                echo "NuGet throttled this publish. Not retrying inside the same job."
-                return "$exit_code"
-              fi
-
-              if [ "$attempt" -eq 3 ]; then
-                return "$exit_code"
-              fi
-
-              echo "Push failed for $package; retrying in $((attempt * 15)) seconds..."
-              sleep "$((attempt * 15))"
-            done
-          }
-
-          # Keep package and symbol retries independent after a partial publish.
-          for package in ./artifacts/*.nupkg; do
-            push_package "$package" --no-symbols
-          done
-
-          shopt -s nullglob
-          for package in ./artifacts/*.snupkg; do
-            push_package "$package"
-          done
+        uses: soenneker/nuget-resilient-publish@v2
+        with:
+          api-key: ${{ steps.nuget-login.outputs.NUGET_API_KEY }}
+          packages: 'artifacts/*.nupkg'
 
       - name: Publish to GitHub Packages
         shell: bash

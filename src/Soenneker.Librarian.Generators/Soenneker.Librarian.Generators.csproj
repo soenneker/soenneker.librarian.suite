@@ -14,6 +14,7 @@
         <Description>Generated model accessors and LINQ delegates for Librarian.</Description>
         <PackageLicenseExpression>MIT</PackageLicenseExpression>
         <NoWarn>$(NoWarn);RS2008</NoWarn>
+        <PackageReleaseNotes Condition="'$(PACKAGE_RELEASE_NOTES)' != ''">$(PACKAGE_RELEASE_NOTES)</PackageReleaseNotes>
     </PropertyGroup>
     <ItemGroup>
         <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="5.9.0" PrivateAssets="all" />
