@@ -26,6 +26,18 @@ namespace Soenneker.Librarian.Abstractions;
 /// Both providers include trimming/AOT analyzers, but their SDK dependency chains produce publish warnings; full
 /// Native AOT compatibility is not guaranteed. The local Turso path has a separate native smoke test.
 /// </remarks>
+/// <remarks>
+/// Turbopuffer stores one JSON string and opaque revision per document, with immediate conditional writes through the official SDK.
+/// Configure Librarian:Turbopuffer:ApiKey and Region, and optionally Key (default librarian).
+/// Each container uses a dedicated namespace named librarian- followed by SHA-256 of UTF-8(key.Length + ":" + key + containerName).
+/// Keys, container names and document IDs are case-sensitive. IDs must be nonblank and at most 64 UTF-8 bytes.
+/// Namespaces are created on first insert. Save and MarkDirty perform no I/O; unloading invalidates local handles only.
+/// Caller-supplied clients remain caller-owned. Automatic SDK retries are disabled to avoid replaying uncertain conditional writes.
+/// JSON is preserved verbatim in librarian_document; librarian_revision is reserved for concurrency. External writers must preserve this format.
+/// Bulk reads accept at most 10,000 distinct IDs in one strongly consistent query. Enumeration uses pages and is not a cross-page snapshot.
+/// Clearing may require multiple writes and can partially complete. Atomic batches, explicit partitions, LINQ, secondary indexes,
+/// vector search and full-text search are not exposed by this document provider. Native AOT compatibility is not guaranteed by its SDK.
+/// </remarks>
 public interface ILibrarianDatabase : IAsyncDisposable
 {
     /// <summary>Gets a container scoped to an explicit, case-sensitive partition. Requires partition support.</summary>

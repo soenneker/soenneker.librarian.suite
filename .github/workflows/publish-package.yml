@@ -143,6 +143,7 @@ jobs:
             Soenneker.Librarian.AzureBlob
             Soenneker.Librarian.R2
             Soenneker.Librarian.Kv
+            Soenneker.Librarian.Turbopuffer
             Soenneker.Librarian.Generators
           )
 

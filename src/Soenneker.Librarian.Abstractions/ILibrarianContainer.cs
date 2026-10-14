@@ -33,7 +33,7 @@ namespace Soenneker.Librarian.Abstractions;
 public interface ILibrarianContainer : IDisposable
 {
     /// <summary>Reads a document with an opaque version, or null when absent. Requires versioning support.</summary>
-    /// <remarks>Supported by Cosmos, MongoDB, CouchDB, Redis, PostgreSQL and the R2 object provider across instances.
+    /// <remarks>Supported by Cosmos, MongoDB, CouchDB, Redis, PostgreSQL, Turbopuffer and the R2 object provider across instances.
     /// Memory, FileSystem and snapshot providers coordinate only within their single owning database instance;
     /// their tokens are invalidated when containers reload. Snapshot providers still require Save for persistence.</remarks>
     ValueTask<LibrarianItem<string>?> GetItemWithVersion(string id, CancellationToken cancellationToken = default) =>
@@ -124,7 +124,7 @@ public interface ILibrarianContainer : IDisposable
     /// only selected results are fetched. Filter and ordering paths build persistent indexes on first use.
     /// Missing indexed properties are excluded from ordering; negated equality includes missing properties.
     /// PostgreSQL unsupported expressions throw NotSupportedException. SQL OFFSET may visit skipped index entries.</remarks>
-    /// <remarks>All built-in providers except CouchDB support the async terminal extensions in LibrarianQueryableExtensions.
+    /// <remarks>Providers that implement LINQ, except CouchDB, support the async terminal extensions in LibrarianQueryableExtensions.
     /// Remote providers await I/O; local providers run cancellable CPU work without Task.Run.
     /// Redis, PostgreSQL, Cosmos, Turso, and SurrealDB require asynchronous terminal operations;
     /// synchronous LINQ execution and enumeration throw NotSupportedException.</remarks>
@@ -171,6 +171,7 @@ public interface ILibrarianContainer : IDisposable
     /// script and PostgreSQL one statement. The default implementation for third-party providers performs separate reads;
     /// MongoDB uses a native find and Cosmos uses ReadMany, with their native consistency guarantees rather than an additional snapshot protocol.
     /// use batch conditions when coordinating decisions across reads. Do not modify the IDs until the operation completes.</remarks>
+    /// <remarks>Turbopuffer uses one strongly consistent query and supports at most 10,000 distinct IDs per call.</remarks>
     async ValueTask<string?[]> GetItems(IReadOnlyList<string> ids, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(ids);
