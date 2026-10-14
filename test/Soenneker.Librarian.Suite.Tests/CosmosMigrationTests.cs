@@ -31,7 +31,7 @@ public sealed class CosmosMigrationTests
         await (await otherDatabase.GetContainer("items", "org-a", cancellationToken: cancellationToken)).AddItem("same", NativeDocumentJson.Create("same", "{\"score_value\":999}", "org-a"), cancellationToken: cancellationToken);
         Check(await a.CountItems(cancellationToken: cancellationToken) == 1 && await b.CountItems(cancellationToken: cancellationToken) == 1, "Partition reads leaked.");
         Check((await a.GetItems(["same", "missing"], cancellationToken: cancellationToken))[0] == NativeDocumentJson.Create("same", "{\"score_value\":1}", "org-a"), "Partition bulk read failed.");
-        Check(await (await database.BuildQueryableAcrossPartitions<NativeDocument>("items", cancellationToken: cancellationToken)).CountAsync(cancellationToken: cancellationToken) == 3, "Cross-partition read missed documents.");
+        Check(await (await database.BuildQueryableAcrossPartitions<NativeDocument>("items", cancellationToken: cancellationToken)).Count(cancellationToken: cancellationToken) == 3, "Cross-partition read missed documents.");
         Check(await database.Execute(new LibrarianBatch([new LibrarianWrite("items", "same", NativeDocumentJson.Create("same", "{\"score_value\":4}", "org-a"), (await a.GetItemWithVersion("same", cancellationToken: cancellationToken))!.Version),
             new LibrarianWrite("items", "x", NativeDocumentJson.Create("x", "{}", "org-a"), CreateOnly: true)]), "org-a", cancellationToken: cancellationToken), "Scoped batch failed.");
         Check(await b.GetItem("same", cancellationToken: cancellationToken) == NativeDocumentJson.Create("same", "{\"score_value\":2}", "org-b") && await root.GetItem("same", cancellationToken: cancellationToken) == NativeDocumentJson.Create("same", "{\"score_value\":3}"), "Batch escaped its partition.");
@@ -51,27 +51,27 @@ public sealed class CosmosMigrationTests
         ILibrarianContainer items = await fixture.Database.GetContainer("items", "org-a", cancellationToken: cancellationToken);
         for (var i = 0; i < 7; i++) await items.AddItem(i.ToString(), NativeDocumentJson.Create(i.ToString(), $"{{\"score_value\":{i}}}", "org-a"), cancellationToken: cancellationToken);
         IQueryable<int> query = items.BuildQueryable<NativeDocument>().OrderBy(row => row.Score).Select(row => row.Score);
-        LibrarianPage<int> first = await query.ToPageAsync(2, cancellationToken: cancellationToken);
+        LibrarianPage<int> first = await query.ToPage(2, cancellationToken: cancellationToken);
         Check(first.ContinuationToken is not null && first.Items.Count <= 2, "First native page was not bounded.");
         var results = new List<int>(first.Items);
         string? token = first.ContinuationToken;
         for (var page = 0; token is not null && page < 20; page++)
         {
-            LibrarianPage<int> next = await query.ToPageAsync(2, token, cancellationToken: cancellationToken);
+            LibrarianPage<int> next = await query.ToPage(2, token, cancellationToken: cancellationToken);
             results.AddRange(next.Items);
             token = next.ContinuationToken;
         }
         Check(token is null && results.SequenceEqual(Enumerable.Range(0, 7)), "Continuation skipped or duplicated rows.");
-        try { await query.Where(score => score > 2).ToPageAsync(2, first.ContinuationToken, cancellationToken: cancellationToken); throw new Exception("Changed query accepted token."); }
+        try { await query.Where(score => score > 2).ToPage(2, first.ContinuationToken, cancellationToken: cancellationToken); throw new Exception("Changed query accepted token."); }
         catch (ArgumentException) { }
         IQueryable<int> other = (await fixture.Database.GetContainer("items", "org-b", cancellationToken: cancellationToken)).BuildQueryable<NativeDocument>().OrderBy(row => row.Score).Select(row => row.Score);
-        try { await other.ToPageAsync(2, first.ContinuationToken, cancellationToken: cancellationToken); throw new Exception("Changed partition accepted token."); }
+        try { await other.ToPage(2, first.ContinuationToken, cancellationToken: cancellationToken); throw new Exception("Changed partition accepted token."); }
         catch (ArgumentException) { }
         await using CosmosLibrarianDatabase second = fixture.CreateDatabase();
         IQueryable<int> resumed = (await second.GetContainer("items", "org-a", cancellationToken: cancellationToken)).BuildQueryable<NativeDocument>().OrderBy(row => row.Score).Select(row => row.Score);
-        Check((await resumed.ToPageAsync(2, first.ContinuationToken, cancellationToken: cancellationToken)).Items.SequenceEqual(results.Skip(first.Items.Count).Take(2)), "Another instance could not resume the token.");
+        Check((await resumed.ToPage(2, first.ContinuationToken, cancellationToken: cancellationToken)).Items.SequenceEqual(results.Skip(first.Items.Count).Take(2)), "Another instance could not resume the token.");
         IQueryable<NativeDocument> cross = await fixture.Database.BuildQueryableAcrossPartitions<NativeDocument>("items", cancellationToken: cancellationToken);
-        Check((await cross.OrderBy(row => row.Score).ToPageAsync(2, cancellationToken: cancellationToken)).Items.Count <= 2, "Cross-partition page failed.");
+        Check((await cross.OrderBy(row => row.Score).ToPage(2, cancellationToken: cancellationToken)).Items.Count <= 2, "Cross-partition page failed.");
     }
 
     [Test]

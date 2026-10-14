@@ -30,16 +30,16 @@ using Soenneker.Librarian.Abstractions.Queries;
 var query = container.BuildQueryable<Order>()
     .Where(order => order.Paid).OrderBy(order => order.Amount).Take(50);
 
-var orders = await query.ToListAsync(cancellationToken);
-var first = await query.FirstOrDefaultAsync(cancellationToken);
-int count = await query.CountAsync(cancellationToken);
-bool any = await query.AnyAsync(cancellationToken);
+var orders = await query.ToList(cancellationToken);
+var first = await query.FirstOrDefault(cancellationToken);
+int count = await query.Count(cancellationToken);
+bool any = await query.Any(cancellationToken);
 
 // Any supported terminal expression can use the generic helper.
-decimal total = await query.ExecuteAsync(q => q.Sum(order => order.Amount), cancellationToken);
+decimal total = await query.Execute(q => q.Sum(order => order.Amount), cancellationToken);
 ```
 
-The extensions are in `Soenneker.Librarian.Abstractions.Queries`. They include `ToListAsync`, `ToArrayAsync`, `CountAsync`, `LongCountAsync`, `AnyAsync`, `AllAsync`, `FirstAsync`, `FirstOrDefaultAsync`, `SingleAsync`, `SingleOrDefaultAsync`, and `ExecuteAsync`. Predicate overloads exist for `CountAsync`, `AnyAsync`, `AllAsync`, and `FirstAsync`; other predicates can be expressed with `Where` or `ExecuteAsync`. Provider expression restrictions still apply.
+The extensions are in `Soenneker.Librarian.Abstractions.Queries`. They include `ToList`, `ToArray`, `Count`, `LongCount`, `Any`, `All`, `First`, `FirstOrDefault`, `Single`, `SingleOrDefault`, and `Execute`. Predicate overloads exist for `Count`, `Any`, `All`, and `First`; other predicates can be expressed with `Where` or `Execute`. Terminal extensions that share LINQ names require a cancellation token argument; pass `default` when cancellation is not needed. Parameterless calls retain synchronous LINQ behavior. Provider expression restrictions still apply.
 
 All built-in query providers implement `ILibrarianAsyncQueryProvider`. Third-party providers must implement it to use these extensions; an ordinary `EnumerableQuery` or unrelated provider throws rather than being silently wrapped in `Task.Run`.
 

@@ -26,15 +26,15 @@ public class RedisQueryExpansionTests
         foreach (int take in new[] { 1, 128, 256, 300 })
         {
             string[] actual = await query.Where(row => names.Contains(row.Name) && row.Amount >= 2)
-                .OrderByDescending(row => row.Amount).Skip(17).Take(take).Select(row => row.Name).ToArrayAsync(cancellationToken: cancellationToken);
+                .OrderByDescending(row => row.Amount).Skip(17).Take(take).Select(row => row.Name).ToArray(cancellationToken: cancellationToken);
             string[] expected = rows.Where(row => names.Contains(row.Name) && row.Amount >= 2)
                 .OrderByDescending(row => row.Amount).ThenByDescending(row => row.Name, StringComparer.Ordinal)
                 .Skip(17).Take(take).Select(row => row.Name).ToArray();
             Check(actual.SequenceEqual(expected), "Compound page changed ordering or membership across a window.");
         }
-        Check(await query.CountAsync(row => !names.Contains(row.Name), cancellationToken: cancellationToken) == 51, "Negation omitted missing properties.");
+        Check(await query.Count(row => !names.Contains(row.Name), cancellationToken: cancellationToken) == 51, "Negation omitted missing properties.");
         Check((await query.Where(row => row.Name == "row-0349" || row.Name == "missing")
-            .OrderBy(row => row.Amount).Take(2).ToArrayAsync(cancellationToken: cancellationToken)).Single().Name == "row-0349",
+            .OrderBy(row => row.Amount).Take(2).ToArray(cancellationToken: cancellationToken)).Single().Name == "row-0349",
             "Sparse ordered page included a missing ordering property.");
         IDatabase store = await fixture.GetStore();
         IServer server = store.Multiplexer.GetServer((await store.IdentifyEndpointAsync(fixture.RedisPrefix + "items:ids"))!);
@@ -54,14 +54,14 @@ public class RedisQueryExpansionTests
         await store.KeyDeleteAsync(prefix + "sort-schema");
         foreach (string id in new[] { "A", "B", "C" }) await store.HashDeleteAsync(prefix + "document:" + id, "sort:amount");
         IQueryable<RedisRow> query = container.BuildQueryable<RedisRow>();
-        Check((await query.OrderBy(row => row.Amount).Take(3).Select(row => row.Name).ToArrayAsync(cancellationToken: cancellationToken)).SequenceEqual(new[] { "a", "b", "c" }), "Legacy sort upgrade failed.");
+        Check((await query.OrderBy(row => row.Amount).Take(3).Select(row => row.Name).ToArray(cancellationToken: cancellationToken)).SequenceEqual(new[] { "a", "b", "c" }), "Legacy sort upgrade failed.");
         Check(await store.SetContainsAsync(prefix + "sort-schema", "amount"), "Upgrade marker missing.");
         await container.UpdateItemStrict("a", "{\"name\":\"a\",\"amount\":2}", cancellationToken: cancellationToken);
         await fixture.Database.Execute(new LibrarianBatch([new LibrarianWrite("items", "b", "{\"name\":\"b\",\"amount\":3}")]), cancellationToken: cancellationToken);
-        Check((await query.OrderByDescending(row => row.Amount).Take(3).Select(row => row.Name).ToArrayAsync(cancellationToken: cancellationToken)).SequenceEqual(new[] { "b", "a", "c" }), "Mutation sort fields became stale.");
+        Check((await query.OrderByDescending(row => row.Amount).Take(3).Select(row => row.Name).ToArray(cancellationToken: cancellationToken)).SequenceEqual(new[] { "b", "a", "c" }), "Mutation sort fields became stale.");
         await container.DeleteAllItems(cancellationToken: cancellationToken);
         await container.AddItem("x", "{\"name\":\"x\",\"amount\":4}", cancellationToken: cancellationToken);
-        Check((await query.OrderBy(row => row.Amount).FirstAsync(cancellationToken: cancellationToken)).Name == "x", "Sort field lost after clearing documents.");
+        Check((await query.OrderBy(row => row.Amount).First(cancellationToken: cancellationToken)).Name == "x", "Sort field lost after clearing documents.");
     }
 
     [Test]
@@ -73,13 +73,13 @@ public class RedisQueryExpansionTests
         await container.AddItem("b", "{\"name\":\"Ab\",\"amount\":2}", cancellationToken: cancellationToken);
         IQueryable<RedisRow> query = container.BuildQueryable<RedisRow>();
         string[] names = ["Ab", "Ab"];
-        Check(await query.CountAsync(row => names.Contains(row.Name), cancellationToken: cancellationToken) == 1, "Duplicate membership changed count.");
-        Check(await query.CountAsync(row => new[] { "Ab" }.Contains(row.Name), cancellationToken: cancellationToken) == 1, "Inline membership failed.");
-        Check(await query.CountAsync(row => row.Name.StartsWith("A%_\\", StringComparison.Ordinal), cancellationToken: cancellationToken) == 1, "Prefix interpreted literal characters.");
-        Check(!await query.AllAsync(row => row.Amount == 1, cancellationToken: cancellationToken), "All did not find a counterexample.");
-        Check((await query.Take(1).Select(row => new { row.Name, row.Amount }).ToListAsync(cancellationToken: cancellationToken)).Count == 1, "Bounded projection failed.");
-        try { await query.Select(row => row.Name).ToListAsync(cancellationToken: cancellationToken); throw new Exception("Unbounded projection accepted."); } catch (NotSupportedException) { }
-        try { await query.CountAsync(row => row.Name.EndsWith("tail"), cancellationToken: cancellationToken); throw new Exception("Suffix fallback accepted."); } catch (NotSupportedException) { }
+        Check(await query.Count(row => names.Contains(row.Name), cancellationToken: cancellationToken) == 1, "Duplicate membership changed count.");
+        Check(await query.Count(row => new[] { "Ab" }.Contains(row.Name), cancellationToken: cancellationToken) == 1, "Inline membership failed.");
+        Check(await query.Count(row => row.Name.StartsWith("A%_\\", StringComparison.Ordinal), cancellationToken: cancellationToken) == 1, "Prefix interpreted literal characters.");
+        Check(!await query.All(row => row.Amount == 1, cancellationToken: cancellationToken), "All did not find a counterexample.");
+        Check((await query.Take(1).Select(row => new { row.Name, row.Amount }).ToList(cancellationToken: cancellationToken)).Count == 1, "Bounded projection failed.");
+        try { await query.Select(row => row.Name).ToList(cancellationToken: cancellationToken); throw new Exception("Unbounded projection accepted."); } catch (NotSupportedException) { }
+        try { await query.Count(row => row.Name.EndsWith("tail"), cancellationToken: cancellationToken); throw new Exception("Suffix fallback accepted."); } catch (NotSupportedException) { }
     }
 
     private static void Check(bool condition, string message) { if (!condition) throw new InvalidOperationException(message); }

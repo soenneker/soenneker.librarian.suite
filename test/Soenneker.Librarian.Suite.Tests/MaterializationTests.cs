@@ -14,12 +14,12 @@ public sealed class MaterializationTests
     {
         var source = new List<int> { 1, 2, 3 };
         var query = new LibrarianQueryable<int>(new MaterializationProvider<int>(() => source));
-        List<int> list = await query.ToListAsync(cancellationToken: cancellationToken);
-        int[] array = await query.ToArrayAsync(cancellationToken: cancellationToken);
+        List<int> list = await query.ToList(cancellationToken: cancellationToken);
+        int[] array = await query.ToArray(cancellationToken: cancellationToken);
         source[0] = 99;
         if (list[0] != 1 || array[0] != 1 || list.Capacity != 3) throw new Exception("Results alias the provider or overallocate.");
         var arrayQuery = new LibrarianQueryable<int>(new MaterializationProvider<int>(() => array));
-        int[] copy = await arrayQuery.ToArrayAsync(cancellationToken: cancellationToken);
+        int[] copy = await arrayQuery.ToArray(cancellationToken: cancellationToken);
         array[0] = 88;
         if (copy[0] != 1) throw new Exception("Array result aliases the provider.");
     }
@@ -44,7 +44,7 @@ public sealed class MaterializationTests
             finally { disposed = true; }
         }
         var query = new LibrarianQueryable<int>(new MaterializationProvider<int>(Source));
-        try { await query.ToArrayAsync(cancellation.Token); throw new Exception("Cancellation ignored."); }
+        try { await query.ToArray(cancellation.Token); throw new Exception("Cancellation ignored."); }
         catch (OperationCanceledException) { }
         if (!disposed || visited != 3) throw new Exception("Enumeration continued or was not disposed.");
     }

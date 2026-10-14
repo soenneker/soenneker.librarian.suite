@@ -71,7 +71,7 @@ public class LibrarianRepository<TDocument> : ILibrarianRepository<TDocument> wh
     }
 
     public ValueTask<LibrarianPage<T>> GetItemsPaged<T>(IQueryable<T> query, int pageSize = 100, string? continuationToken = null,
-        CancellationToken cancellationToken = default) => query.ToPageAsync(pageSize, continuationToken, cancellationToken);
+        CancellationToken cancellationToken = default) => query.ToPage(pageSize, continuationToken, cancellationToken);
 
     public async ValueTask EnsureIndex(string fieldPath, CancellationToken cancellationToken = default)
     {

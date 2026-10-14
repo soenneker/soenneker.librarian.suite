@@ -129,17 +129,17 @@ public class RedisPersistenceTests
         ILibrarianContainer second = await other.GetContainer("items", cancellationToken: cancellationToken);
         for (var i = 0; i < 8; i++) await first.AddItem(i.ToString(), $"{{\"amount\":{i},\"active\":{(i % 2 == 0 ? "true" : "false")},\"name\":\"row-{i}\"}}", cancellationToken: cancellationToken);
         IQueryable<RedisRow> query = first.BuildQueryable<RedisRow>().Where(row => row.Active && row.Amount >= 2 && row.Amount <= 6).OrderByDescending(row => row.Amount).Skip(1).Take(2);
-        Check((await query.ToListAsync(cancellationToken)).Select(row => row.Amount).SequenceEqual(new decimal[] { 4, 2 }), "Redis LINQ paging failed.");
+        Check((await query.ToList(cancellationToken)).Select(row => row.Amount).SequenceEqual(new decimal[] { 4, 2 }), "Redis LINQ paging failed.");
         await second.UpdateItemStrict("4", "{\"amount\":1,\"active\":true,\"name\":\"updated\"}", cancellationToken: cancellationToken);
-        Check((await query.ExecuteAsync(q => q.Count(), cancellationToken)) == 1 && (await query.ExecuteAsync(q => q.First(), cancellationToken)).Amount == 2, "Re-executed query used stale data.");
-        Check((await first.BuildQueryable<RedisRow>().ExecuteAsync(q => q.Where(row => row.Amount == 7 || row.Amount == 3).Count(), cancellationToken)) == 2, "OR query failed.");
-        Check((await first.BuildQueryable<RedisRow>().ExecuteAsync(q => q.Where(row => !row.Active).Count(), cancellationToken)) == 4, "NOT query failed.");
-        Check((await first.BuildQueryable<RedisRow>().ExecuteAsync(q => q.Any(row => row.Amount > 6), cancellationToken)), "Any query failed.");
-        Check((await first.BuildQueryable<RedisRow>().ExecuteAsync(q => q.Where(row => row.Amount == 7).Single(), cancellationToken)).Name == "row-7", "Single query failed.");
-        Check((await first.BuildQueryable<RedisRow>().ExecuteAsync(q => q.Take(0).Count(), cancellationToken)) == 0, "Take zero failed.");
-        try { _ = (await first.BuildQueryable<RedisRow>().Where(row => row.Name.EndsWith("row")).ToListAsync(cancellationToken)); throw new Exception("Local fallback was accepted."); }
+        Check((await query.Execute(q => q.Count(), cancellationToken)) == 1 && (await query.Execute(q => q.First(), cancellationToken)).Amount == 2, "Re-executed query used stale data.");
+        Check((await first.BuildQueryable<RedisRow>().Execute(q => q.Where(row => row.Amount == 7 || row.Amount == 3).Count(), cancellationToken)) == 2, "OR query failed.");
+        Check((await first.BuildQueryable<RedisRow>().Execute(q => q.Where(row => !row.Active).Count(), cancellationToken)) == 4, "NOT query failed.");
+        Check((await first.BuildQueryable<RedisRow>().Execute(q => q.Any(row => row.Amount > 6), cancellationToken)), "Any query failed.");
+        Check((await first.BuildQueryable<RedisRow>().Execute(q => q.Where(row => row.Amount == 7).Single(), cancellationToken)).Name == "row-7", "Single query failed.");
+        Check((await first.BuildQueryable<RedisRow>().Execute(q => q.Take(0).Count(), cancellationToken)) == 0, "Take zero failed.");
+        try { _ = (await first.BuildQueryable<RedisRow>().Where(row => row.Name.EndsWith("row")).ToList(cancellationToken)); throw new Exception("Local fallback was accepted."); }
         catch (NotSupportedException) { }
-        try { _ = (await first.BuildQueryable<RedisRow>().Take(2).Where(row => row.Amount > 1).ToListAsync(cancellationToken)); throw new Exception("Filter after paging changed semantics."); }
+        try { _ = (await first.BuildQueryable<RedisRow>().Take(2).Where(row => row.Amount > 1).ToList(cancellationToken)); throw new Exception("Filter after paging changed semantics."); }
         catch (NotSupportedException) { }
     }
 
@@ -223,7 +223,7 @@ public class RedisPersistenceTests
         await container.AddItem("one", json, cancellationToken: cancellationToken);
         await container.EnsureIndex("status", cancellationToken: cancellationToken);
         Check(await container.CountByIndex("status", RedisStatus.Active, cancellationToken: cancellationToken) == 1, "Enum query value did not match the generated string-enum encoding.");
-        Check((await container.BuildQueryable<RedisRow>().ExecuteAsync(q => q.Single(row => row.DisplayName == "Visible"), cancellationToken)).Status == RedisStatus.Active,
+        Check((await container.BuildQueryable<RedisRow>().Execute(q => q.Single(row => row.DisplayName == "Visible"), cancellationToken)).Status == RedisStatus.Active,
             "JSON property name or deserialization options differed.");
     }
     private static void Check(bool condition, string message)

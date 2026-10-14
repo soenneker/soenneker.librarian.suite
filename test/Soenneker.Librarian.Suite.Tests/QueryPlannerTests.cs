@@ -82,7 +82,7 @@ public class QueryPlannerTests
         Check(root.Where(row => row.Status == "target").Where(row => row.Name.StartsWith("ok")).Take(3).ToArray().Length == 3 && PlannerRow.Created == 7,
             "Separate residual Where abandoned the index");
         Check(combined.Concat(root).Count() == 2003, "Residual replacement leaked into another query branch");
-        Check(await combined.Concat(root).CountAsync(cancellationToken: cancellationToken) == 2003, "Async execution lost the unfiltered query branch");
+        Check(await combined.Concat(root).Count(cancellationToken: cancellationToken) == 2003, "Async execution lost the unfiltered query branch");
         Check(root.Where(row => row.Score == 1 && row.Name.StartsWith("ok")).Count() == 0, "Residual predicate was skipped by Count");
     }
 

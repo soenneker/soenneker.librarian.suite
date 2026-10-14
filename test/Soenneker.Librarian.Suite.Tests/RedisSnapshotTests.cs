@@ -58,7 +58,7 @@ public class RedisSnapshotTests
         };
         IQueryable<RedisRow> query = reader.BuildQueryable<RedisRow>();
         if (sparse) query = query.Where(row => row.Name == "row-0000" || row.Name == "row-0001");
-        RedisRow[] rows = await query.OrderBy(row => row.Amount).Take(2).ToArrayAsync(cancellationToken: cancellationToken);
+        RedisRow[] rows = await query.OrderBy(row => row.Amount).Take(2).ToArray(cancellationToken: cancellationToken);
         string[] expected = sparse ? ["row-0001", "row-0000"] : ["row-0001", "row-0002"];
         if (snapshots != 2 || !rows.Select(row => row.Name).SequenceEqual(expected))
             throw new Exception("Page mixed selection and document versions.");

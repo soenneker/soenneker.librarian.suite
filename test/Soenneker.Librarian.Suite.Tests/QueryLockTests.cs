@@ -46,7 +46,7 @@ public sealed class QueryLockTests
         using var cancellation = new CancellationTokenSource();
         using (await gate.Lock(cancellationToken: cancellationToken))
         {
-            Task<int> result = query.CountAsync(row => row.Score == 1, cancellation.Token).AsTask();
+            Task<int> result = query.Count(row => row.Score == 1, cancellation.Token).AsTask();
             if (result.IsCompleted) throw new Exception("Query bypassed the mutation lock.");
             await cancellation.CancelAsync();
             try

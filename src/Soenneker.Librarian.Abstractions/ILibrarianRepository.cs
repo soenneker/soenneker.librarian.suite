@@ -36,7 +36,7 @@ public interface ILibrarianRepository<TDocument> where TDocument : Document
     /// <summary>Reads a server page with an opaque continuation token using the query's provider.</summary>
     ValueTask<LibrarianPage<T>> GetItemsPaged<T>(IQueryable<T> query, int pageSize = 100,
         string? continuationToken = null, CancellationToken cancellationToken = default) =>
-        query.ToPageAsync(pageSize, continuationToken, cancellationToken);
+        query.ToPage(pageSize, continuationToken, cancellationToken);
 
     /// <summary>Ensures a scalar JSON field index exists on this repository's container.</summary>
     /// <remarks>Uses serialized JSON property names. See ILibrarianContainer.EnsureIndex for value and lifetime rules.</remarks>

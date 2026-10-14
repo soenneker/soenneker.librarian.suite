@@ -41,7 +41,7 @@ public class ClientBrowserProviderTests
         await b.AddItem("two", "stale", cancellationToken: cancellationToken);
         try { await stale.Save(cancellationToken: cancellationToken); throw new Exception("Conflict ignored"); }
         catch (LibrarianConcurrencyException) { }
-        await stale.DiscardAsync();
+        await stale.Discard();
         if (staleRuntime.Disposed) throw new Exception("Database disposed a shared module");
         await first.Execute(new LibrarianBatch([new LibrarianWrite("items", "three", "batch")]), cancellationToken: cancellationToken);
         await first.DisposeAsync();
@@ -89,7 +89,7 @@ public class ClientBrowserProviderTests
             await local.GetContainer("items", cancellationToken: cancellationToken);
             var indexedItems = await indexed.GetContainer("items", cancellationToken: cancellationToken);
             await session.GetContainer("items", cancellationToken: cancellationToken);
-            await local.DiscardAsync();
+            await local.Discard();
             if (runtime.Disposed || runtime.Imports != 1)
                 throw new Exception("Browser backends must share the importer-owned module.");
             await indexedItems.AddItem("one", "value", cancellationToken: cancellationToken);

@@ -132,7 +132,7 @@ public class ClientSecureProviderTests
             try { await db.Save(cancellationToken: cancellationToken); throw new Exception("Invalid key accepted"); }
             catch (CryptographicException) { }
             if (storage.Values[name] != Convert.ToBase64String(new byte[8])) throw new Exception("Invalid key replaced");
-            await db.DiscardAsync();
+            await db.Discard();
             await db.DisposeAsync();
             if (File.Exists(MauiSecureLibrarianDatabase.GetFilePath("app/user/tenant", directory))) throw new Exception("Discard wrote data");
             try { await db.GetContainer("items", cancellationToken: cancellationToken); throw new Exception("Discarded database reused"); }

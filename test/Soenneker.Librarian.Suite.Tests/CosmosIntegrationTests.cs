@@ -27,10 +27,10 @@ public sealed class CosmosIntegrationTests
         Check(await items.GetItem("org-a:A", cancellationToken: cancellationToken) is null, "Native IDs must be case-sensitive.");
         Check((await items.GetItems(["org-a:b", "missing", "org-a:a", "org-a:b"], cancellationToken: cancellationToken)).Select(x => x is null ? -1 : NativeDocumentJson.Score(x)).SequenceEqual([2, -1, 1, 2]), "Bulk order changed.");
         IQueryable<NativeDocument> query = items.BuildQueryable<NativeDocument>();
-        Check(await query.CountAsync(x => x.PartitionKey == "org-a", cancellationToken: cancellationToken) == 2, "Document member query failed.");
-        Check(await query.LongCountAsync(cancellationToken: cancellationToken) == 2 && await query.AnyAsync(x => x.Score == 2, cancellationToken: cancellationToken) && await query.AllAsync(x => x.Score > 0, cancellationToken: cancellationToken), "Native terminals failed.");
-        Check(await query.ExecuteAsync(q => q.Sum(x => x.Score), cancellationToken: cancellationToken) == 3, "Native sum failed.");
-        Check(await query.OrderByDescending(x => x.Score).Select(x => x.Name).FirstAsync(cancellationToken: cancellationToken) == "beta", "Native projection failed.");
+        Check(await query.Count(x => x.PartitionKey == "org-a", cancellationToken: cancellationToken) == 2, "Document member query failed.");
+        Check(await query.LongCount(cancellationToken: cancellationToken) == 2 && await query.Any(x => x.Score == 2, cancellationToken: cancellationToken) && await query.All(x => x.Score > 0, cancellationToken: cancellationToken), "Native terminals failed.");
+        Check(await query.Execute(q => q.Sum(x => x.Score), cancellationToken: cancellationToken) == 3, "Native sum failed.");
+        Check(await query.OrderByDescending(x => x.Score).Select(x => x.Name).First(cancellationToken: cancellationToken) == "beta", "Native projection failed.");
         await items.EnsureIndex("score_value", cancellationToken: cancellationToken);
         Check((await items.FindRangeByIndex<NativeDocument>("score_value", 1, 2, true, take: 1, cancellationToken: cancellationToken)).Items[0].Score == 2, "Top-level range index failed.");
         Check((await items.GetAllIds(cancellationToken: cancellationToken)).Order().SequenceEqual(["org-a:a", "org-a:b"]), "Composite IDs were lost.");

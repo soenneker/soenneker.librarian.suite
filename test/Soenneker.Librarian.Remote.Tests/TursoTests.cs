@@ -40,14 +40,14 @@ public sealed class TursoTests
             await a.AddItem("c", "{\"n\":2.5}", token);
             var page = await a.FindRangeByIndex<JsonElement>("n", -2, 3, skip: 1, take: 2, cancellationToken: token);
             Check(page.Items.Select(x => x.GetProperty("n").GetDecimal()).SequenceEqual([2m, 2.5m]), "Range order or paging failed.");
-            Check(await a.BuildQueryable<JsonElement>().Take(1).Skip(9).CountAsync(token) == 0, "Paging count failed.");
+            Check(await a.BuildQueryable<JsonElement>().Take(1).Skip(9).Count(token) == 0, "Paging count failed.");
             LibrarianJson.Register(RemoteJsonContext.Default.RemoteRow);
             GeneratedQueryMetadata.Register<RemoteRow, int>(nameof(RemoteRow.Amount), "Amount", row => row.Amount, true);
             var queryContainer = await first.GetContainer("query", token);
             for (int i = 0; i < 5; i++) await queryContainer.AddItem(i.ToString(), "{\"Amount\":" + i + "}", token);
-            var selected = await queryContainer.BuildQueryable<RemoteRow>().OrderByDescending(row => row.Amount).Skip(1).Take(2).ToListAsync(token);
+            var selected = await queryContainer.BuildQueryable<RemoteRow>().OrderByDescending(row => row.Amount).Skip(1).Take(2).ToList(token);
             Check(selected.Select(row => row.Amount).SequenceEqual([3, 2]), "LINQ ordering and paging failed.");
-            Check(await queryContainer.BuildQueryable<RemoteRow>().Where(row => row.Amount == 2).AnyAsync(token), "LINQ predicate failed.");
+            Check(await queryContainer.BuildQueryable<RemoteRow>().Where(row => row.Amount == 2).Any(token), "LINQ predicate failed.");
             var revision = await queryContainer.GetItemWithVersion("2", token);
             Check(!await first.Execute(new LibrarianBatch([new("query", "new", "{}", CreateOnly: true), new("query", "2", "{}", ExpectedVersion: "stale")]), token), "Versioned batch accepted a stale revision.");
             Check(await queryContainer.GetItem("new", token) is null, "Versioned batch partially committed.");

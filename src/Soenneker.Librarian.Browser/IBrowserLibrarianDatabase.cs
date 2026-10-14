@@ -12,5 +12,5 @@ public interface IBrowserLibrarianDatabase : ILibrarianDatabase
 {
     /// <summary>Discards unsaved changes and disposes this owner without writing browser storage.</summary>
     /// <remarks>Stop all operations before calling. Persisted data is left intact and a fresh instance may reopen it.</remarks>
-    ValueTask DiscardAsync();
+    ValueTask Discard();
 }

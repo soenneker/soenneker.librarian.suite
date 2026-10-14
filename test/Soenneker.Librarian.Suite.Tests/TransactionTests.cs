@@ -6,6 +6,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Soenneker.Librarian.Abstractions;
+using Soenneker.Librarian.Abstractions.Queries;
 using Soenneker.Librarian.Abstractions.Transactions;
 using Soenneker.Librarian.FileSystem;
 using Soenneker.Librarian.Redis;
@@ -70,7 +71,7 @@ public class TransactionTests
         await items.AddItem("a", "{\"amount\":1}", cancellationToken: cancellationToken);
         await items.AddItem("b", "{\"amount\":1}", cancellationToken: cancellationToken);
         await items.EnsureIndex("amount", cancellationToken: cancellationToken);
-        Check(items.BuildQueryable<RedisRow>().Count(row => row.Amount == 1) == 2, "Query setup failed.");
+        Check(await items.BuildQueryable<RedisRow>().Count(row => row.Amount == 1, cancellationToken) == 2, "Query setup failed.");
         try
         {
             await db.Execute(new LibrarianBatch([new LibrarianWrite("other", "x", "leaked"), new LibrarianWrite("items", "a", "{\"amount\":{}}") ]), cancellationToken: cancellationToken);
@@ -80,9 +81,9 @@ public class TransactionTests
         Check(await (await db.GetContainer("other", cancellationToken: cancellationToken)).GetItem("x", cancellationToken: cancellationToken) is null && await items.CountByIndex("amount", 1, cancellationToken: cancellationToken) == 2, "Validation leaked changes.");
         Check(await db.Execute(new LibrarianBatch([new LibrarianWrite("items", "a", null), new LibrarianWrite("items", "b", "{\"amount\":2}"), new LibrarianWrite("items", "c", "{\"amount\":1}")]), cancellationToken: cancellationToken), "Indexed batch failed.");
         Check(await items.CountByIndex("amount", 1, cancellationToken: cancellationToken) == 1 && await items.CountByIndex("amount", 2, cancellationToken: cancellationToken) == 1, "Explicit indexes are stale.");
-        Check(items.BuildQueryable<RedisRow>().Count(row => row.Amount == 1 || row.Amount == 2) == 2, "Automatic indexes are stale.");
+        Check(await items.BuildQueryable<RedisRow>().Count(row => row.Amount == 1 || row.Amount == 2, cancellationToken) == 2, "Automatic indexes are stale.");
         Check(await db.Execute(new LibrarianBatch([new LibrarianWrite("items", "c", null), new LibrarianWrite("items", "d", "{\"amount\":1}")]), cancellationToken: cancellationToken), "Bucket replacement failed.");
-        Check(items.BuildQueryable<RedisRow>().Count(row => row.Amount == 1) == 1, "Same-value replacement lost the distinct index.");
+        Check(await items.BuildQueryable<RedisRow>().Count(row => row.Amount == 1, cancellationToken) == 1, "Same-value replacement lost the distinct index.");
     }
 
     [Test]

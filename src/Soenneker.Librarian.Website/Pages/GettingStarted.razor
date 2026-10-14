@@ -37,7 +37,7 @@
             .Where(user => user.Age >= 18)
             .OrderBy(user => user.Age)
             .Take(25)
-            .ToListAsync();
+            .ToList(default);
 
         public sealed record User(string Name, int Age);
 

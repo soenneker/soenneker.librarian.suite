@@ -22,9 +22,9 @@ internal static class AuditBenchmarks
                 .SequenceEqual(Enumerable.Range(50000, 10))) throw new Exception("Audit benchmark result mismatch");
         Measure("BuildQueryable", _ => container.BuildQueryable<Row>().GetHashCode(), 100000);
         var page = root.Where(row => row.Score >= 50000).Take(100);
-        Measure("Async-indexed-list-100", _ => page.ToListAsync().GetAwaiter().GetResult().Count, 200);
-        Measure("Async-indexed-array-100", _ => page.ToArrayAsync().GetAwaiter().GetResult().Length, 200);
-        Measure("Async-indexed-count", _ => page.CountAsync().GetAwaiter().GetResult(), 2000);
+        Measure("Async-indexed-list-100", _ => page.ToList(default).GetAwaiter().GetResult().Count, 200);
+        Measure("Async-indexed-array-100", _ => page.ToArray(default).GetAwaiter().GetResult().Length, 200);
+        Measure("Async-indexed-count", _ => page.Count(default).GetAwaiter().GetResult(), 2000);
         Measure("Compose-Where-OrderBy-Skip-Take", _ => root.Where(row => row.Score >= 50000).OrderBy(row => row.Score).Skip(5).Take(10).GetHashCode(), 10000);
         Measure("Indexed-page-Select-fresh", _ => root.Where(row => row.Score >= 50000 && row.Score < 50100).OrderBy(row => row.Score).Take(10).Select(row => row.Score).ToArray().Length, 200);
         Measure("Indexed-page-Select-reused", _ => reusable.ToArray().Length, 200);

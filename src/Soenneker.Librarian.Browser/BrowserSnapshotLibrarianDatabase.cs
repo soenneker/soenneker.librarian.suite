@@ -50,7 +50,7 @@ public abstract class BrowserSnapshotLibrarianDatabase : SnapshotLibrarianDataba
         _expected = json;
     }
 
-    public async ValueTask DiscardAsync()
+    public async ValueTask Discard()
     {
         await DisposeWithoutSaving().NoSync();
         _expected = null;

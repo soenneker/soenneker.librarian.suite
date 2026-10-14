@@ -15,7 +15,7 @@ public sealed class MauiSecureLibrarianDatabase : EncryptedFileSnapshotLibrarian
     public MauiSecureLibrarianDatabase(string scope, ISecureStorage secureStorage, ILogger<MauiSecureLibrarianDatabase> logger,
         string? directoryPath = null) : base(GetFilePath(scope, directoryPath), scope, new MauiSecureEncryptionKeyStore(secureStorage), logger) { }
 
-    public ValueTask DiscardAsync() => DisposeWithoutSaving();
+    public ValueTask Discard() => DisposeWithoutSaving();
 
     /// <summary>Gets the scope-specific encrypted file path, under app data unless an explicit directory is supplied.</summary>
     public static string GetFilePath(string scope, string? directoryPath = null)

@@ -65,7 +65,7 @@ This `:containers:` layout replaces the hex-encoded `:batches:` layout. Existing
 
 Unsupported expressions throw `NotSupportedException`. Queries do not fall back to loading all documents for local filtering.
 
-LINQ enumeration executes synchronously by default. Use `ToListAsync`, `CountAsync`, `AnyAsync`, and the other terminal extensions in `Soenneker.Librarian.Abstractions.Queries` to await Redis I/O with cancellation. Explicit index methods remain available. Cancellation checks occur between commands; commands already dispatched are awaited, and temporary query sets are cleaned up before return.
+LINQ enumeration executes synchronously by default. Use `ToList`, `Count`, `Any`, and the other terminal extensions in `Soenneker.Librarian.Abstractions.Queries` to await Redis I/O with cancellation. Explicit index methods remain available. Cancellation checks occur between commands; commands already dispatched are awaited, and temporary query sets are cleaned up before return.
 
 Bound projections before materialization:
 
@@ -77,7 +77,7 @@ var names = await users.BuildQueryable<User>()
     .OrderBy(user => user.Age)
     .Take(25)
     .Select(user => user.Name)
-    .ToListAsync(cancellationToken);
+    .ToList(cancellationToken);
 ```
 
 This example uses the `users` container and `User` model from the [README](../README.md#query-documents).

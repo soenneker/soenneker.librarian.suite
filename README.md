@@ -212,7 +212,7 @@ The provider keeps documents in memory and atomically replaces an AES-256-GCM en
 
 Use **one owner per scope**. Ordinary writes persist on `Save`, unload, or disposal; batches persist before publication. Call `Save` after important changes and before suspension. Mobile process termination does not guarantee disposal. For account switching, stop operations and dispose the old owner before creating the new scope's owner. Fixed scopes also support keyed singleton registration with `(serviceKey, scope, directoryPath)`.
 
-After stopping operations, `IMauiSecureLibrarianDatabase.DiscardAsync()` releases an owner without saving, including when secure storage is unavailable. `MauiSecureLibrarianDatabase.DeleteStorage(scope, secureStorage, directoryPath)` deletes that scope's file and protected key after its owners have been disposed. Use the same directory supplied at construction. Other scopes remain intact.
+After stopping operations, `IMauiSecureLibrarianDatabase.Discard()` releases an owner without saving, including when secure storage is unavailable. `MauiSecureLibrarianDatabase.DeleteStorage(scope, secureStorage, directoryPath)` deletes that scope's file and protected key after its owners have been disposed. Use the same directory supplied at construction. Other scopes remain intact.
 
 ### Browser storage
 
@@ -236,7 +236,7 @@ SessionStorage uses the same Web Locks coordination as LocalStorage, but its dat
 
 Call `Save` after ordinary mutations; batches persist before publication. Quota, access-denied, unavailable-feature and transaction failures propagate without reporting success. Do not rely on browser shutdown or circuit disposal for a final flush.
 
-Cached reads are not live-synchronized between owners. Writes compare the last loaded snapshot with persisted storage to detect external changes. A conflict throws `LibrarianConcurrencyException`. Stop operations, call `IBrowserLibrarianDatabase.DiscardAsync()`, create a fresh owner, and reapply the intended change to freshly loaded data. Interop cancellation or disconnection after dispatch can leave the commit outcome unknown; reopen and reconcile before retrying. Discard leaves persisted storage intact.
+Cached reads are not live-synchronized between owners. Writes compare the last loaded snapshot with persisted storage to detect external changes. A conflict throws `LibrarianConcurrencyException`. Stop operations, call `IBrowserLibrarianDatabase.Discard()`, create a fresh owner, and reapply the intended change to freshly loaded data. Interop cancellation or disconnection after dispatch can leave the commit outcome unknown; reopen and reconcile before retrying. Discard leaves persisted storage intact.
 
 ### Redis
 
@@ -301,7 +301,7 @@ using Soenneker.Librarian.Abstractions.Queries;
 
 var adults = await users.BuildQueryable<User>()
     .Where(user => user.Age >= 18).OrderBy(user => user.Age)
-    .Take(25).ToListAsync(cancellationToken);
+    .Take(25).ToList(cancellationToken);
 ```
 
 See [query capabilities, async execution, and provider differences](docs/QUERY-CAPABILITIES.md).

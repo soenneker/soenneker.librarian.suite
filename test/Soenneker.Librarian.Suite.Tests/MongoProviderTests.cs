@@ -37,8 +37,8 @@ public sealed class MongoProviderTests
         ILibrarianContainer root = await fixture.Database.GetContainer("items", cancellationToken: cancellationToken);
         Check(NativeDocumentJson.Score((await root.GetItem("org-b:one", cancellationToken: cancellationToken))!) == 2, "Composite identity failed.");
         Check((await root.GetItems(["org-b:one", "missing", "org-a:one", "org-b:one"], cancellationToken: cancellationToken)).Select(x => x is null ? -1 : NativeDocumentJson.Score(x)).SequenceEqual([2, -1, 1, 2]), "Bulk order or partitions changed.");
-        Check(await root.BuildQueryable<NativeDocument>().CountAsync(d => d.DocumentId == "one", cancellationToken: cancellationToken) == 2, "Document members were not translated.");
-        Check(await (await fixture.Database.BuildQueryableAcrossPartitions<NativeDocument>("items", cancellationToken: cancellationToken)).CountAsync(cancellationToken: cancellationToken) == 2, "Cross-partition query failed.");
+        Check(await root.BuildQueryable<NativeDocument>().Count(d => d.DocumentId == "one", cancellationToken: cancellationToken) == 2, "Document members were not translated.");
+        Check(await (await fixture.Database.BuildQueryableAcrossPartitions<NativeDocument>("items", cancellationToken: cancellationToken)).Count(cancellationToken: cancellationToken) == 2, "Cross-partition query failed.");
         await a.DeleteAllItems(cancellationToken: cancellationToken);
         Check(await root.CountItems(cancellationToken: cancellationToken) == 1, "Scoped deletion crossed partitions.");
         await fixture.Database.UnloadContainer("items", cancellationToken: cancellationToken);
