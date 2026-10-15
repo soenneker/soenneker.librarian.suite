@@ -72,7 +72,7 @@ jobs:
       LIBRARIAN_TEST_MONGO: 'mongodb://localhost:27017/?replicaSet=librarian&directConnection=true'
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -82,10 +82,10 @@ jobs:
           echo "BUILD_VERSION=4.0.${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
 
       - name: Get release notes from latest commit
-        uses: soenneker/release-notes-from-commits@v2
+        uses: soenneker/release-notes-from-commits@64d13ba28ea5c3e8fb6ccbc84bedf66c337d4687 # v2
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v6
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           dotnet-version: 10.0.401
 
@@ -156,7 +156,7 @@ jobs:
           done
 
       - name: Publish to NuGet
-        uses: soenneker/nuget-resilient-publish@v4
+        uses: soenneker/nuget-resilient-publish@b1e581eb9174dc453bb4d67e41c997729b397277 # v4
         with:
           api-key: ${{ secrets.nuget__token }}
           packages: 'artifacts/*.nupkg'

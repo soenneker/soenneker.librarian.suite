@@ -172,7 +172,7 @@ public class LibrarianRepository<TDocument> : ILibrarianRepository<TDocument> wh
         ArgumentException.ThrowIfNullOrEmpty(document.Id);
         string docSerialized = LibrarianJson.Serialize(document);
         if (_log && Logger.IsEnabled(LogLevel.Debug))
-            Logger.LogDebug("-- LIBRARIAN: {method} ({type}): {document}", nameof(AddItem), typeof(TDocument).Name, docSerialized);
+            Logger.LogDebug("-- LIBRARIAN: {method} ({type})", nameof(AddItem), typeof(TDocument).Name);
 
         _ = await container.AddItem(document.Id, docSerialized, cancellationToken).NoSync();
 
@@ -207,7 +207,7 @@ public class LibrarianRepository<TDocument> : ILibrarianRepository<TDocument> wh
         ArgumentException.ThrowIfNullOrEmpty(document.Id);
         string docSerialized = LibrarianJson.Serialize(document);
         if (_log && Logger.IsEnabled(LogLevel.Debug))
-            Logger.LogDebug("-- LIBRARIAN: {method} ({type}): {document}", nameof(UpdateItem), typeof(TDocument).Name, docSerialized);
+            Logger.LogDebug("-- LIBRARIAN: {method} ({type})", nameof(UpdateItem), typeof(TDocument).Name);
 
         _ = await container.UpdateItemStrict(document.Id, docSerialized, cancellationToken).NoSync();
 

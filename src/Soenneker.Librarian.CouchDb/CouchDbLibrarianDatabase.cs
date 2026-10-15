@@ -58,6 +58,9 @@ public sealed class CouchDbLibrarianDatabase : ILibrarianDatabase
             options.Endpoint.UserInfo.Length != 0)
             throw new ArgumentException(
                 "Endpoint must be an absolute HTTP(S) URL without credentials, query, or fragment.", nameof(options));
+        if (options.Endpoint.Scheme == "http" && !options.Endpoint.IsLoopback && !options.AllowInsecureHttp)
+            throw new ArgumentException(
+                "Remote CouchDB endpoints require HTTPS. Set AllowInsecureHttp explicitly to permit plaintext HTTP.", nameof(options));
         ArgumentException.ThrowIfNullOrWhiteSpace(options.Key);
         string prefix = options.DatabasePrefix;
         if (string.IsNullOrEmpty(prefix) || prefix[0] is < 'a' or > 'z' || prefix.Any(c =>
@@ -91,6 +94,7 @@ public sealed class CouchDbLibrarianDatabase : ILibrarianDatabase
             Username = configuration[prefix + "Username"], Password = configuration[prefix + "Password"],
             Key = configuration[prefix + "Key"] ?? "librarian",
             DatabasePrefix = configuration[prefix + "DatabasePrefix"] ?? "librarian",
+            AllowInsecureHttp = configuration[prefix + "AllowInsecureHttp"] is { } allowInsecure && bool.Parse(allowInsecure),
             EnsureDatabaseOnFirstUse = configuration[prefix + "EnsureDatabaseOnFirstUse"] is not { } ensure ||
                                        bool.Parse(ensure)
         };

@@ -111,7 +111,7 @@ static async Task CheckDatabase(ILibrarianDatabase database)
     Check(root.Select((row, index) => row.Score + index).Count(value => value >= 4) == 4, "Indexed projection");
     string[] names = ["row-1", "row-3"];
     Check(root.Where(row => names.Contains(row.Name)).Count() == 2, "Array membership interpretation");
-    Check(await root.All(row => row.Score >= 0), "Async All");
+    Check(await root.All(row => row.Score >= 0, cancellationToken: default), "Async All");
     Check((await root.Where(row => row.Score > 3).Select(row => new SmokeProjection(row.Name, row.Score)).ToList(default)).Count == 2, "Record projection");
     Check(root.Select(row => row.Score).Sum() == 15, "Aggregate");
     Check(root.Select(row => row.Score).Where(value => value > 10).FirstOrDefault() == 0, "Value-type default");
@@ -135,16 +135,16 @@ static async Task CheckRemote(ILibrarianDatabase database)
                                                .Select(row => new SmokeProjection(row.Name, row.Score)).ToList(default);
         Check(page.Count == 2 && page[0].Score == 2, "Remote record projection");
         Check((await root.Take(2).ToList(default)).Count == 2, "Remote typed document list");
-        Check(await root.All(row => row.Score >= 0), "Remote async All");
+        Check(await root.All(row => row.Score >= 0, cancellationToken: default), "Remote async All");
         var values = new HashSet<int> { 1, 4 };
-        Check(await root.Count(row => values.Contains(row.Score)) == 2, "Remote set membership");
-        Check(await root.Where(row => row.Score > 10).Select(row => row.Score).FirstOrDefault(default) == 0, "Remote scalar default");
+        Check(await root.Count(row => values.Contains(row.Score), cancellationToken: default) == 2, "Remote set membership");
+        Check(await root.Where(row => row.Score > 10).Select(row => row.Score).FirstOrDefault(cancellationToken: default) == 0, "Remote scalar default");
         await container.EnsureIndex("status");
         Check(await container.CountByIndex("status", SmokeStatus.Active) == 6, "Remote enum index");
         await container.EnsureIndex("score");
         Check((await container.FindByIndex<SmokeRow>("score", 3)).Items.Single().Score == 3, "Remote typed index page");
         await container.UpdateItemStrict("3", "{\"score\":30,\"name\":\"changed\",\"status\":\"Active\"}");
-        Check(await root.Count(row => row.Score == 30) == 1, "Remote index maintenance");
+        Check(await root.Count(row => row.Score == 30, cancellationToken: default) == 1, "Remote index maintenance");
     }
     finally { await container.DeleteAllItems(); }
 }

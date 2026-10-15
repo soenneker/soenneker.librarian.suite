@@ -10,7 +10,8 @@ namespace Soenneker.Librarian.Core.Security;
 
 /// <summary>A single-owner snapshot database with authenticated encryption and atomic file replacement.</summary>
 /// <remarks>Use a stable, unambiguous scope identifying the application, user and tenant. One owner may use each file.
-/// Ordinary writes require Save; batches persist immediately. Missing keys or corrupt ciphertext throw and never reset storage.</remarks>
+/// Scopes must contain well-formed UTF-16. Ordinary writes require Save; batches persist immediately.
+/// Missing keys or corrupt ciphertext throw and never reset storage.</remarks>
 public abstract class EncryptedFileSnapshotLibrarianDatabase : SnapshotLibrarianDatabase
 {
     private static readonly byte[] Magic = "LIBSEC01"u8.ToArray();
@@ -18,6 +19,7 @@ public abstract class EncryptedFileSnapshotLibrarianDatabase : SnapshotLibrarian
     private const int TagSize = 16;
     private readonly string _path;
     private readonly string _scope;
+    private readonly byte[] _associatedData;
     private readonly ILibrarianEncryptionKeyStore _keys;
 
     protected EncryptedFileSnapshotLibrarianDatabase(string filePath, string scope, ILibrarianEncryptionKeyStore keys, ILogger logger) : base(logger)
@@ -25,6 +27,7 @@ public abstract class EncryptedFileSnapshotLibrarianDatabase : SnapshotLibrarian
         ArgumentException.ThrowIfNullOrWhiteSpace(filePath);
         ArgumentException.ThrowIfNullOrWhiteSpace(scope);
         ArgumentNullException.ThrowIfNull(keys);
+        _associatedData = new UTF8Encoding(false, true).GetBytes("Librarian.Secure.v1:" + scope);
         _path = Path.GetFullPath(filePath);
         _scope = scope;
         _keys = keys;
@@ -46,7 +49,7 @@ public abstract class EncryptedFileSnapshotLibrarianDatabase : SnapshotLibrarian
             ValidateKey(key);
             using var aes = new AesGcm(key, TagSize);
             aes.Decrypt(encrypted.AsSpan(Magic.Length, NonceSize), encrypted.AsSpan(headerSize),
-                encrypted.AsSpan(Magic.Length + NonceSize, TagSize), plaintext, GetAssociatedData());
+                encrypted.AsSpan(Magic.Length + NonceSize, TagSize), plaintext, _associatedData);
             return Encoding.UTF8.GetString(plaintext);
         }
         finally
@@ -69,7 +72,7 @@ public abstract class EncryptedFileSnapshotLibrarianDatabase : SnapshotLibrarian
             RandomNumberGenerator.Fill(encrypted.AsSpan(Magic.Length, NonceSize));
             using (var aes = new AesGcm(key, TagSize))
                 aes.Encrypt(encrypted.AsSpan(Magic.Length, NonceSize), plaintext,
-                    encrypted.AsSpan(Magic.Length + NonceSize + TagSize), encrypted.AsSpan(Magic.Length + NonceSize, TagSize), GetAssociatedData());
+                    encrypted.AsSpan(Magic.Length + NonceSize + TagSize), encrypted.AsSpan(Magic.Length + NonceSize, TagSize), _associatedData);
             Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
             await using (var stream = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None, 4096, FileOptions.Asynchronous))
             {
@@ -87,8 +90,6 @@ public abstract class EncryptedFileSnapshotLibrarianDatabase : SnapshotLibrarian
             if (File.Exists(temporary)) File.Delete(temporary);
         }
     }
-
-    private byte[] GetAssociatedData() => Encoding.UTF8.GetBytes("Librarian.Secure.v1:" + _scope);
 
     private static void ValidateKey(byte[] key)
     {

@@ -4,7 +4,8 @@ using Soenneker.Librarian.Abstractions;
 namespace Soenneker.Librarian.Maui.Secure;
 
 /// <summary>An encrypted, single-owner filesystem database with keys held in platform secure storage.</summary>
-/// <remarks>Use an application/user/tenant-specific scope. Save after important writes and before suspension;
+/// <remarks>Use an application/user/tenant-specific scope containing well-formed UTF-16. Invalid scopes are rejected
+/// before accessing files or secure storage, including path lookup and deletion. Save after important writes and before suspension;
 /// mobile process termination does not guarantee disposal. Ciphertext or key errors never reset persisted data automatically.</remarks>
 public interface IMauiSecureLibrarianDatabase : ILibrarianDatabase
 {

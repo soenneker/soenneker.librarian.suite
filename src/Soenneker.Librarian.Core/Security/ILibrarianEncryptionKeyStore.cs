@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 namespace Soenneker.Librarian.Core.Security;
 
 /// <summary>Provides platform-protected keys for encrypted snapshot databases.</summary>
+/// <remarks>Scopes must contain well-formed UTF-16. Reject invalid scopes before accessing key storage.</remarks>
 public interface ILibrarianEncryptionKeyStore
 {
     /// <summary>Returns an owned copy of a 32-byte key. Creates it only when allowed; otherwise a missing key must throw.</summary>

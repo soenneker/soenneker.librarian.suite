@@ -1,6 +1,5 @@
 using System;
 using System.Security.Cryptography;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Maui.Storage;
@@ -14,11 +13,10 @@ public sealed class MauiSecureEncryptionKeyStore(ISecureStorage storage) : ILibr
 
     public async ValueTask<byte[]> GetKey(string scope, bool allowCreate, CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(scope);
+        string name = GetKeyName(scope);
         await Gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            string name = GetKeyName(scope);
             string? stored = await storage.GetAsync(name).ConfigureAwait(false);
             cancellationToken.ThrowIfCancellationRequested();
             if (stored is not null)
@@ -43,11 +41,11 @@ public sealed class MauiSecureEncryptionKeyStore(ISecureStorage storage) : ILibr
 
     public async ValueTask DeleteKey(string scope, CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(scope);
+        string name = GetKeyName(scope);
         await Gate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try { storage.Remove(GetKeyName(scope)); }
+        try { storage.Remove(name); }
         finally { Gate.Release(); }
     }
 
-    private static string GetKeyName(string scope) => "Librarian.Secure.v1." + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(scope)));
+    private static string GetKeyName(string scope) => "Librarian.Secure.v1." + MauiSecureScope.GetHash(scope);
 }

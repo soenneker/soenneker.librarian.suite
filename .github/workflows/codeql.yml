@@ -7,8 +7,7 @@ concurrency:
 on:
   push:
     branches: [ "main" ]
-    paths-ignore:
-      - 'test/**'
+  workflow_call:
   workflow_dispatch:
 
 env:
@@ -22,30 +21,55 @@ permissions:
 jobs:
   analyze:
     runs-on: ubuntu-latest
-    name: CodeQL Analysis
+    name: CodeQL (${{ matrix.language }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: csharp
+            build-mode: manual
+          - language: javascript-typescript
+            build-mode: none
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v6
+        if: matrix.build-mode == 'manual'
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           dotnet-version: '10.0.401'
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v4
+        uses: github/codeql-action/init@24c54180a607b1449ed407dd24f251e4e9147c8d # v4
         with:
-          languages: csharp
-          build-mode: manual
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
 
       - name: Restore src
+        if: matrix.build-mode == 'manual'
         run: dotnet restore ./Soenneker.Librarian.Suite.slnx --verbosity minimal
 
       - name: Build src
+        if: matrix.build-mode == 'manual'
         run: dotnet build ./Soenneker.Librarian.Suite.slnx --configuration Release --no-restore --verbosity minimal
 
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v4
+        uses: github/codeql-action/analyze@24c54180a607b1449ed407dd24f251e4e9147c8d # v4
+        with:
+          category: /language:${{ matrix.language }}
+
+  codeql:
+    name: CodeQL Analysis
+    needs: analyze
+    if: always()
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Require successful analysis for every language
+        env:
+          ANALYSIS_RESULT: ${{ needs.analyze.result }}
+        run: test "$ANALYSIS_RESULT" = success

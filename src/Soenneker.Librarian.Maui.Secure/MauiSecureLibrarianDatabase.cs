@@ -1,7 +1,5 @@
 using System;
 using System.IO;
-using System.Security.Cryptography;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -20,8 +18,7 @@ public sealed class MauiSecureLibrarianDatabase : EncryptedFileSnapshotLibrarian
     /// <summary>Gets the scope-specific encrypted file path, under app data unless an explicit directory is supplied.</summary>
     public static string GetFilePath(string scope, string? directoryPath = null)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(scope);
-        string hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(scope)));
+        string hash = MauiSecureScope.GetHash(scope);
         return Path.Combine(directoryPath ?? Path.Combine(FileSystem.Current.AppDataDirectory, "librarian"), hash + ".bin");
     }
 

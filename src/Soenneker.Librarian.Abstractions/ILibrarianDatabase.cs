@@ -128,7 +128,9 @@ public interface ILibrarianDatabase : IAsyncDisposable
     /// Caller-supplied MongoDB databases and Cosmos containers retain ownership of their clients after provider disposal.
     /// The MongoDB and Cosmos SDK packages are not advertised as Native AOT compatible.
     /// CouchDB uses Librarian:CouchDb:Endpoint, optional Username and Password, Key (default librarian), DatabasePrefix
-    /// (default librarian), and EnsureDatabaseOnFirstUse (default true). Constructors and DI resolution perform no I/O.
+    /// (default librarian), EnsureDatabaseOnFirstUse (default true), and AllowInsecureHttp (default false).
+    /// Non-loopback endpoints require HTTPS unless AllowInsecureHttp is explicitly enabled, which exposes credentials and documents.
+    /// Loopback HTTP is allowed for local development. Constructors and DI resolution perform no I/O.
     /// Each logical container maps to one unpartitioned physical CouchDB database: prefix-hex(UTF8(key))-hex(UTF8(name)).
     /// Names and keys are case-sensitive. The encoded name must fit CouchDB's 238-byte limit.
     /// First GetContainer checks existence and creates a missing database; failures are not cached and can be retried.
