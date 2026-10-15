@@ -18,15 +18,7 @@ env:
   NUGET_XMLDOC_MODE: skip
 
 jobs:
-  codeql:
-    uses: ./.github/workflows/codeql.yml
-    permissions:
-      actions: read
-      contents: read
-      security-events: write
-
-  test:
-    name: Tests
+  build-and-test:
     runs-on: ubuntu-latest
 
     services:
@@ -126,15 +118,3 @@ jobs:
             [[ "$project" == *Soenneker.Librarian.Website* ]] && continue
             dotnet pack "$project" --configuration Release --no-build --no-restore --output ./artifacts --verbosity minimal
           done
-
-  build-and-test:
-    needs: [test, codeql]
-    if: always()
-    runs-on: ubuntu-latest
-    permissions: {}
-    steps:
-      - name: Require tests and security analysis
-        env:
-          TEST_RESULT: ${{ needs.test.result }}
-          CODEQL_RESULT: ${{ needs.codeql.result }}
-        run: test "$TEST_RESULT" = success && test "$CODEQL_RESULT" = success

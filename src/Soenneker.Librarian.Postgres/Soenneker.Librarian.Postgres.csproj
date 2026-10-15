@@ -47,7 +47,7 @@
     <ItemGroup>
         <PackageReference Include="Soenneker.Asyncs.Semaphores" Version="4.0.20" />
         <PackageReference Include="Soenneker.Utils.AsyncInitializers" Version="4.0.5" />
-        <PackageReference Include="Soenneker.Utils.PooledStringBuilders" Version="4.0.35" />
+        <PackageReference Include="Soenneker.Utils.PooledStringBuilders" Version="4.0.43" />
         <PackageReference Include="Soenneker.Atomics.ValueBools" Version="4.0.47" />
         <PackageReference Include="Soenneker.Extensions.Task" Version="4.0.132" />
         <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.12" />
