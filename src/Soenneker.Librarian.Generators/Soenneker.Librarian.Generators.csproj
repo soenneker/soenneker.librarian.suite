@@ -17,8 +17,8 @@
         <PackageReleaseNotes Condition="'$(PACKAGE_RELEASE_NOTES)' != ''">$(PACKAGE_RELEASE_NOTES)</PackageReleaseNotes>
     </PropertyGroup>
     <ItemGroup>
-        <!-- Keep the compile-time API compatible with SDK 10.0.1xx; the compiler supplies Roslyn at runtime. -->
-        <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="5.0.0" PrivateAssets="all" />
+        <!-- Compile against Roslyn 5.9; the consumer SDK supplies Roslyn at runtime. -->
+        <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="5.9.0" PrivateAssets="all" />
         <None Include="$(OutputPath)$(AssemblyName).dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
         <None Include="buildTransitive/Soenneker.Librarian.Generators.props" Pack="true" PackagePath="buildTransitive" />
     </ItemGroup>
