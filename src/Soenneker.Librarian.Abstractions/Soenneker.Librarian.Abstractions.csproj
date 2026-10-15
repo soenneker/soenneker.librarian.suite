@@ -45,10 +45,10 @@
     </ItemGroup>
 
     <ItemGroup>
-        <PackageReference Include="Soenneker.Utils.Json" Version="4.0.2738" />
-        <PackageReference Include="Soenneker.Dtos.IdValuePair" Version="4.0.153" />
-        <PackageReference Include="Soenneker.Extensions.ValueTask" Version="4.0.125" />
-        <PackageReference Include="Soenneker.Documents.Document" Version="4.0.2738" />
-        <PackageReference Include="Soenneker.Dtos.IdNamePair" Version="4.0.732" />
+        <PackageReference Include="Soenneker.Utils.Json" Version="4.0.2757" />
+        <PackageReference Include="Soenneker.Dtos.IdValuePair" Version="4.0.166" />
+        <PackageReference Include="Soenneker.Extensions.ValueTask" Version="4.0.133" />
+        <PackageReference Include="Soenneker.Documents.Document" Version="4.0.2753" />
+        <PackageReference Include="Soenneker.Dtos.IdNamePair" Version="4.0.745" />
     </ItemGroup>
 </Project>
