@@ -90,7 +90,8 @@ internal sealed class SurrealDbQueryProvider<T>(ILibrarianContainer container) :
         {
             if (!GeneratedQueryMetadata.TryGet(member.Member.DeclaringType!, member.Member.Name, out GeneratedQueryMember metadata))
                 throw new NotSupportedException("LINQ field access requires Librarian generated query metadata. Explicit index methods accept JSON paths directly.");
-            names.Push(metadata.JsonName);
+            names.Push(Soenneker.Librarian.Abstractions.Serialization.LibrarianJson.PropertyName(
+                member.Expression!.Type, member.Member.Name, metadata.JsonName, parameter.Type));
             expression = member.Expression!;
         }
         if (expression != parameter || names.Count == 0) throw new NotSupportedException("Expected a document field path.");

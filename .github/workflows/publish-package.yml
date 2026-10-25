@@ -138,6 +138,9 @@ jobs:
             Soenneker.Librarian.Postgres
             Soenneker.Librarian.Mongo
             Soenneker.Librarian.Cosmos
+            Soenneker.Librarian.CouchDb
+            Soenneker.Librarian.Turso
+            Soenneker.Librarian.SurrealDb
             Soenneker.Librarian.D1
             Soenneker.Librarian.AzureBlob
             Soenneker.Librarian.R2

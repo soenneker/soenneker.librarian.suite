@@ -37,6 +37,7 @@ public sealed class FileSystemLibrarianDatabase : ILibrarianDatabase
     private readonly AsyncLock _saveGate = new();
     private readonly AsyncLock _fileGate = new();
     private readonly AsyncLock _dirtyLock = new();
+    private readonly AsyncLock _disposeGate = new();
     private readonly HashSet<string> _dirtyContainers = new(StringComparer.Ordinal);
     private ValueAtomicBool _disposed = new(false);
 
@@ -263,27 +264,18 @@ public sealed class FileSystemLibrarianDatabase : ILibrarianDatabase
 
     public async ValueTask DisposeAsync()
     {
-        using (await _dirtyLock.Lock(CancellationToken.None).NoSync())
+        using (await _disposeGate.Lock(CancellationToken.None).NoSync())
         {
-            if (!_disposed.TrySetTrue())
-                return;
-        }
-
-        try
-        {
+            if (_disposed.Value) return;
             await _cts.CancelAsync().NoSync();
             await _periodicSave.NoSync();
             using (await _saveGate.Lock(CancellationToken.None).NoSync())
+            {
+                // Keep the pending snapshots and containers alive if the final flush fails.
+                // Disposal can then be retried after the backing storage recovers.
                 await SavePending(CancellationToken.None).NoSync();
-        }
-        finally
-        {
-            try
-            {
+                _disposed.TrySetTrue();
                 await _containers.DisposeAsync().NoSync();
-            }
-            finally
-            {
                 await _initializer.DisposeAsync().NoSync();
                 _cts.Dispose();
             }

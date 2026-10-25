@@ -14,11 +14,18 @@ public sealed class MongoJsonSerializerRegistry
     /// <summary>Registers a scalar serializer using generated JSON metadata.</summary>
     public void RegisterScalar<T>() => Register<T>(options => new MongoJsonSerializer<T>(options.GetTypeInfo(typeof(T))));
 
-    /// <summary>Registers a document and its CLR member names mapped to JSON property names.</summary>
-    public void RegisterDocument<T>(IReadOnlyDictionary<string, string> members)
+    /// <summary>Registers a document and its CLR member names mapped to explicit JSON property names.
+    /// A null mapping uses the serialization options' naming policy.</summary>
+    public void RegisterDocument<T>(IReadOnlyDictionary<string, string?> members)
     {
-        var names = new Dictionary<string, string>(members, StringComparer.Ordinal);
-        Register<T>(options => new MongoJsonDocumentSerializer<T>((JsonTypeInfo<T>)options.GetTypeInfo(typeof(T)), names, Create));
+        var mappings = new Dictionary<string, string?>(members, StringComparer.Ordinal);
+        Register<T>(options =>
+        {
+            var names = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var pair in mappings)
+                names.Add(pair.Key, pair.Value ?? options.PropertyNamingPolicy?.ConvertName(pair.Key) ?? pair.Key);
+            return new MongoJsonDocumentSerializer<T>((JsonTypeInfo<T>)options.GetTypeInfo(typeof(T)), names, Create);
+        });
     }
 
     /// <summary>Registers a statically constructed BSON serializer, including collection and nullable serializers.</summary>

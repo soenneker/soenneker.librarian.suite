@@ -89,8 +89,7 @@ public sealed class LibrarianGenerator : IIncrementalGenerator
                             .Append(Name(type)).Append(", ").Append(Name(valueType)).Append(">(")
                             .Append(Literal(member.Name)).Append(", ")
                             .Append(jsonName is null
-                                ? "global::System.Text.Json.JsonNamingPolicy.CamelCase.ConvertName(" +
-                                  Literal(member.Name) + ")"
+                                ? "null"
                                 : Literal(jsonName)).Append(", static value => value.@").Append(member.Name)
                             .Append(", ").Append(index ? "true" : "false")
                             .Append(IndexFactory(member, valueType, index)).Append(");\n");
@@ -103,8 +102,7 @@ public sealed class LibrarianGenerator : IIncrementalGenerator
                                 .Append(Name(current)).Append(", ").Append(Name(valueType)).Append(">(")
                                 .Append(Literal(member.Name)).Append(", ")
                                 .Append(jsonName is null
-                                    ? "global::System.Text.Json.JsonNamingPolicy.CamelCase.ConvertName(" +
-                                      Literal(member.Name) + ")"
+                                    ? "null"
                                     : Literal(jsonName)).Append(", static value => value.@").Append(member.Name)
                                 .Append(", ").Append(index ? "true" : "false")
                                 .Append(IndexFactory(member, valueType, index)).Append(");\n");

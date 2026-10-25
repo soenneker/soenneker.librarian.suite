@@ -9,8 +9,8 @@ public static class GeneratedQueryMetadata
 {
     private static readonly ConcurrentDictionary<(Type Type, string Name), GeneratedQueryMember> Members = new();
 
-    /// <summary>Registers a generated accessor. Call during application initialization.</summary>
-    public static void Register<T, TValue>(string member, string jsonName, Func<T, TValue> getter, bool canIndex,
+    /// <summary>Registers a generated accessor. jsonName is an explicit JSON name override, or null to use the registered contract's naming policy. Call during application initialization.</summary>
+    public static void Register<T, TValue>(string member, string? jsonName, Func<T, TValue> getter, bool canIndex,
         Func<T, GeneratedIndexKey>? indexKey = null)
     {
         ArgumentNullException.ThrowIfNull(getter);
@@ -27,7 +27,8 @@ public static class GeneratedQueryMetadata
     {
         var result = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var pair in Members)
-            if (pair.Key.Type == typeof(T)) result.Add(pair.Key.Name, pair.Value.JsonName);
+            if (pair.Key.Type == typeof(T)) result.Add(pair.Key.Name,
+                Serialization.LibrarianJson.PropertyName(typeof(T), pair.Key.Name, pair.Value.JsonName));
         return result;
     }
 }

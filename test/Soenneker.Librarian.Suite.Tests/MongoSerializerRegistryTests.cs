@@ -11,7 +11,7 @@ public sealed class MongoSerializerRegistryTests
     {
         var registry = new MongoJsonSerializerRegistry();
         registry.RegisterScalar<int>();
-        registry.RegisterDocument<MongoLinqRow>(new Dictionary<string, string>
+        registry.RegisterDocument<MongoLinqRow>(new Dictionary<string, string?>
         {
             [nameof(MongoLinqRow.Score)] = "score_value",
             [nameof(MongoLinqRow.StringNumber)] = "stringNumber"

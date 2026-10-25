@@ -130,13 +130,12 @@ internal static class MongoRegistrationEmitter
                                          ?.ConstructorArguments.FirstOrDefault().Value as string;
                     members.Add((member.Name,
                         json is null
-                            ? "global::System.Text.Json.JsonNamingPolicy.CamelCase.ConvertName(" +
-                              LibrarianGenerator.Literal(member.Name) + ")"
+                            ? "null"
                             : LibrarianGenerator.Literal(json)));
                 }
 
             text.Append("registry.RegisterDocument<").Append(name)
-                .Append(">(new global::System.Collections.Generic.Dictionary<string, string> {\n");
+                .Append(">(new global::System.Collections.Generic.Dictionary<string, string?> {\n");
             foreach (var member in members)
                 text.Append("[").Append(LibrarianGenerator.Literal(member.Name)).Append("] = ").Append(member.Json)
                     .Append(",\n");

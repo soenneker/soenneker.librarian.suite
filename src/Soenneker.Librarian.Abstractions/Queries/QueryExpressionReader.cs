@@ -13,6 +13,9 @@ public static class QueryExpressionReader
     /// <summary>Reads a JSON member path rooted at the query parameter, rejecting scalar member access.</summary>
     public static string? Path(Expression expression, ParameterExpression parameter, Func<NotSupportedException> unsupported)
     {
+        Expression? root = expression;
+        while (root is MemberExpression access) root = access.Expression;
+        if (root != parameter) return null; // Captured values are not document members.
         var segments = new Stack<string>();
         while (expression is MemberExpression member)
         {
@@ -22,9 +25,10 @@ public static class QueryExpressionReader
                 parent == typeof(DateTime) || parent == typeof(DateTimeOffset) || parent == typeof(Guid) ||
                 parent == typeof(DateOnly) || parent == typeof(TimeOnly) || parent == typeof(TimeSpan) || Nullable.GetUnderlyingType(parent) is not null))
                 return null;
-            string segment = member.Member.DeclaringType is { } declaring && GeneratedQueryMetadata.TryGet(declaring, member.Member.Name, out var generated)
-                ? generated.JsonName : member.Member.GetCustomAttribute<JsonPropertyNameAttribute>()?.Name ??
-                (JsonNamingPolicy.CamelCase.ConvertName(member.Member.Name) ?? member.Member.Name);
+            string? segment = member.Member.DeclaringType is { } declaring && GeneratedQueryMetadata.TryGet(declaring, member.Member.Name, out var generated)
+                ? generated.JsonName : member.Member.GetCustomAttribute<JsonPropertyNameAttribute>()?.Name;
+            segment = Soenneker.Librarian.Abstractions.Serialization.LibrarianJson.PropertyName(
+                parent ?? member.Member.DeclaringType!, member.Member.Name, segment, parameter.Type);
             if (segment.Contains('.', StringComparison.Ordinal)) throw unsupported();
             segments.Push(segment);
             expression = member.Expression!;

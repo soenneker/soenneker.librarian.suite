@@ -21,6 +21,7 @@ public sealed class GeneratedQueryTests
     [Test]
     public void Generated_metadata_preserves_names_and_excludes_computed_indexes()
     {
+        LibrarianJson.Register(GeneratedRowJsonContext.Default.GeneratedRow);
         Check(GeneratedQueryMetadata.TryGet(typeof(GeneratedRow), "Age", out var age));
         Check(age.JsonName == "age_value" && age.CanIndex && (int)age.Get(new GeneratedRow { Age = 42 })! == 42);
         Check(GeneratedQueryMetadata.TryGet(typeof(GeneratedRow), "Computed", out var computed) && !computed.CanIndex);
@@ -65,6 +66,7 @@ public sealed class GeneratedQueryTests
     [Test]
     public void Generated_projection_constructs_provider_columns()
     {
+        LibrarianJson.Register(GeneratedRowJsonContext.Default.GeneratedRow);
         var root = Array.Empty<GeneratedRow>().AsQueryable();
         var query = root.Take(2).Select(row => new GeneratedProjection(row.Age, row.Name));
         var lambda = (LambdaExpression)((UnaryExpression)((MethodCallExpression)query.Expression).Arguments[1]).Operand;

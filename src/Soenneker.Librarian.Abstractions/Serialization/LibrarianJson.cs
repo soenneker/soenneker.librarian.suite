@@ -1,6 +1,7 @@
 using System;
 using Soenneker.Utils.Json;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using Soenneker.Librarian.Abstractions.Queries;
@@ -29,6 +30,32 @@ public static class LibrarianJson
     public static JsonTypeInfo Contract(Type type) => _contracts.TryGetValue(type, out JsonTypeInfo? contract)
         ? contract : LibrarianScalarJsonContext.Default.GetTypeInfo(type)
         ?? throw new InvalidOperationException($"Register a source-generated JSON contract with LibrarianJson.Register<T>() before using {type}.");
+
+    /// <summary>Resolves a query member against its registered serialization contract, including nested generated contracts.</summary>
+    public static string PropertyName(Type type, string member, string? explicitName = null, Type? rootType = null)
+    {
+        JsonTypeInfo? contract = null;
+        if (rootType is not null && _contracts.TryGetValue(rootType, out JsonTypeInfo? rootContract))
+            rootContract.Options.TryGetTypeInfo(type, out contract);
+        contract ??= _contracts.GetValueOrDefault(type);
+        if (contract is null)
+        {
+            foreach (JsonTypeInfo root in _contracts.Values)
+            {
+                if (!root.Options.TryGetTypeInfo(type, out JsonTypeInfo? nested)) continue;
+                if (contract is not null && Name(contract) != Name(nested))
+                    throw new NotSupportedException($"Conflicting JSON member mappings for {type}.{member}.");
+                contract = nested;
+            }
+        }
+        if (contract is null) throw new NotSupportedException($"Register the JSON contract for {type} before querying its members.");
+        string name = Name(contract);
+        foreach (JsonPropertyInfo property in contract.Properties)
+            if (property.Name == name && property.Get is not null && !property.IsExtensionData) return name;
+        throw new NotSupportedException($"The JSON contract does not expose {type}.{member} as a queryable property.");
+
+        string Name(JsonTypeInfo info) => explicitName ?? info.Options.PropertyNamingPolicy?.ConvertName(member) ?? member;
+    }
 
     public static T? Deserialize<T>(string json) => JsonUtil.Deserialize(json, (JsonTypeInfo<T>)Contract(typeof(T)));
     // JsonUtil has no non-generic metadata overload; retain the registered AOT contract here.
