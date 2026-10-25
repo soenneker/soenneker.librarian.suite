@@ -52,7 +52,7 @@
         <PackageReference Include="Soenneker.Extensions.Task" Version="4.0.140" />
         <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.13" />
         <PackageReference Include="Npgsql" Version="10.0.3" />
-        <PackageReference Include="Soenneker.Extensions.Configuration" Version="4.0.910" />
+        <PackageReference Include="Soenneker.Extensions.Configuration" Version="4.0.911" />
         <ProjectReference Include="../Soenneker.Librarian.Abstractions/Soenneker.Librarian.Abstractions.csproj" />
     </ItemGroup>
 </Project>
