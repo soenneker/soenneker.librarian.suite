@@ -46,7 +46,7 @@
 
     <ItemGroup>
         <PackageReference Include="Soenneker.Utils.PooledStringBuilders" Version="4.0.43" />
-        <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.13" />
+        <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.14" />
         <PackageReference Include="Soenneker.Redis.Client" Version="4.0.2380" />
         <ProjectReference Include="../Soenneker.Librarian.Abstractions/Soenneker.Librarian.Abstractions.csproj" />
     </ItemGroup>
