@@ -46,7 +46,7 @@
 
     <ItemGroup>
         <PackageReference Include="Soenneker.Asyncs.Locks" Version="4.0.115" />
-        <PackageReference Include="Soenneker.Atomics.ValueBools" Version="4.0.54" />
+        <PackageReference Include="Soenneker.Atomics.ValueBools" Version="11.0.55" />
         <PackageReference Include="Microsoft.Extensions.Logging" Version="11.0.0-rc.3.26522.148" />
         <PackageReference Include="Soenneker.Extensions.Configuration" Version="11.0.913" />
         <ProjectReference Include="../Soenneker.Librarian.Abstractions/Soenneker.Librarian.Abstractions.csproj" />
