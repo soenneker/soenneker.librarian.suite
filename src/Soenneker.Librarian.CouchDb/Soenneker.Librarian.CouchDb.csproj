@@ -46,7 +46,7 @@
 
     <ItemGroup>
         <PackageReference Include="Soenneker.Utils.HttpClientCache" Version="4.0.2128" />
-        <PackageReference Include="Soenneker.Asyncs.Semaphores" Version="4.0.33" />
+        <PackageReference Include="Soenneker.Asyncs.Semaphores" Version="11.0.35" />
         <PackageReference Include="Soenneker.Atomics.ValueBools" Version="4.0.54" />
         <ProjectReference Include="../Soenneker.Librarian.Abstractions/Soenneker.Librarian.Abstractions.csproj" />
     </ItemGroup>
