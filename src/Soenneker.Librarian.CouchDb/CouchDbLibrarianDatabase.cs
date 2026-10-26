@@ -22,6 +22,7 @@ namespace Soenneker.Librarian.CouchDb;
 
 public sealed class CouchDbLibrarianDatabase : ILibrarianDatabase
 {
+    private static readonly UTF8Encoding StorageEncoding = new(false, true);
     private readonly HttpClient? _client;
     private readonly IHttpClientCache? _httpClientCache;
     private readonly string _httpClientKey = "CouchDbLibrarianDatabase:" + Guid.NewGuid().ToString("N");
@@ -62,6 +63,7 @@ public sealed class CouchDbLibrarianDatabase : ILibrarianDatabase
             throw new ArgumentException(
                 "Remote CouchDB endpoints require HTTPS. Set AllowInsecureHttp explicitly to permit plaintext HTTP.", nameof(options));
         ArgumentException.ThrowIfNullOrWhiteSpace(options.Key);
+        _ = StorageEncoding.GetByteCount(options.Key);
         string prefix = options.DatabasePrefix;
         if (string.IsNullOrEmpty(prefix) || prefix[0] is < 'a' or > 'z' || prefix.Any(c =>
                 c is not (>= 'a' and <= 'z') and not (>= '0' and <= '9') and not '-'))
@@ -109,8 +111,8 @@ public sealed class CouchDbLibrarianDatabase : ILibrarianDatabase
     private string DatabaseName(string name)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
-        string result = _options.DatabasePrefix + "-" + Convert.ToHexStringLower(Encoding.UTF8.GetBytes(_options.Key)) +
-                        "-" + Convert.ToHexStringLower(Encoding.UTF8.GetBytes(name));
+        string result = _options.DatabasePrefix + "-" + Convert.ToHexStringLower(StorageEncoding.GetBytes(_options.Key)) +
+                        "-" + Convert.ToHexStringLower(StorageEncoding.GetBytes(name));
         if (result.Length > 238)
             throw new ArgumentException("The encoded physical database name exceeds CouchDB's 238-byte limit.",
                 nameof(name));
@@ -146,6 +148,7 @@ public sealed class CouchDbLibrarianDatabase : ILibrarianDatabase
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(partitionKey);
+        _ = StorageEncoding.GetByteCount(partitionKey);
         return GetContainerCore(containerName, partitionKey, cancellationToken);
     }
 

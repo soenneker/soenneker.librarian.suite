@@ -21,6 +21,7 @@ namespace Soenneker.Librarian.CouchDb;
 
 internal sealed partial class CouchDbLibrarianContainer(CouchDbLibrarianDatabase database, string physical, string? partition) : ILibrarianContainer
 {
+    private static readonly UTF8Encoding StorageEncoding = new(false, true);
     private ValueAtomicBool _disposed = new(false);
     private void Check(CancellationToken token = default) { ObjectDisposedException.ThrowIf(_disposed.Value, this); database.Check(token); }
     public void Dispose() => _disposed.TrySetTrue();
@@ -28,7 +29,7 @@ internal sealed partial class CouchDbLibrarianContainer(CouchDbLibrarianDatabase
     private string Identity(string id)
     {
         var address = LibrarianDocumentJson.Address(id, partition);
-        return "d-" + Convert.ToHexStringLower(Encoding.UTF8.GetBytes(address.Partition)) + "-" + Convert.ToHexStringLower(Encoding.UTF8.GetBytes(address.Id));
+        return "d-" + Convert.ToHexStringLower(StorageEncoding.GetBytes(address.Partition)) + "-" + Convert.ToHexStringLower(StorageEncoding.GetBytes(address.Id));
     }
 
     private JsonObject Encode(string id, string document, string? revision = null)

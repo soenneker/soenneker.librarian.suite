@@ -10,6 +10,31 @@ namespace Soenneker.Librarian.Remote.Tests;
 
 public sealed class TurbopufferTests
 {
+    [Test]
+    [Arguments(0xD800)]
+    [Arguments(0xDFFF)]
+    public async Task Malformed_names_cannot_alias_valid_namespaces(int surrogate, CancellationToken token)
+    {
+        using var handler = new TurbopufferTestHandler();
+        using var client = Client(handler);
+        string invalid = "tenant-" + (char)surrogate;
+        try
+        {
+            await using var rejected = new TurbopufferLibrarianDatabase(client, invalid);
+            throw new Exception("Malformed database key was accepted.");
+        }
+        catch (System.Text.EncoderFallbackException) { }
+        await using var database = new TurbopufferLibrarianDatabase(client, "tenant-\uFFFD");
+        _ = await database.GetContainer("tenant-\uFFFD", token);
+        try
+        {
+            _ = await database.GetContainer(invalid, token);
+            throw new Exception("Malformed container name was accepted.");
+        }
+        catch (System.Text.EncoderFallbackException) { }
+        Check(handler.Requests.Count == 0, "Malformed identities caused network I/O.");
+    }
+
     private static TurbopufferClient Client(TurbopufferTestHandler handler) => new()
     {
         ApiKey = "test", BaseUrl = "https://turbopuffer.invalid", HttpClient = new HttpClient(handler), Compression = false,

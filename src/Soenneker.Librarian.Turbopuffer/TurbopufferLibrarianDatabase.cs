@@ -12,6 +12,7 @@ namespace Soenneker.Librarian.Turbopuffer;
 
 public sealed class TurbopufferLibrarianDatabase : ILibrarianDatabase
 {
+    private static readonly UTF8Encoding StorageEncoding = new(false, true);
     private readonly ITurbopufferClient _client;
     private readonly bool _ownsClient;
     private readonly string _key;
@@ -28,6 +29,7 @@ public sealed class TurbopufferLibrarianDatabase : ILibrarianDatabase
     {
         ArgumentNullException.ThrowIfNull(client);
         ArgumentException.ThrowIfNullOrWhiteSpace(key);
+        _ = StorageEncoding.GetByteCount(key);
         _client = client;
         _key = key;
         _ownsClient = ownsClient;
@@ -55,7 +57,7 @@ public sealed class TurbopufferLibrarianDatabase : ILibrarianDatabase
             {
                 // Length-prefixing prevents ambiguous key/name pairs. Hashing accommodates arbitrary names within the namespace limit.
                 string identity = _key.Length + ":" + _key + containerName;
-                string name = "librarian-" + Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(identity)));
+                string name = "librarian-" + Convert.ToHexStringLower(SHA256.HashData(StorageEncoding.GetBytes(identity)));
                 container = new TurbopufferLibrarianContainer(_client.Namespace(name).WithOptions(options => options with { MaxRetries = 0 }));
                 _containers.Add(containerName, container);
             }

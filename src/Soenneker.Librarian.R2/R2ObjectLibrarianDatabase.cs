@@ -14,6 +14,7 @@ namespace Soenneker.Librarian.R2;
 /// indexes are unsupported; use the snapshot provider only when its single-owner and whole-database semantics are intended.</remarks>
 public sealed class R2ObjectLibrarianDatabase(ICloudflareR2ObjectStore store, string key = "librarian") : ILibrarianDatabase
 {
+    private static readonly UTF8Encoding StorageEncoding = new(false, true);
     private readonly ConcurrentDictionary<string, R2ObjectLibrarianContainer> _containers = new(StringComparer.Ordinal);
     private readonly string _prefix = "librarian/" + Segment(key) + "/";
     private bool _disposed;
@@ -21,7 +22,7 @@ public sealed class R2ObjectLibrarianDatabase(ICloudflareR2ObjectStore store, st
     internal static string Segment(string value)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(value);
-        return Convert.ToHexString(Encoding.UTF8.GetBytes(value));
+        return Convert.ToHexString(StorageEncoding.GetBytes(value));
     }
 
     public ValueTask<ILibrarianContainer> GetContainer(string containerName, CancellationToken cancellationToken = default)
