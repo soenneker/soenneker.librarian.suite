@@ -69,9 +69,9 @@ public sealed class R2LibrarianDatabase : SnapshotLibrarianDatabase
 
     protected override async ValueTask WriteSnapshot(string json, CancellationToken cancellationToken)
     {
-        R2PutObject200? response = await _r2.PutObject(_accountId, _bucketName, _objectKey, json,
+        var response = await _r2.PutObject(_accountId, _bucketName, _objectKey, json,
             "application/json; charset=utf-8", _apiKey, cancellationToken).NoSync();
-        if (response?.Success != true || response.Errors is { Count: > 0 })
+        if (response?.Success != true || response?.Errors is { Count: > 0 })
             throw new InvalidDataException("R2 did not confirm the Librarian snapshot upload.");
     }
 }

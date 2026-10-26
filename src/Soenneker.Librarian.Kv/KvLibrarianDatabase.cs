@@ -72,9 +72,9 @@ public sealed class KvLibrarianDatabase : SnapshotLibrarianDatabase
             throw new InvalidOperationException(
                 "The KV Librarian snapshot exceeds the supported 25 MiB size. Use R2 for larger snapshots.");
         // PutValue does not expose the response envelope; bulk writes allow us to verify success.
-        WorkersKvNamespaceWriteMultipleKeyValuePairs200? response = await _kv.BulkPut(_accountId, _apiKey, _namespaceId,
+        var response = await _kv.BulkPut(_accountId, _apiKey, _namespaceId,
             [new WorkersKvBulkWriteItem { Key = _key, Value = json, Base64 = false }], cancellationToken).NoSync();
-        if (response?.Success != true || response.Errors is { Count: > 0 })
+        if (response?.Success != true || response?.Errors is { Count: > 0 })
             throw new InvalidDataException("KV did not confirm the Librarian snapshot upload.");
     }
 }

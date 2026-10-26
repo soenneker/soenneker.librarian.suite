@@ -79,7 +79,7 @@ jobs:
       - name: Setting up build version
         shell: bash
         run: |
-          echo "BUILD_VERSION=4.0.${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
+          echo "BUILD_VERSION=11.0.${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
 
       - name: Get release notes from latest commit
         uses: soenneker/release-notes-from-commits@64d13ba28ea5c3e8fb6ccbc84bedf66c337d4687 # v2
@@ -87,7 +87,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
-          dotnet-version: 10.0.402
+          dotnet-version: 11.0.100-rc.3.26522.148
 
       - name: Start MongoDB replica set
         shell: bash

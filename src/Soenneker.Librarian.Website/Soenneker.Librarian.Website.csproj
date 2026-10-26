@@ -1,6 +1,6 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk.Web">
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFramework>net11.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <IsPackable>false</IsPackable>
@@ -11,8 +11,8 @@
     <DefaultItemExcludes>$(DefaultItemExcludes);artifacts/**;out/**;node_modules/**</DefaultItemExcludes>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="Soenneker.Gen.Razor.Sitemaps" Version="4.0.162" PrivateAssets="all" />
-    <PackageReference Include="Soenneker.Quark.Suite" Version="4.0.1607" />
+    <PackageReference Include="Soenneker.Gen.Razor.Sitemaps" Version="4.0.164" PrivateAssets="all" />
+    <PackageReference Include="Soenneker.Quark.Suite" Version="11.0.1611" />
     <EmbeddedResource Include="../../benchmarks/Soenneker.Librarian.Benchmarks/sqlite-net-results.csv" LogicalName="Librarian.BenchmarkComparison.csv" />
   </ItemGroup>
 </Project>
