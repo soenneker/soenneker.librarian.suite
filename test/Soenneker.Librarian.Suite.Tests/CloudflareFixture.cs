@@ -33,6 +33,7 @@ internal sealed class CloudflareFixture : IDisposable
         _adapter = new HttpClientRequestAdapter(new AnonymousAuthenticationProvider(), httpClient: _http);
         _clientUtil = DispatchProxy.Create<ICloudflareClientUtil, CloudflareClientProxy>();
         Clients = (CloudflareClientProxy)_clientUtil;
+        Clients.Adapter = _adapter;
         Clients.Client = new CloudflareOpenApiClient(_adapter);
     }
 

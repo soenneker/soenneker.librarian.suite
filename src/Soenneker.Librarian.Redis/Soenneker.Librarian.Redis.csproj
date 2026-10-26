@@ -45,9 +45,9 @@
     </ItemGroup>
 
     <ItemGroup>
-        <PackageReference Include="Soenneker.Utils.PooledStringBuilders" Version="4.0.43" />
+        <PackageReference Include="Soenneker.Utils.PooledStringBuilders" Version="11.0.44" />
         <PackageReference Include="Microsoft.Extensions.Logging" Version="11.0.0-rc.3.26522.148" />
-        <PackageReference Include="Soenneker.Redis.Client" Version="4.0.2380" />
+        <PackageReference Include="Soenneker.Redis.Client" Version="11.0.2382" />
         <ProjectReference Include="../Soenneker.Librarian.Abstractions/Soenneker.Librarian.Abstractions.csproj" />
     </ItemGroup>
 </Project>

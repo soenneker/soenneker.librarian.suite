@@ -45,14 +45,14 @@
     </ItemGroup>
 
     <ItemGroup>
-        <PackageReference Include="Soenneker.Asyncs.Semaphores" Version="4.0.33" />
+        <PackageReference Include="Soenneker.Asyncs.Semaphores" Version="11.0.35" />
         <PackageReference Include="Soenneker.Utils.AsyncInitializers" Version="4.0.5" />
-        <PackageReference Include="Soenneker.Utils.PooledStringBuilders" Version="4.0.43" />
-        <PackageReference Include="Soenneker.Atomics.ValueBools" Version="4.0.54" />
-        <PackageReference Include="Soenneker.Extensions.Task" Version="4.0.140" />
+        <PackageReference Include="Soenneker.Utils.PooledStringBuilders" Version="11.0.44" />
+        <PackageReference Include="Soenneker.Atomics.ValueBools" Version="11.0.55" />
+        <PackageReference Include="Soenneker.Extensions.Task" Version="11.0.141" />
         <PackageReference Include="Microsoft.Extensions.Logging" Version="11.0.0-rc.3.26522.148" />
         <PackageReference Include="Npgsql" Version="10.0.3" />
-        <PackageReference Include="Soenneker.Extensions.Configuration" Version="11.0.913" />
+        <PackageReference Include="Soenneker.Extensions.Configuration" Version="11.0.914" />
         <ProjectReference Include="../Soenneker.Librarian.Abstractions/Soenneker.Librarian.Abstractions.csproj" />
     </ItemGroup>
 </Project>

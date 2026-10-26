@@ -45,11 +45,11 @@
     </ItemGroup>
 
     <ItemGroup>
-        <PackageReference Include="Soenneker.Asyncs.Semaphores" Version="4.0.33" />
-        <PackageReference Include="Soenneker.Atomics.ValueBools" Version="4.0.54" />
+        <PackageReference Include="Soenneker.Asyncs.Semaphores" Version="11.0.35" />
+        <PackageReference Include="Soenneker.Atomics.ValueBools" Version="11.0.55" />
         <PackageReference Include="Microsoft.Azure.Cosmos" Version="3.63.2" />
         <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
-        <PackageReference Include="Soenneker.Cosmos.Container" Version="4.0.2604" />
+        <PackageReference Include="Soenneker.Cosmos.Container" Version="11.0.2606" />
         <ProjectReference Include="../Soenneker.Librarian.Abstractions/Soenneker.Librarian.Abstractions.csproj" />
     </ItemGroup>
 </Project>
