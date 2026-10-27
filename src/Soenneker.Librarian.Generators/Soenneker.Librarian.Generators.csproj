@@ -13,6 +13,7 @@
         <Authors>Jake Soenneker</Authors>
         <Description>Generated model accessors and LINQ delegates for Librarian.</Description>
         <PackageLicenseExpression>MIT</PackageLicenseExpression>
+        <PackageIcon>icon.png</PackageIcon>
         <NoWarn>$(NoWarn);RS2008</NoWarn>
         <PackageReleaseNotes Condition="'$(PACKAGE_RELEASE_NOTES)' != ''">$(PACKAGE_RELEASE_NOTES)</PackageReleaseNotes>
     </PropertyGroup>
@@ -23,6 +24,7 @@
         <None Include="buildTransitive/Soenneker.Librarian.Generators.props" Pack="true" PackagePath="buildTransitive" />
     </ItemGroup>
     <ItemGroup>
+        <None Include="..\..\icon.png" Pack="true" PackagePath="\" />
         <None Include="Soenneker.Librarian.Generators.targets" Pack="true" PackagePath="build/" />
         <None Include="Soenneker.Librarian.Generators.targets" Pack="true" PackagePath="buildTransitive/" />
     </ItemGroup>
