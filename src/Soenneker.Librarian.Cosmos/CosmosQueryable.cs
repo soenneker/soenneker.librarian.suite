@@ -24,23 +24,27 @@ internal sealed class CosmosQueryable<T>
     private readonly IQueryable<T> _native;
     private readonly Action _check;
     private readonly Container _store;
-    private readonly QueryRequestOptions _options;
     private readonly string _scope;
+    private readonly CosmosLibrarianDatabase _database;
+    private readonly string _name;
+    private readonly string? _partition;
 
-    internal CosmosQueryable(IQueryable<T> native, Action check, Container store, QueryRequestOptions options, string scope)
+    internal CosmosQueryable(IQueryable<T> native, Action check, Container store, string scope, CosmosLibrarianDatabase database, string name, string? partition)
     {
         QueryTypes.Register<T>();
         _native = native;
         _check = check;
         _store = store;
-        _options = options;
         _scope = scope;
+        _database = database;
+        _name = name;
+        _partition = partition;
     }
 
     public Type ElementType => typeof(T);
     public Expression Expression => _native.Expression;
     public IQueryProvider Provider => this;
-    public IQueryable<TElement> CreateQuery<TElement>(Expression expression) => new CosmosQueryable<TElement>(_native.Provider.CreateQuery<TElement>(expression), _check, _store, _options, _scope);
+    public IQueryable<TElement> CreateQuery<TElement>(Expression expression) => new CosmosQueryable<TElement>(_native.Provider.CreateQuery<TElement>(expression), _check, _store, _scope, _database, _name, _partition);
     public IQueryable CreateQuery(Expression expression) => QueryTypes.CreateQuery(this, expression);
 
     public IEnumerator<T> GetEnumerator() => throw new NotSupportedException("Synchronous query execution is not supported by this provider. Use Librarian asynchronous query operations.");
@@ -74,9 +78,11 @@ internal sealed class CosmosQueryable<T>
                 throw new ArgumentException("The continuation token is invalid or belongs to a different query or partition.", nameof(continuationToken), exception);
             }
         }
-        using FeedIterator<TElement> iterator = _store.GetItemQueryIterator<TElement>(query, token,
-            new QueryRequestOptions { PartitionKey = _options.PartitionKey, MaxItemCount = pageSize });
+        QueryRequestOptions options = _database.QueryOptions(_name, _partition);
+        options.MaxItemCount = pageSize;
+        using FeedIterator<TElement> iterator = _store.GetItemQueryIterator<TElement>(query, token, options);
         FeedResponse<TElement> page = await iterator.ReadNextAsync(cancellationToken).NoSync();
+        _database.Observe(_name, "QueryPage", page.StatusCode, page.Headers, page.Diagnostics);
         string? next = string.IsNullOrEmpty(page.ContinuationToken) ? null
             : Convert.ToBase64String(JsonSerializer.SerializeToUtf8Bytes(new CosmosContinuation(fingerprint, page.ContinuationToken), CosmosInternalJsonContext.Default.CosmosContinuation));
         return new LibrarianPage<TElement>(page.ToList(), next);
@@ -116,12 +122,16 @@ internal sealed class CosmosQueryable<T>
         List<TResult> result = await Read(_native.Provider.CreateQuery<TResult>(expression), cancellationToken).NoSync();
         return result.Single();
     }
-    private static async ValueTask<List<TElement>> Read<TElement>(IQueryable<TElement> query, CancellationToken token)
+    private async ValueTask<List<TElement>> Read<TElement>(IQueryable<TElement> query, CancellationToken token)
     {
-        using FeedIterator<TElement> iterator = query.ToFeedIterator();
+        using FeedIterator<TElement> iterator = _store.GetItemQueryIterator<TElement>(query.ToQueryDefinition(), requestOptions: _database.QueryOptions(_name, _partition));
         var results = new List<TElement>();
         while (iterator.HasMoreResults)
-            results.AddRange(await iterator.ReadNextAsync(token).NoSync());
+        {
+            FeedResponse<TElement> page = await iterator.ReadNextAsync(token).NoSync();
+            _database.Observe(_name, "Query", page.StatusCode, page.Headers, page.Diagnostics);
+            results.AddRange(page);
+        }
         return results;
     }
 }

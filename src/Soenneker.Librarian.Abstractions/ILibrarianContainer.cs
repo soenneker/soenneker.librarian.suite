@@ -63,7 +63,8 @@ public interface ILibrarianContainer : IDisposable
     /// CouchDB creates a native Mango JSON index explicitly, including partition and identity fields for ordering.
     /// Queries require EnsureIndex first; fallback to scans is disabled. CouchDB ICU string collation and JSON type semantics
     /// apply. Counts fetch matching IDs in bookmark pages; they do not deserialize application documents.
-    /// Librarian never modifies Cosmos indexing policies; configure composite indexes explicitly for multi-field LINQ ordering.
+    /// The portable EnsureIndex method never modifies Cosmos indexing policies. Use the native Cosmos database
+    /// EnsureIndexes operation to explicitly provision scalar and composite indexes, or configure policies externally.
     /// </remarks>
     /// <exception cref="TimeoutException">Redis index creation exhausted its bounded conflict retries.</exception>
     ValueTask EnsureIndex(string fieldPath, CancellationToken cancellationToken = default);

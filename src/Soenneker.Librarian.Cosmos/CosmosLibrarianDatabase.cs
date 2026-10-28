@@ -22,28 +22,76 @@ public sealed partial class CosmosLibrarianDatabase : ILibrarianDatabase
     private readonly Dictionary<string, Container> _stores = new(StringComparer.Ordinal);
     private ValueAtomicBool _disposed = new(false);
     internal string Key { get; }
+    internal CosmosLibrarianOptions Options { get; }
 
-    public CosmosLibrarianDatabase(IConfiguration configuration, ICosmosContainerUtil containerUtil)
-        : this(containerUtil, configuration["Librarian:Cosmos:Key"] ?? "librarian", configuration["Librarian:Cosmos:ContainerName"] ?? "librarian") { }
+    public CosmosLibrarianDatabase(IConfiguration configuration, ICosmosContainerUtil containerUtil, CosmosLibrarianOptions? options = null)
+        : this(containerUtil, configuration["Librarian:Cosmos:Key"] ?? "librarian", configuration["Librarian:Cosmos:ContainerName"] ?? "librarian", options) { }
 
     /// <summary>Lazily provisions one physical container per logical name using the shared Cosmos utilities. Names are prefix.key.name, with escaped segments.</summary>
-    public CosmosLibrarianDatabase(ICosmosContainerUtil containerUtil, string key, string containerName = "librarian")
+    public CosmosLibrarianDatabase(ICosmosContainerUtil containerUtil, string key, string containerName = "librarian", CosmosLibrarianOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(containerUtil);
         ArgumentException.ThrowIfNullOrWhiteSpace(key);
         ArgumentException.ThrowIfNullOrWhiteSpace(containerName);
         Key = key;
-        _getContainer = (name, token) => containerUtil.Get(Escape(containerName) + "." + Escape(key) + "." + Escape(name), token);
+        Options = options ?? new CosmosLibrarianOptions();
+        _getContainer = (name, token) => containerUtil.Get(Options.ContainerNameResolver?.Invoke(name) ?? (Escape(containerName) + "." + Escape(key) + "." + Escape(name)), token);
     }
     /// <summary>Uses a caller-owned container partitioned by /partitionKey. GetContainer must use that container's ID.</summary>
-    public CosmosLibrarianDatabase(Container container, string key = "librarian")
+    public CosmosLibrarianDatabase(Container container, string key = "librarian", CosmosLibrarianOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(container);
         ArgumentException.ThrowIfNullOrWhiteSpace(key);
         Key = key;
+        Options = options ?? new CosmosLibrarianOptions();
         _getContainer = (name, _) => name == container.Id ? ValueTask.FromResult(container) :
             throw new ArgumentException("A caller-owned Cosmos container must be accessed using its physical ID.", nameof(name));
     }
+    /// <summary>Uses a caller-owned resolver for multiple existing containers. The caller owns their clients.</summary>
+    public CosmosLibrarianDatabase(Func<string, CancellationToken, ValueTask<Container>> containerResolver,
+        string key = "librarian", CosmosLibrarianOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(containerResolver);
+        ArgumentException.ThrowIfNullOrWhiteSpace(key);
+        _getContainer = containerResolver;
+        Key = key;
+        Options = options ?? new CosmosLibrarianOptions();
+    }
+
+    /// <summary>Obtains a native Cosmos handle for patch operations, optionally scoped to a partition.</summary>
+    public async ValueTask<ICosmosLibrarianContainer> GetCosmosContainer(string containerName, string? partitionKey = null,
+        CancellationToken cancellationToken = default) =>
+        (ICosmosLibrarianContainer)await (partitionKey is null ? GetContainer(containerName, cancellationToken)
+            : GetContainer(containerName, partitionKey, cancellationToken)).NoSync();
+
+    internal ItemRequestOptions ItemOptions(string name, string operation, string? version = null)
+    {
+        ItemRequestOptions result = Options.ItemRequestOptionsFactory?.Invoke(name, operation) ?? new ItemRequestOptions();
+        if (version is not null) { result.IfMatchEtag = version; result.IfNoneMatchEtag = null; }
+        return result;
+    }
+
+    internal QueryRequestOptions QueryOptions(string name, string? partition)
+    {
+        QueryRequestOptions result = Options.QueryRequestOptionsFactory?.Invoke(name) ?? new QueryRequestOptions();
+        result.PartitionKey = partition is null ? null : new PartitionKey(partition);
+        return result;
+    }
+
+    internal void Observe(string name, string operation, System.Net.HttpStatusCode status, Headers headers, CosmosDiagnostics? diagnostics)
+    {
+        if (Options.Observer is null) return;
+        try
+        {
+            Options.Observer.OnResponse(new CosmosLibrarianResponse(name, operation, status, headers.RequestCharge,
+                headers.ActivityId, headers.Session, headers.ETag, diagnostics?.ToString()));
+        }
+        catch (Exception exception)
+        {
+            System.Diagnostics.Trace.TraceError("Cosmos Librarian observer failed: {0}", exception);
+        }
+    }
+
     private static string Escape(string value) => Uri.EscapeDataString(value).Replace(".", "%2E", StringComparison.Ordinal);
     internal void Check(CancellationToken token = default) { ObjectDisposedException.ThrowIf(_disposed.Value, this); token.ThrowIfCancellationRequested(); }
     private async ValueTask<Container> Store(string name, CancellationToken token)

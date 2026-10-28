@@ -18,12 +18,12 @@ using Soenneker.Librarian.Abstractions.Serialization;
 
 namespace Soenneker.Librarian.Cosmos;
 
-internal sealed partial class CosmosLibrarianContainer(CosmosLibrarianDatabase database, Container store, string name, string? partition) : ILibrarianContainer
+internal sealed partial class CosmosLibrarianContainer(CosmosLibrarianDatabase database, Container store, string name, string? partition) : ICosmosLibrarianContainer
 {
     private ValueAtomicBool _disposed = new(false);
     private void Check(CancellationToken token = default) { ObjectDisposedException.ThrowIf(_disposed.Value, this); database.Check(token); }
     public void Dispose() => _disposed.TrySetTrue();
-    private QueryRequestOptions QueryOptions => new() { PartitionKey = partition is null ? null : new PartitionKey(partition) };
+    private QueryRequestOptions QueryOptions => database.QueryOptions(name, partition);
     private (string Id, string Partition) Address(string id) => LibrarianDocumentJson.Address(id, partition);
     private MemoryStream Content(string id, string document)
     {
@@ -47,15 +47,16 @@ internal sealed partial class CosmosLibrarianContainer(CosmosLibrarianDatabase d
     public IQueryable<T> BuildQueryable<T>()
     {
         Check();
-        IQueryable<T> query = store.GetItemLinqQueryable<T>(allowSynchronousQueryExecution: true, requestOptions: QueryOptions);
-        return new CosmosQueryable<T>(query, () => Check(), store, QueryOptions, JsonSerializer.Serialize(new[] { database.Key, name, partition }, CosmosInternalJsonContext.Default.StringArray));
+        IQueryable<T> query = store.GetItemLinqQueryable<T>(allowSynchronousQueryExecution: false, requestOptions: QueryOptions);
+        return new CosmosQueryable<T>(query, () => Check(), store, JsonSerializer.Serialize(new[] { database.Key, name, partition }, CosmosInternalJsonContext.Default.StringArray), database, name, partition);
     }
 
     public async ValueTask<string> AddItem(string id, string document, CancellationToken cancellationToken = default)
     {
         Check(cancellationToken);
         using MemoryStream content = Content(id, document);
-        using ResponseMessage response = await store.CreateItemStreamAsync(content, new PartitionKey(Address(id).Partition), cancellationToken: cancellationToken).NoSync();
+        using ResponseMessage response = await store.CreateItemStreamAsync(content, new PartitionKey(Address(id).Partition), database.ItemOptions(name, nameof(AddItem)), cancellationToken: cancellationToken).NoSync();
+        database.Observe(name, "AddItem", response.StatusCode, response.Headers, response.Diagnostics);
         if (response.StatusCode == HttpStatusCode.Conflict) throw new InvalidOperationException($"Document '{id}' already exists.");
         response.EnsureSuccessStatusCode();
         return document;
@@ -64,7 +65,8 @@ internal sealed partial class CosmosLibrarianContainer(CosmosLibrarianDatabase d
     {
         Check(token);
         (string documentId, string partitionKey) = Address(id);
-        using ResponseMessage response = await store.ReadItemStreamAsync(documentId, new PartitionKey(partitionKey), cancellationToken: token).NoSync();
+        using ResponseMessage response = await store.ReadItemStreamAsync(documentId, new PartitionKey(partitionKey), database.ItemOptions(name, nameof(GetItem)), cancellationToken: token).NoSync();
+        database.Observe(name, "GetItem", response.StatusCode, response.Headers, response.Diagnostics);
         if (response.StatusCode == HttpStatusCode.NotFound) return (null, null);
         response.EnsureSuccessStatusCode();
         using JsonDocument content = await JsonDocument.ParseAsync(response.Content, cancellationToken: token).NoSync();
@@ -80,7 +82,8 @@ internal sealed partial class CosmosLibrarianContainer(CosmosLibrarianDatabase d
         Check(cancellationToken);
         using MemoryStream content = Content(id, document);
         (string documentId, string partitionKey) = Address(id);
-        using ResponseMessage response = await store.ReplaceItemStreamAsync(content, documentId, new PartitionKey(partitionKey), cancellationToken: cancellationToken).NoSync();
+        using ResponseMessage response = await store.ReplaceItemStreamAsync(content, documentId, new PartitionKey(partitionKey), database.ItemOptions(name, nameof(UpdateItem)), cancellationToken: cancellationToken).NoSync();
+        database.Observe(name, "UpdateItem", response.StatusCode, response.Headers, response.Diagnostics);
         if (response.StatusCode == HttpStatusCode.NotFound) return null;
         response.EnsureSuccessStatusCode();
         return document;
@@ -91,7 +94,8 @@ internal sealed partial class CosmosLibrarianContainer(CosmosLibrarianDatabase d
     {
         Check(cancellationToken);
         (string documentId, string partitionKey) = Address(id);
-        using ResponseMessage response = await store.DeleteItemStreamAsync(documentId, new PartitionKey(partitionKey), cancellationToken: cancellationToken).NoSync();
+        using ResponseMessage response = await store.DeleteItemStreamAsync(documentId, new PartitionKey(partitionKey), database.ItemOptions(name, nameof(DeleteItem)), cancellationToken: cancellationToken).NoSync();
+        database.Observe(name, "DeleteItem", response.StatusCode, response.Headers, response.Diagnostics);
         if (response.StatusCode != HttpStatusCode.NotFound) response.EnsureSuccessStatusCode();
     }
 
@@ -101,7 +105,8 @@ internal sealed partial class CosmosLibrarianContainer(CosmosLibrarianDatabase d
         ArgumentNullException.ThrowIfNull(ids);
         (string Id, string Partition)[] addresses = ids.Select(Address).ToArray();
         if (ids.Count == 0) return [];
-        using ResponseMessage response = await store.ReadManyItemsStreamAsync(addresses.Distinct().Select(a => (a.Id, new PartitionKey(a.Partition))).ToList(), cancellationToken: cancellationToken).NoSync();
+        using ResponseMessage response = await store.ReadManyItemsStreamAsync(addresses.Distinct().Select(a => (a.Id, new PartitionKey(a.Partition))).ToList(), database.Options.ReadManyRequestOptionsFactory?.Invoke(name), cancellationToken: cancellationToken).NoSync();
+        database.Observe(name, "GetItems", response.StatusCode, response.Headers, response.Diagnostics);
         response.EnsureSuccessStatusCode();
         using JsonDocument body = await JsonDocument.ParseAsync(response.Content, cancellationToken: cancellationToken).NoSync();
         var found = new Dictionary<(string, string), string>();
@@ -119,6 +124,7 @@ internal sealed partial class CosmosLibrarianContainer(CosmosLibrarianDatabase d
         while (iterator.HasMoreResults)
         {
             using ResponseMessage response = await iterator.ReadNextAsync(token).NoSync();
+            database.Observe(name, "Query", response.StatusCode, response.Headers, response.Diagnostics);
             response.EnsureSuccessStatusCode();
             using JsonDocument page = await JsonDocument.ParseAsync(response.Content, cancellationToken: token).NoSync();
             foreach (JsonElement value in page.RootElement.GetProperty("Documents").EnumerateArray()) items.Add(materialize(value));

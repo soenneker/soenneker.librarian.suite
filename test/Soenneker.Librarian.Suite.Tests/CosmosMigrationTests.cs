@@ -17,6 +17,24 @@ namespace Soenneker.Librarian.Suite.Tests;
 public sealed class CosmosMigrationTests
 {
     [Test]
+    public async Task Native_patches_enforce_original_versions_and_repository_scope(CancellationToken cancellationToken)
+    {
+        await using var fixture = await CosmosPersistenceFixture.Create();
+        ICosmosLibrarianContainer container = await fixture.Database.GetCosmosContainer("prepared", "org", cancellationToken);
+        var repository = new LibrarianRepository<ExampleDocument>(new ConfigurationBuilder().Build(),
+            NullLogger<LibrarianRepository<ExampleDocument>>.Instance, fixture.Database, "prepared", "org", new OwnedDocumentScope());
+        await repository.AddItem(new ExampleDocument { Id = "org:one", Name = "owned" }, cancellationToken);
+        LibrarianItem<ExampleDocument> before = (await repository.GetItemWithVersion("one", cancellationToken))!;
+        LibrarianItem<string>? patched = await container.PatchItem("one", [Microsoft.Azure.Cosmos.PatchOperation.Set("/name", "other")], before.Version, cancellationToken);
+        Check(patched is not null && patched.Version != before.Version, "Patch did not return a new version.");
+        Check(await container.PatchItem("one", [Microsoft.Azure.Cosmos.PatchOperation.Set("/name", "owned")], before.Version, cancellationToken) is null,
+            "Stale patch overwrote a newer document.");
+        Check(await repository.GetItem("one", cancellationToken) is null, "Scope did not hide the changed document.");
+        await repository.DeleteAll(cancellationToken);
+        Check(await container.GetItem("one", cancellationToken) is not null, "Scoped deletion removed another type.");
+    }
+
+    [Test]
     public async Task Partition_scopes_batches_and_cross_partition_queries_remain_isolated(CancellationToken cancellationToken)
     {
         await using var fixture = await CosmosPersistenceFixture.Create();

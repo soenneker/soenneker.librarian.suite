@@ -78,7 +78,10 @@ public sealed partial class CosmosLibrarianDatabase
                 }
             }
 
-            using TransactionalBatchResponse response = await transaction.ExecuteAsync(token).NoSync();
+            using TransactionalBatchResponse response = Options.BatchRequestOptionsFactory is null
+                ? await transaction.ExecuteAsync(token).NoSync()
+                : await transaction.ExecuteAsync(Options.BatchRequestOptionsFactory(name), token).NoSync();
+            if (Options.Observer is not null) Observe(name, "Batch", response.StatusCode, response.Headers, response.Diagnostics);
             if (response.IsSuccessStatusCode)
                 return true;
             if (response.StatusCode is HttpStatusCode.Conflict or HttpStatusCode.PreconditionFailed

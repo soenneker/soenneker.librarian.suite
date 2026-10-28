@@ -12,6 +12,10 @@ namespace Soenneker.Librarian.Abstractions;
 /// <summary>
 /// A data persistence abstraction layer for Librarian DB
 /// </summary>
+/// <remarks>Repositories may apply a document scope and lifecycle hooks. Queries must originate from BuildQueryable;
+/// project only after building the scoped document query. Scoped point writes use optimistic concurrency to prevent
+/// overwriting a document whose scope changed. Bulk writes use bounded concurrency (one by default), are not atomic,
+/// and leave confirmed writes committed on failure. Direct container/database operations bypass repository hooks.</remarks>
 /// <typeparam name="TDocument">The type of document being handled.</typeparam>
 public interface ILibrarianRepository<TDocument> where TDocument : Document
 {
@@ -42,14 +46,15 @@ public interface ILibrarianRepository<TDocument> where TDocument : Document
     /// <remarks>Uses serialized JSON property names. See ILibrarianContainer.EnsureIndex for value and lifetime rules.</remarks>
     ValueTask EnsureIndex(string fieldPath, CancellationToken cancellationToken = default);
 
-    /// <summary>Returns a page of equality matches using an existing index, deserializing only returned documents.</summary>
+    /// <summary>Returns a page of equality matches using an existing index, applying repository scope before skip/take.</summary>
+    /// <remarks>Scoped repositories may read additional indexed candidates. Prefer scoped LINQ for server-side filtering of large result sets.</remarks>
     ValueTask<LibrarianQueryResult<TDocument>> FindByIndex(string fieldPath, object? value, int skip = 0,
         int take = 100, CancellationToken cancellationToken = default);
 
-    /// <summary>Counts indexed equality matches without deserializing documents.</summary>
+    /// <summary>Counts indexed equality matches. Scoped repositories materialize indexed candidates to check membership.</summary>
     ValueTask<int> CountByIndex(string fieldPath, object? value, CancellationToken cancellationToken = default);
 
-    /// <summary>Checks for an indexed equality match without deserializing documents.</summary>
+    /// <summary>Checks for an indexed equality match, applying repository scope when configured.</summary>
     ValueTask<bool> ExistsByIndex(string fieldPath, object? value, CancellationToken cancellationToken = default);
 
     /// <summary>Returns an inclusive range page ordered by indexed value and document ID.</summary>
@@ -82,6 +87,9 @@ public interface ILibrarianRepository<TDocument> where TDocument : Document
     /// <param name="cancellationToken">Token to monitor for cancellation requests.</param>
     /// <returns>The requested collection.</returns>
     ValueTask<List<T>> GetItems<T>(IQueryable<T> queryable, CancellationToken cancellationToken = default);
+
+    /// <summary>Reads documents in input order, retaining duplicates and nulls for missing or out-of-scope identities.</summary>
+    ValueTask<TDocument?[]> GetItems(IReadOnlyList<string> ids, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Retrieves all documents, returning null when the container is empty.
@@ -130,7 +138,7 @@ public interface ILibrarianRepository<TDocument> where TDocument : Document
     /// <param name="cancellationToken">Token to monitor for cancellation requests.</param>
     /// <returns>The list of updated documents.</returns>
     /// <exception cref="KeyNotFoundException">A document ID does not exist.</exception>
-    /// <remarks>Updates are sequential, not transactional. Earlier updates remain applied if a later update fails or is cancelled.</remarks>
+    /// <remarks>Updates use the configured bounded concurrency (one by default) and are not transactional. Earlier updates remain applied if a later update fails or is cancelled.</remarks>
     ValueTask<List<TDocument>> UpdateItems(List<TDocument> documents, CancellationToken cancellationToken = default);
 
     /// <summary>

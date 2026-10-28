@@ -24,7 +24,8 @@ internal sealed partial class CosmosLibrarianContainer
         using MemoryStream content = Content(id, document);
         (string documentId, string partitionKey) = Address(id);
         using ResponseMessage response = await store.ReplaceItemStreamAsync(content, documentId, new PartitionKey(partitionKey),
-            new ItemRequestOptions { IfMatchEtag = version }, cancellationToken).NoSync();
+            database.ItemOptions(name, nameof(UpdateItemIfVersion), version), cancellationToken).NoSync();
+        database.Observe(name, "ConditionalWrite", response.StatusCode, response.Headers, response.Diagnostics);
         if (response.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.PreconditionFailed) return null;
         response.EnsureSuccessStatusCode();
         return new LibrarianItem<string>(document, response.Headers.ETag);
@@ -35,7 +36,8 @@ internal sealed partial class CosmosLibrarianContainer
         ArgumentException.ThrowIfNullOrWhiteSpace(version);
         (string documentId, string partitionKey) = Address(id);
         using ResponseMessage response = await store.DeleteItemStreamAsync(documentId, new PartitionKey(partitionKey),
-            new ItemRequestOptions { IfMatchEtag = version }, cancellationToken).NoSync();
+            database.ItemOptions(name, nameof(DeleteItemIfVersion), version), cancellationToken).NoSync();
+        database.Observe(name, "ConditionalWrite", response.StatusCode, response.Headers, response.Diagnostics);
         if (response.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.PreconditionFailed) return false;
         response.EnsureSuccessStatusCode();
         return true;
