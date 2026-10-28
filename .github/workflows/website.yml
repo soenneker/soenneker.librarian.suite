@@ -39,7 +39,7 @@ jobs:
           dotnet-version: 11.0.100-rc.3.26522.148
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: '24'
+          node-version: '26'
       - name: Build and export all pages
         shell: pwsh
         run: ./src/Soenneker.Librarian.Website/scripts/Export-Site.ps1
