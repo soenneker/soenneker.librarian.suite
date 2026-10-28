@@ -1,4 +1,5 @@
 using Soenneker.Librarian.Abstractions.Serialization;
+using Soenneker.Cosmos.Linq;
 using Soenneker.Extensions.Task;
 using Soenneker.Extensions.ValueTask;
 using System;
@@ -58,10 +59,10 @@ internal sealed class CosmosQueryable<T>
         _check();
         cancellationToken.ThrowIfCancellationRequested();
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(pageSize);
-        QueryDefinition query = _native.Provider.CreateQuery<TElement>(expression).ToQueryDefinition() ?? new QueryDefinition("SELECT VALUE c FROM c");
+        QueryDefinition query = _native.Provider.CreateQuery<TElement>(expression).WithNullSemantics().ToQueryDefinition() ?? new QueryDefinition("SELECT VALUE c FROM c");
         string fingerprint = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new CosmosQueryFingerprint(
             _scope, _store.Database.Id, _store.Id, typeof(TElement).FullName, query.QueryText,
-            query.GetQueryParameters()?.Select(parameter => new CosmosQueryParameter(parameter.Name, LibrarianJson.Element(parameter.Value))).ToArray()),
+            query.GetQueryParameters()?.Select(parameter => new CosmosQueryParameter(parameter.Name, ParameterJson(parameter.Value))).ToArray()),
             CosmosInternalJsonContext.Default.CosmosQueryFingerprint))));
         string? token = null;
         if (continuationToken is not null)
@@ -111,9 +112,13 @@ internal sealed class CosmosQueryable<T>
                 if (terminal == nameof(Queryable.All)) predicate = Expression.Lambda<Func<T, bool>>(Expression.Not(predicate.Body), predicate.Parameters);
                 source = source.Where(predicate);
             }
-            List<T> items = await Read(source.Take(terminal is nameof(Queryable.Single) or nameof(Queryable.SingleOrDefault) ? 2 : 1), cancellationToken).NoSync();
-            if (terminal == nameof(Queryable.Any)) return (TResult)(object)(items.Count != 0);
-            if (terminal == nameof(Queryable.All)) return (TResult)(object)(items.Count == 0);
+            if (terminal is nameof(Queryable.Any) or nameof(Queryable.All))
+            {
+                bool exists = (await Read(source.Select(static _ => 1).Take(1), cancellationToken, 1).NoSync()).Count != 0;
+                return (TResult)(object)(terminal == nameof(Queryable.Any) ? exists : !exists);
+            }
+            int limit = terminal is nameof(Queryable.Single) or nameof(Queryable.SingleOrDefault) ? 2 : 1;
+            List<T> items = await Read(source.Take(limit), cancellationToken, limit).NoSync();
             if (items.Count > 1) throw new InvalidOperationException("Sequence contains more than one element");
             if (items.Count > 0) return (TResult)(object)items[0]!;
             if (terminal is nameof(Queryable.First) or nameof(Queryable.Single)) throw new InvalidOperationException("Sequence contains no elements");
@@ -122,15 +127,30 @@ internal sealed class CosmosQueryable<T>
         List<TResult> result = await Read(_native.Provider.CreateQuery<TResult>(expression), cancellationToken).NoSync();
         return result.Single();
     }
-    private async ValueTask<List<TElement>> Read<TElement>(IQueryable<TElement> query, CancellationToken token)
+    private JsonElement ParameterJson(object? value)
     {
-        using FeedIterator<TElement> iterator = _store.GetItemQueryIterator<TElement>(query.ToQueryDefinition(), requestOptions: _database.QueryOptions(_name, _partition));
-        var results = new List<TElement>();
+        CosmosSerializer serializer = _store.Database.Client.ClientOptions.Serializer
+            ?? throw new InvalidOperationException("Query paging requires an explicitly configured Cosmos serializer.");
+        using System.IO.Stream stream = serializer.ToStream(value);
+        using JsonDocument json = JsonDocument.Parse(stream);
+        return json.RootElement.Clone();
+    }
+
+    private async ValueTask<List<TElement>> Read<TElement>(IQueryable<TElement> query, CancellationToken token, int? limit = null)
+    {
+        QueryRequestOptions options = _database.QueryOptions(_name, _partition);
+        if (limit.HasValue) options.MaxItemCount = limit.Value;
+        using FeedIterator<TElement> iterator = _store.GetItemQueryIterator<TElement>(query.WithNullSemantics().ToQueryDefinition(), requestOptions: options);
+        var results = new List<TElement>(limit ?? 0);
         while (iterator.HasMoreResults)
         {
+            token.ThrowIfCancellationRequested();
             FeedResponse<TElement> page = await iterator.ReadNextAsync(token).NoSync();
             _database.Observe(_name, "Query", page.StatusCode, page.Headers, page.Diagnostics);
-            results.AddRange(page);
+            if (page.Count == 0) continue;
+            results.EnsureCapacity(results.Count + page.Count);
+            results.AddRange(page.Resource);
+            if (limit.HasValue && results.Count >= limit.Value) break;
         }
         return results;
     }

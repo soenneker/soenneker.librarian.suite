@@ -12,7 +12,7 @@
 
     <PropertyGroup>
         <Description>Librarian native document storage backed by Cosmos with server queries and atomic batches.</Description>
-        <Version Condition="'$(BUILD_VERSION)' == ''">11.0.0</Version>
+        <Version Condition="'$(BUILD_VERSION)' == ''">11.0.136-local.1</Version>
         <Version Condition="'$(BUILD_VERSION)' != ''">$(BUILD_VERSION)</Version>
         <AssemblyName>Soenneker.Librarian.Cosmos</AssemblyName>
         <PackageId>Soenneker.Librarian.Cosmos</PackageId>
@@ -46,6 +46,10 @@
     </ItemGroup>
 
     <ItemGroup>
+        <PackageReference Include="Soenneker.Cosmos.Linq" Version="11.0.25" />
+        <PackageReference Include="Soenneker.Cosmos.Repository" Version="11.0.8473" />
+        <PackageReference Include="Soenneker.Cosmos.Repositories.General" Version="11.0.794" />
+        <PackageReference Include="Soenneker.Cosmos.Repositories.Audits" Version="11.0.877" />
         <PackageReference Include="Soenneker.Asyncs.Semaphores" Version="11.0.36" />
         <PackageReference Include="Soenneker.Atomics.ValueBools" Version="11.0.55" />
         <PackageReference Include="Microsoft.Azure.Cosmos" Version="3.63.3" />

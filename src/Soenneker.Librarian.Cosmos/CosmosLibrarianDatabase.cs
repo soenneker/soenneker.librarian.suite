@@ -67,6 +67,8 @@ public sealed partial class CosmosLibrarianDatabase : ILibrarianDatabase
     internal ItemRequestOptions ItemOptions(string name, string operation, string? version = null)
     {
         ItemRequestOptions result = Options.ItemRequestOptionsFactory?.Invoke(name, operation) ?? new ItemRequestOptions();
+        if (operation is "AddItem" or "UpdateItem" or "UpdateItemIfVersion" or "DeleteItem" or "DeleteItemIfVersion")
+            result.EnableContentResponseOnWrite = false;
         if (version is not null) { result.IfMatchEtag = version; result.IfNoneMatchEtag = null; }
         return result;
     }

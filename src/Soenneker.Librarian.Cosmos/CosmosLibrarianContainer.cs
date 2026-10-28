@@ -74,6 +74,17 @@ internal sealed partial class CosmosLibrarianContainer(CosmosLibrarianDatabase d
     }
     public async ValueTask<string?> GetItem(string id, CancellationToken cancellationToken = default) =>
         (await Read(id, cancellationToken).NoSync()).Document;
+    public async ValueTask<bool> Exists(string id, CancellationToken cancellationToken = default)
+    {
+        Check(cancellationToken);
+        (string documentId, string partitionKey) = Address(id);
+        using ResponseMessage response = await store.ReadItemStreamAsync(documentId, new PartitionKey(partitionKey),
+            database.ItemOptions(name, nameof(Exists)), cancellationToken).NoSync();
+        database.Observe(name, nameof(Exists), response.StatusCode, response.Headers, response.Diagnostics);
+        if (response.StatusCode == HttpStatusCode.NotFound) return false;
+        response.EnsureSuccessStatusCode();
+        return true;
+    }
     public async ValueTask<string> GetItemStrict(string id, CancellationToken cancellationToken = default) =>
         await GetItem(id, cancellationToken).NoSync() ?? throw new KeyNotFoundException($"Document '{id}' does not exist.");
 
@@ -123,11 +134,14 @@ internal sealed partial class CosmosLibrarianContainer(CosmosLibrarianDatabase d
         var items = new List<T>();
         while (iterator.HasMoreResults)
         {
+            token.ThrowIfCancellationRequested();
             using ResponseMessage response = await iterator.ReadNextAsync(token).NoSync();
             database.Observe(name, "Query", response.StatusCode, response.Headers, response.Diagnostics);
             response.EnsureSuccessStatusCode();
             using JsonDocument page = await JsonDocument.ParseAsync(response.Content, cancellationToken: token).NoSync();
-            foreach (JsonElement value in page.RootElement.GetProperty("Documents").EnumerateArray()) items.Add(materialize(value));
+            JsonElement documents = page.RootElement.GetProperty("Documents");
+            items.EnsureCapacity(items.Count + documents.GetArrayLength());
+            foreach (JsonElement value in documents.EnumerateArray()) items.Add(materialize(value));
         }
         return items;
     }
