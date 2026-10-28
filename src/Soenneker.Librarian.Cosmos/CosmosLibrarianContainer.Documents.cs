@@ -13,6 +13,12 @@ namespace Soenneker.Librarian.Cosmos;
 
 internal sealed partial class CosmosLibrarianContainer
 {
+    private static T ApplyVersion<T>(T document, string version)
+    {
+        if (document is ICosmosVersionedDocument versioned) versioned.ETag = version;
+        return document;
+    }
+
     public async ValueTask<T?[]> ReadDocuments<T>(IReadOnlyList<string> ids, CancellationToken cancellationToken = default) where T : Document
     {
         Check(cancellationToken);
@@ -61,7 +67,7 @@ internal sealed partial class CosmosLibrarianContainer
         database.Observe(name, nameof(GetItem), response.StatusCode, response.Headers, response.Diagnostics);
         if (response.StatusCode == HttpStatusCode.NotFound) return null;
         response.EnsureSuccessStatusCode();
-        return new LibrarianItem<T>(Serializer.FromStream<T>(response.Content), response.Headers.ETag);
+        return new LibrarianItem<T>(ApplyVersion(Serializer.FromStream<T>(response.Content), response.Headers.ETag), response.Headers.ETag);
     }
 
     private (string Id, string Partition) ValidateDocument<T>(T document) where T : Document
@@ -84,6 +90,7 @@ internal sealed partial class CosmosLibrarianContainer
             database.ItemOptions(name, nameof(AddItem)), cancellationToken).NoSync();
         database.Observe(name, nameof(AddItem), response.StatusCode, response.Headers, response.Diagnostics);
         response.EnsureSuccessStatusCode();
+        ApplyVersion(document, response.Headers.ETag);
     }
 
     public async ValueTask<LibrarianItem<T>?> ReplaceDocument<T>(T document, string? version = null,
@@ -98,6 +105,6 @@ internal sealed partial class CosmosLibrarianContainer
         database.Observe(name, nameof(UpdateItem), response.StatusCode, response.Headers, response.Diagnostics);
         if (response.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.PreconditionFailed) return null;
         response.EnsureSuccessStatusCode();
-        return new LibrarianItem<T>(document, response.Headers.ETag);
+        return new LibrarianItem<T>(ApplyVersion(document, response.Headers.ETag), response.Headers.ETag);
     }
 }

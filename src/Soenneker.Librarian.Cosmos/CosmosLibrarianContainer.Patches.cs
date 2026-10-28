@@ -60,7 +60,7 @@ internal sealed partial class CosmosLibrarianContainer
         database.Observe(name, nameof(PatchItem), response.StatusCode, response.Headers, response.Diagnostics);
         if (response.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.PreconditionFailed) return null;
         response.EnsureSuccessStatusCode();
-        return new LibrarianItem<T>(deserialize(response.Content), response.Headers.ETag);
+        return new LibrarianItem<T>(ApplyVersion(deserialize(response.Content), response.Headers.ETag), response.Headers.ETag);
     }
 
     private static void ValidatePatchPath(string path)

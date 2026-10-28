@@ -76,10 +76,12 @@ public sealed class CosmosAllocationTests
             });
         var replaced = await repository.UpdateItemIfMatch(document, "original", cancellationToken);
         Check(ReferenceEquals(replaced.Document, document) && replaced.ETag == "new-version", "Replacement lost its version or needlessly copied the document.");
+        Check(document.ETag == replaced.ETag, "Replacement left a stale version on the submitted document.");
         fixture.Store.Setup(c => c.PatchItemStreamAsync("one", new PartitionKey("org"), It.IsAny<System.Collections.Generic.IReadOnlyList<PatchOperation>>(),
             It.IsAny<PatchItemRequestOptions>(), It.IsAny<CancellationToken>())).ReturnsAsync(() => Response("{\"id\":\"one\",\"partitionKey\":\"org\",\"score_value\":9}", "patch-version"));
         var patched = await repository.PatchItemIfMatch("org:one", [PatchOperation.Set("/score_value", 9)], "new-version", cancellationToken);
         Check(patched.Document.Score == 9 && patched.ETag == "patch-version", "Native patch lost content or version.");
+        Check(patched.Document.ETag == patched.ETag, "Patch did not apply the authoritative response version.");
     }
 
     [Test]
