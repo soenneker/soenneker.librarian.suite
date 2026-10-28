@@ -126,7 +126,7 @@ public class ProviderTests
                 await repository.AddItem(new ExampleDocument { Id = "one", Name = "first" }, cancellationToken: cancellationToken);
                 if ((await repository.GetItem("ONE", cancellationToken: cancellationToken))?.Name != "first") throw new Exception("Lookup failed.");
                 await repository.UpdateItem(new ExampleDocument { Id = "one", Name = "second" }, cancellationToken: cancellationToken);
-                if (repository.GetItems(await repository.BuildQueryable<ExampleDocument>(cancellationToken: cancellationToken)).Count != 1)
+                if ((await repository.GetItems(await repository.BuildQueryable<ExampleDocument>(cancellationToken: cancellationToken), cancellationToken)).Count != 1)
                     throw new Exception("Query failed.");
                 try { await repository.UpdateItem(new ExampleDocument { Id = "missing" }, cancellationToken: cancellationToken); throw new Exception("Missing update succeeded."); }
                 catch (KeyNotFoundException) { }

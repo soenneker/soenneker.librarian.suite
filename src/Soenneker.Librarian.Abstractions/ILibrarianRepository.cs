@@ -75,12 +75,13 @@ public interface ILibrarianRepository<TDocument> where TDocument : Document
     ValueTask<TDocument?> GetItem(string id, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Synchronously materializes a query using its provider; remote queries may block on I/O.
+    /// Asynchronously materializes a query using its provider.
     /// </summary>
     /// <typeparam name="T">Type of value handled by the Librarian Repository.</typeparam>
     /// <param name="queryable">Queryable for the get items operation.</param>
+    /// <param name="cancellationToken">Token to monitor for cancellation requests.</param>
     /// <returns>The requested collection.</returns>
-    List<T> GetItems<T>(IQueryable<T> queryable);
+    ValueTask<List<T>> GetItems<T>(IQueryable<T> queryable, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Retrieves all documents, returning null when the container is empty.

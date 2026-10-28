@@ -98,6 +98,10 @@ public sealed class CosmosMigrationTests
         Check(await (await fixture.Database.GetContainer("typed", "org-b", cancellationToken: cancellationToken)).CountItems(cancellationToken: cancellationToken) == 0, "Repository escaped its partition.");
         LibrarianPage<ExampleDocument> page = await repository.GetItemsPaged(await repository.BuildQueryable<ExampleDocument>(cancellationToken: cancellationToken), 1, cancellationToken: cancellationToken);
         Check(page.Items.Count == 1 && page.Items[0].Name == "after", "Repository paging failed.");
+        IQueryable<ExampleDocument> query = await repository.BuildQueryable<ExampleDocument>(cancellationToken);
+        Check((await repository.GetItems(query, cancellationToken)).Single().Name == "after", "Repository async materialization failed.");
+        try { await repository.GetItems(query, new CancellationToken(true)); throw new Exception("Repository ignored cancellation."); }
+        catch (OperationCanceledException) { }
         LibrarianItem<ExampleDocument> current = (await repository.GetItemWithVersion("one", cancellationToken: cancellationToken))!;
         Check(await repository.DeleteItemIfVersion("one", current.Version, cancellationToken: cancellationToken), "Repository conditional delete failed.");
     }

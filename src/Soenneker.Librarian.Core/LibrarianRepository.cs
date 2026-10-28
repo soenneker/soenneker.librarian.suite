@@ -112,13 +112,13 @@ public class LibrarianRepository<TDocument> : ILibrarianRepository<TDocument> wh
         return container.BuildQueryable<T>();
     }
 
-    public List<T> GetItems<T>(IQueryable<T> queryable)
+    public ValueTask<List<T>> GetItems<T>(IQueryable<T> queryable, CancellationToken cancellationToken = default)
     {
         if (_log && Logger.IsEnabled(LogLevel.Debug))
             Logger.LogDebug("-- LIBRARIAN: {method} ({type})", nameof(GetItems), typeof(T).Name);
 
-        // We're just materializing it here because the IQueryable has already been built via the container
-        return [.. queryable];
+        // Execute through the asynchronous provider so remote queries never block.
+        return queryable.ToList(cancellationToken);
     }
 
     public async ValueTask<TDocument?> GetItem(string id, CancellationToken cancellationToken = default)
