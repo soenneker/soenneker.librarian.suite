@@ -47,7 +47,7 @@
 
     <ItemGroup>
         <PackageReference Include="Soenneker.Cosmos.Linq" Version="11.0.25" />
-        <PackageReference Include="Soenneker.Cosmos.Repository" Version="11.0.8473" />
+        <PackageReference Include="Soenneker.Cosmos.Repository" Version="11.0.8474" />
         <PackageReference Include="Soenneker.Cosmos.Repositories.General" Version="11.0.794" />
         <PackageReference Include="Soenneker.Cosmos.Repositories.Audits" Version="11.0.877" />
         <PackageReference Include="Soenneker.Asyncs.Semaphores" Version="11.0.36" />
