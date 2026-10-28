@@ -66,12 +66,11 @@ public abstract class CosmosLibrarianRepository<TDocument> : ICosmosRepository<T
         token.ThrowIfCancellationRequested();
         if (ids.Length == 0) return [];
         ICosmosLibrarianContainer store = await Store(token, read);
-        string?[] documents = await store.GetItems(ids, token);
+        TDocument?[] documents = await store.ReadDocuments<TDocument>(ids, token);
         var result = new List<TDocument>(documents.Length);
-        foreach (string? json in documents)
+        foreach (TDocument? document in documents)
         {
-            if (json is null) continue;
-            TDocument document = store.DeserializeDocument<TDocument>(json);
+            if (document is null) continue;
             if (InScope(document)) result.Add(document);
         }
         return result;
@@ -114,18 +113,18 @@ public abstract class CosmosLibrarianRepository<TDocument> : ICosmosRepository<T
     private async ValueTask<CosmosItem<TDocument>?> Read(string id, CosmosReadOptions? read, CancellationToken token)
     {
         ICosmosLibrarianContainer store = await Store(token, read);
-        LibrarianItem<string>? item = await store.GetItemWithVersion(id, token);
+        LibrarianItem<TDocument>? item = await store.ReadDocument<TDocument>(id, token);
         if (item is null) return null;
-        TDocument document = store.DeserializeDocument<TDocument>(item.Document, item.Version);
+        TDocument document = item.Document;
         if (!InScope(document)) return null;
         return new CosmosItem<TDocument>(document, item.Version);
     }
-    private async ValueTask<CosmosItem<TDocument>> Replace(string id, TDocument document, string? version, CancellationToken token)
+    private async ValueTask<CosmosItem<TDocument>> Replace(string id, TDocument document, string? version, CancellationToken token, bool scopeVerified = false)
     {
         Validate(document);
         if (id != document.Id) throw new ArgumentException("Replacement identity must match the document.");
         if (typeof(TDocument) == typeof(AuditDocument)) throw new InvalidOperationException("Audit records are immutable.");
-        if (HasScope)
+        if (HasScope && !scopeVerified)
         {
             CosmosItem<TDocument>? current = await Read(id, null, token);
             if (current is null) throw Missing();
@@ -133,23 +132,12 @@ public abstract class CosmosLibrarianRepository<TDocument> : ICosmosRepository<T
             version ??= current.ETag;
         }
         ICosmosLibrarianContainer store = await Store(token);
-        string json = store.SerializeDocument(document);
-        if (version is null)
-        {
-            if (await store.UpdateItem(id, json, token) is null) throw Missing();
-            // An unconditional update does not promise a version for a subsequent conditional write.
-            document = store.DeserializeDocument<TDocument>(json);
-        }
-        else
-        {
-            LibrarianItem<string>? updated = await store.UpdateItemIfVersion(id, json, version, token);
-            if (updated is null) throw Conflict();
-            version = updated.Version;
-            document = store.DeserializeDocument<TDocument>(json, version);
-        }
-        if (AuditEnabled) await CreateAuditItem(CrudEventType.Update, id, json, CancellationToken.None);
-        return new CosmosItem<TDocument>(document, version ?? string.Empty);
+        LibrarianItem<TDocument>? updated = await store.ReplaceDocument(document, version, token);
+        if (updated is null) throw version is null ? Missing() : Conflict();
+        if (AuditEnabled) await CreateAuditItem(CrudEventType.Update, id, document, CancellationToken.None);
+        return new CosmosItem<TDocument>(updated.Document, updated.Version);
     }
+
     private async ValueTask Remove(string id, string? version, CancellationToken token)
     {
         if (typeof(TDocument) == typeof(AuditDocument)) throw new InvalidOperationException("Audit records are immutable.");
@@ -177,7 +165,8 @@ public abstract class CosmosLibrarianRepository<TDocument> : ICosmosRepository<T
             string originalId = current.Document.Id!;
             if (!await mutation(current.Document)) return current.Document;
             if (current.Document.Id != originalId) throw new ArgumentException("A mutation must preserve identity.");
-            try { return (await Replace(originalId, current.Document, current.ETag, token)).Document; }
+            // Read already verified scope. The same ETag guards against any intervening change.
+            try { return (await Replace(originalId, current.Document, current.ETag, token, scopeVerified: true)).Document; }
             catch (CosmosException exception) when (exception.StatusCode == HttpStatusCode.PreconditionFailed && attempt + 1 < maxAttempts)
             {
                 await Task.Delay(TimeSpan.FromMilliseconds(5 * (attempt + 1)), token);
@@ -188,7 +177,12 @@ public abstract class CosmosLibrarianRepository<TDocument> : ICosmosRepository<T
 
     public virtual async ValueTask<string> AddItem(TDocument document, bool useQueue = false, bool excludeResponse = false, CancellationToken cancellationToken = default)
     {
-        CheckQueue(useQueue); Validate(document); ICosmosLibrarianContainer store = await Store(cancellationToken); string json = store.SerializeDocument(document); try { await store.AddItem(document.Id!, json, cancellationToken); } catch (InvalidOperationException exception) when (exception.Message.Contains("already exists", StringComparison.Ordinal)) { throw new CosmosException(exception.Message, HttpStatusCode.Conflict, 0, string.Empty, 0); } if (AuditEnabled) await CreateAuditItem(CrudEventType.Create, document.Id!, json, CancellationToken.None); return document.Id!;
+        CheckQueue(useQueue);
+        Validate(document);
+        ICosmosLibrarianContainer store = await Store(cancellationToken);
+        await store.CreateDocument(document, cancellationToken);
+        if (AuditEnabled) await CreateAuditItem(CrudEventType.Create, document.Id!, document, CancellationToken.None);
+        return document.Id!;
     }
 
     public virtual async ValueTask<List<TDocument>> AddItems(List<TDocument> documents, double? delayMs = null, bool useQueue = false, bool excludeResponse = false, CancellationToken cancellationToken = default)
@@ -203,12 +197,12 @@ public abstract class CosmosLibrarianRepository<TDocument> : ICosmosRepository<T
 
     public virtual AuditDocument BuildDbEventAuditRecord(CrudEventType eventType, string entityId, object? entity, string? userId)
     {
-        return new AuditDocument { DocumentId = Guid.NewGuid().ToString(), PartitionKey = entityId.Split(':')[^1], EntityId = entityId, EntityType = typeof(TDocument).Name, Entity = entity, EventType = eventType, UserId = userId, CreatedAt = DateTimeOffset.UtcNow };
+        return new AuditDocument { DocumentId = Guid.NewGuid().ToString(), PartitionKey = entityId[(entityId.LastIndexOf(':') + 1)..], EntityId = entityId, EntityType = typeof(TDocument).Name, Entity = entity, EventType = eventType, UserId = userId, CreatedAt = DateTimeOffset.UtcNow };
     }
 
     public virtual async ValueTask CreateAuditItem(CrudEventType eventType, string entityId, object? item = null, CancellationToken cancellationToken = default)
     {
-        AuditDocument audit = BuildDbEventAuditRecord(eventType, entityId, item, _userContext.GetIdSafe()); ICosmosLibrarianContainer store = await _database.Open("audits", cancellationToken: cancellationToken); await store.AddItem(audit.Id!, store.SerializeDocument(audit), cancellationToken);
+        AuditDocument audit = BuildDbEventAuditRecord(eventType, entityId, item, _userContext.GetIdSafe()); ICosmosLibrarianContainer store = await _database.Open("audits", cancellationToken: cancellationToken); await store.CreateDocument(audit, cancellationToken);
     }
 
     public virtual async ValueTask CreateAuditItem(CrudEventType eventType, string entityId, string entityJson, CancellationToken cancellationToken = default)
@@ -245,19 +239,33 @@ public abstract class CosmosLibrarianRepository<TDocument> : ICosmosRepository<T
 
     public virtual async ValueTask DeleteAll(double? delayMs = null, bool useQueue = false, CosmosWriteOptions? writeOptions = null, CancellationToken cancellationToken = default)
     {
+        CheckQueue(useQueue);
+        CheckWrite(writeOptions);
         await DeleteIds(await GetAllIds(cancellationToken: cancellationToken), delayMs, useQueue, writeOptions, cancellationToken);
     }
 
     public virtual async ValueTask DeleteItems(IQueryable<TDocument> query, double? delayMs = null, bool useQueue = false,
         CosmosWriteOptions? writeOptions = null, CancellationToken cancellationToken = default)
     {
+        CheckQueue(useQueue);
+        CheckWrite(writeOptions);
         await DeleteIds(await GetIds(query, cancellationToken: cancellationToken), delayMs, useQueue, writeOptions, cancellationToken);
     }
 
     public virtual async ValueTask DeleteItemsParallel(IQueryable<TDocument> query, int maxConcurrency, double? delayMs = null,
         CosmosWriteOptions? writeOptions = null, CancellationToken cancellationToken = default)
     {
-        await DeleteIdsParallel(await GetIds(query, cancellationToken: cancellationToken), maxConcurrency, writeOptions, cancellationToken);
+        CheckWrite(writeOptions);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxConcurrency);
+        List<IdPartitionPair> ids = await GetIds(query, cancellationToken: cancellationToken);
+        if (delayMs is null or <= 0)
+            await DeleteIdsParallel(ids, maxConcurrency, writeOptions, cancellationToken);
+        else
+            await Parallel(ids, maxConcurrency, async (pair, token) =>
+            {
+                await DeleteItem(pair.Id, pair.PartitionKey, false, writeOptions, token);
+                await Pause(delayMs, token);
+            }, cancellationToken);
     }
 
     public virtual async ValueTask DeleteIds(List<IdPartitionPair> ids, double? delayMs = null, bool useQueue = false,
@@ -296,14 +304,14 @@ public abstract class CosmosLibrarianRepository<TDocument> : ICosmosRepository<T
         return await (await Store(cancellationToken, readOptions)).Exists(id, cancellationToken);
     }
 
-    public virtual async ValueTask<bool> Exists(string documentId, string partitionKey, CosmosReadOptions? readOptions = null, CancellationToken cancellationToken = default)
+    public virtual ValueTask<bool> Exists(string documentId, string partitionKey, CosmosReadOptions? readOptions = null, CancellationToken cancellationToken = default)
     {
-        return await Exists(Identity(documentId, partitionKey), readOptions, cancellationToken);
+        return Exists(Identity(documentId, partitionKey), readOptions, cancellationToken);
     }
 
-    public virtual async ValueTask<bool> Exists(IQueryable<TDocument> query, CancellationToken cancellationToken = default)
+    public virtual ValueTask<bool> Exists(IQueryable<TDocument> query, CancellationToken cancellationToken = default)
     {
-        return await LibrarianQueryableExtensions.Any(query, cancellationToken);
+        return LibrarianQueryableExtensions.Any(query, cancellationToken);
     }
 
     public virtual async ValueTask<bool> ExistsByPartitionKey(string partitionKey, CosmosReadOptions? readOptions = null, CancellationToken cancellationToken = default)
@@ -311,15 +319,15 @@ public abstract class CosmosLibrarianRepository<TDocument> : ICosmosRepository<T
         return await Exists(await PartitionQuery(partitionKey, readOptions, cancellationToken), cancellationToken);
     }
 
-    public virtual async ValueTask<CosmosItem<TDocument>?> GetItemWithETag(string id, CosmosReadOptions? readOptions = null, CancellationToken cancellationToken = default)
+    public virtual ValueTask<CosmosItem<TDocument>?> GetItemWithETag(string id, CosmosReadOptions? readOptions = null, CancellationToken cancellationToken = default)
     {
-        return await Read(id, readOptions, cancellationToken);
+        return Read(id, readOptions, cancellationToken);
     }
 
-    public virtual async ValueTask<CosmosItem<TDocument>?> GetItemWithETag(string documentId, string partitionKey,
+    public virtual ValueTask<CosmosItem<TDocument>?> GetItemWithETag(string documentId, string partitionKey,
         CosmosReadOptions? readOptions = null, CancellationToken cancellationToken = default)
     {
-        return await Read(Identity(documentId, partitionKey), readOptions, cancellationToken);
+        return Read(Identity(documentId, partitionKey), readOptions, cancellationToken);
     }
 
     public virtual async ValueTask<TDocument?> GetItem(string id, CosmosReadOptions? readOptions = null, CancellationToken cancellationToken = default)
@@ -337,9 +345,9 @@ public abstract class CosmosLibrarianRepository<TDocument> : ICosmosRepository<T
         return await GetItem((await PartitionQuery(partitionKey, readOptions, cancellationToken)).OrderByDescending(document => document.CreatedAt), cancellationToken);
     }
 
-    public virtual async ValueTask<TDocument?> GetItemByIdNamePair(IdNamePair idNamePair, CosmosReadOptions? readOptions = null, CancellationToken cancellationToken = default)
+    public virtual ValueTask<TDocument?> GetItemByIdNamePair(IdNamePair idNamePair, CosmosReadOptions? readOptions = null, CancellationToken cancellationToken = default)
     {
-        return await GetItem(idNamePair.Id, readOptions, cancellationToken);
+        return GetItem(idNamePair.Id, readOptions, cancellationToken);
     }
 
     public virtual async ValueTask<TDocument?> GetItem(string documentId, string partitionKey, CosmosReadOptions? readOptions = null, CancellationToken cancellationToken = default)
@@ -368,10 +376,10 @@ public abstract class CosmosLibrarianRepository<TDocument> : ICosmosRepository<T
         return await GetItems(await PartitionQuery(partitionKey, readOptions, cancellationToken), delayMs, cancellationToken);
     }
 
-    public virtual async ValueTask<List<TDocument>> GetItems(string query, double? delayMs = null,
+    public virtual ValueTask<List<TDocument>> GetItems(string query, double? delayMs = null,
         CosmosReadOptions? readOptions = null, CancellationToken cancellationToken = default)
     {
-        return await Sql<TDocument>(new QueryDefinition(query), readOptions, cancellationToken, delayMs);
+        return Sql<TDocument>(new QueryDefinition(query), readOptions, cancellationToken, delayMs);
     }
 
     public virtual async ValueTask<List<TDocument>> GetAllByDocumentIds(List<string> ids, CosmosReadOptions? readOptions = null, CancellationToken cancellationToken = default)
@@ -403,21 +411,21 @@ public abstract class CosmosLibrarianRepository<TDocument> : ICosmosRepository<T
         return await ReadMany(pairs.Select(pair => pair.Id).ToArray(), readOptions, cancellationToken);
     }
 
-    public virtual async ValueTask<List<T>> GetItems<T>(string query, double? delayMs = null, CosmosReadOptions? readOptions = null, CancellationToken cancellationToken = default)
+    public virtual ValueTask<List<T>> GetItems<T>(string query, double? delayMs = null, CosmosReadOptions? readOptions = null, CancellationToken cancellationToken = default)
     {
-        return await Sql<T>(new QueryDefinition(query), readOptions, cancellationToken, delayMs);
+        return Sql<T>(new QueryDefinition(query), readOptions, cancellationToken, delayMs);
     }
 
-    public virtual async ValueTask<List<TDocument>> GetItems(QueryDefinition queryDefinition, double? delayMs = null,
+    public virtual ValueTask<List<TDocument>> GetItems(QueryDefinition queryDefinition, double? delayMs = null,
         CosmosReadOptions? readOptions = null, CancellationToken cancellationToken = default)
     {
-        return await Sql<TDocument>(queryDefinition, readOptions, cancellationToken, delayMs);
+        return Sql<TDocument>(queryDefinition, readOptions, cancellationToken, delayMs);
     }
 
-    public virtual async ValueTask<List<T>> GetItems<T>(QueryDefinition queryDefinition, double? delayMs = null,
+    public virtual ValueTask<List<T>> GetItems<T>(QueryDefinition queryDefinition, double? delayMs = null,
         CosmosReadOptions? readOptions = null, CancellationToken cancellationToken = default)
     {
-        return await Sql<T>(queryDefinition, readOptions, cancellationToken, delayMs);
+        return Sql<T>(queryDefinition, readOptions, cancellationToken, delayMs);
     }
 
     public virtual async ValueTask<List<TDocument>> GetItemsBetween(DateTimeOffset startAt, DateTimeOffset endAt, double? delayMs = null,
@@ -426,10 +434,10 @@ public abstract class CosmosLibrarianRepository<TDocument> : ICosmosRepository<T
         return await GetItems((await BuildQueryable(readOptions: readOptions, cancellationToken: cancellationToken)).Where(document => document.CreatedAt >= startAt && document.CreatedAt <= endAt), delayMs, cancellationToken);
     }
 
-    public virtual async ValueTask<List<IdPartitionPair>> GetIds(QueryDefinition queryDefinition, QueryRequestOptions? options = null, double? delayMs = null,
+    public virtual ValueTask<List<IdPartitionPair>> GetIds(QueryDefinition queryDefinition, QueryRequestOptions? options = null, double? delayMs = null,
         CancellationToken cancellationToken = default)
     {
-        return await Sql<IdPartitionPair>(queryDefinition, null, cancellationToken, delayMs, options);
+        return Sql<IdPartitionPair>(queryDefinition, null, cancellationToken, delayMs, options);
     }
 
     public virtual async ValueTask<List<IdPartitionPair>> GetAllIds(double? delayMs = null, CosmosReadOptions? readOptions = null, CancellationToken cancellationToken = default)
@@ -437,9 +445,9 @@ public abstract class CosmosLibrarianRepository<TDocument> : ICosmosRepository<T
         return await GetIds(await BuildQueryable(readOptions: readOptions, cancellationToken: cancellationToken), delayMs, cancellationToken);
     }
 
-    public virtual async ValueTask<List<IdPartitionPair>> GetIds(IQueryable<TDocument> query, double? delayMs = null, CancellationToken cancellationToken = default)
+    public virtual ValueTask<List<IdPartitionPair>> GetIds(IQueryable<TDocument> query, double? delayMs = null, CancellationToken cancellationToken = default)
     {
-        return await GetItems(query.Select(document => new IdPartitionPair { Id = document.DocumentId!, PartitionKey = document.PartitionKey! }), delayMs, cancellationToken);
+        return GetItems(query.Select(document => new IdPartitionPair { Id = document.DocumentId!, PartitionKey = document.PartitionKey! }), delayMs, cancellationToken);
     }
 
     public virtual async ValueTask<List<string>> GetAllPartitionKeys(double? delayMs = null, CosmosReadOptions? readOptions = null, CancellationToken cancellationToken = default)
@@ -447,9 +455,9 @@ public abstract class CosmosLibrarianRepository<TDocument> : ICosmosRepository<T
         return await GetPartitionKeys(await BuildQueryable(readOptions: readOptions, cancellationToken: cancellationToken), delayMs, cancellationToken);
     }
 
-    public virtual async ValueTask<List<string>> GetPartitionKeys(IQueryable<TDocument> query, double? delayMs = null, CancellationToken cancellationToken = default)
+    public virtual ValueTask<List<string>> GetPartitionKeys(IQueryable<TDocument> query, double? delayMs = null, CancellationToken cancellationToken = default)
     {
-        return await GetItems(query.Select(document => document.PartitionKey!).Distinct(), delayMs, cancellationToken);
+        return GetItems(query.Select(document => document.PartitionKey!).Distinct(), delayMs, cancellationToken);
     }
 
     public virtual async ValueTask<IQueryable<TDocument>> BuildQueryable(QueryRequestOptions? queryRequestOptions = null,
@@ -476,9 +484,9 @@ public abstract class CosmosLibrarianRepository<TDocument> : ICosmosRepository<T
         return new CosmosRepositoryQueryable<T>(await BuildQueryable<T>(readOptions: readOptions, cancellationToken: cancellationToken), pageSize, continuationToken);
     }
 
-    public virtual async ValueTask<T?> GetItem<T>(IQueryable<T> query, CancellationToken cancellationToken = default)
+    public virtual ValueTask<T?> GetItem<T>(IQueryable<T> query, CancellationToken cancellationToken = default)
     {
-        return await LibrarianQueryableExtensions.FirstOrDefault(query, cancellationToken);
+        return LibrarianQueryableExtensions.FirstOrDefault(query, cancellationToken);
     }
 
     public virtual async ValueTask<List<T>> GetItems<T>(IQueryable<T> query, double? delayMs = null, CancellationToken cancellationToken = default)
@@ -495,9 +503,9 @@ public abstract class CosmosLibrarianRepository<TDocument> : ICosmosRepository<T
         return result;
     }
 
-    public virtual async ValueTask<List<TDocument>> GetItems(IQueryable<TDocument> query, double? delayMs = null, CancellationToken cancellationToken = default)
+    public virtual ValueTask<List<TDocument>> GetItems(IQueryable<TDocument> query, double? delayMs = null, CancellationToken cancellationToken = default)
     {
-        return await GetItems<TDocument>(query, delayMs, cancellationToken);
+        return GetItems<TDocument>(query, delayMs, cancellationToken);
     }
 
     public virtual async ValueTask<int> Count(CosmosReadOptions? readOptions = null, CancellationToken cancellationToken = default)
@@ -505,9 +513,9 @@ public abstract class CosmosLibrarianRepository<TDocument> : ICosmosRepository<T
         return await LibrarianQueryableExtensions.Count(await BuildQueryable(readOptions: readOptions, cancellationToken: cancellationToken), cancellationToken);
     }
 
-    public virtual async ValueTask<int> Count(IQueryable<TDocument> query, CancellationToken cancellationToken = default)
+    public virtual ValueTask<int> Count(IQueryable<TDocument> query, CancellationToken cancellationToken = default)
     {
-        return await LibrarianQueryableExtensions.Count(query, cancellationToken);
+        return LibrarianQueryableExtensions.Count(query, cancellationToken);
     }
 
     public virtual async ValueTask<bool> Any(CosmosReadOptions? readOptions = null, CancellationToken cancellationToken = default)
@@ -527,10 +535,10 @@ public abstract class CosmosLibrarianRepository<TDocument> : ICosmosRepository<T
         return await Mutate(id, document => ValueTask.FromResult(mutation(document)), maxAttempts, readOptions, cancellationToken);
     }
 
-    public virtual async ValueTask<TDocument?> MutateItem(string id, Func<TDocument, ValueTask<bool>> mutation, int maxAttempts = 5,
+    public virtual ValueTask<TDocument?> MutateItem(string id, Func<TDocument, ValueTask<bool>> mutation, int maxAttempts = 5,
         CosmosReadOptions? readOptions = null, CancellationToken cancellationToken = default)
     {
-        return await Mutate(id, mutation, maxAttempts, readOptions, cancellationToken);
+        return Mutate(id, mutation, maxAttempts, readOptions, cancellationToken);
     }
 
     public virtual async ValueTask DeleteAllPaged(int pageSize = DataConstants.DefaultCosmosPageSize, double? delayMs = null, bool useQueue = false,
@@ -591,6 +599,12 @@ public abstract class CosmosLibrarianRepository<TDocument> : ICosmosRepository<T
         ArgumentNullException.ThrowIfNull(query);
         ArgumentNullException.ThrowIfNull(resultTask);
         var defaults = query as CosmosRepositoryQueryable<T>;
+        if (query.Provider is ICosmosPageReader reader)
+        {
+            await reader.ReadPages(query.Expression, defaults?.PageSize ?? DataConstants.DefaultCosmosPageSize,
+                defaults?.ContinuationToken, resultTask, cancellationToken);
+            return;
+        }
         string? next = defaults?.ContinuationToken;
         do
         {
@@ -614,14 +628,7 @@ public abstract class CosmosLibrarianRepository<TDocument> : ICosmosRepository<T
         ArgumentNullException.ThrowIfNull(resultTask);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(pageSize);
         ICosmosLibrarianContainer store = await Store(cancellationToken, readOptions);
-        string? next = null;
-        do
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            LibrarianPage<TDocument> page = await store.QueryPage<TDocument>(queryDefinition, pageSize, next, cancellationToken);
-            await resultTask(page.Items as List<TDocument> ?? page.Items.ToList());
-            next = page.ContinuationToken;
-        } while (next is not null);
+        await store.QueryPages(queryDefinition, pageSize, resultTask, cancellationToken);
     }
 
     public virtual async ValueTask<(List<TDocument> items, string? continuationToken)> GetAllPaged(int pageSize = DataConstants.DefaultCosmosPageSize, string? continuationToken = null,
@@ -633,23 +640,24 @@ public abstract class CosmosLibrarianRepository<TDocument> : ICosmosRepository<T
     public virtual async ValueTask<(List<TDocument> items, string? continuationToken)> GetItemsPaged(QueryDefinition queryDefinition, int pageSize, string? continuationToken,
         CosmosReadOptions? readOptions = null, CancellationToken cancellationToken = default)
     {
-        LibrarianPage<TDocument> page = await (await Store(cancellationToken, readOptions)).QueryPage<TDocument>(queryDefinition, pageSize, continuationToken, cancellationToken); return (page.Items.ToList(), page.ContinuationToken);
+        LibrarianPage<TDocument> page = await (await Store(cancellationToken, readOptions)).QueryPage<TDocument>(queryDefinition, pageSize, continuationToken, cancellationToken); return (page.Items as List<TDocument> ?? page.Items.ToList(), page.ContinuationToken);
     }
 
     public virtual async ValueTask<(List<T> items, string? continuationToken)> GetItemsPaged<T>(IQueryable<T> query, CancellationToken cancellationToken = default)
     {
-        var defaults = query as CosmosRepositoryQueryable<T>; LibrarianPage<T> page = await query.ToPage(defaults?.PageSize ?? DataConstants.DefaultCosmosPageSize, defaults?.ContinuationToken, cancellationToken); return (page.Items.ToList(), page.ContinuationToken);
+        var defaults = query as CosmosRepositoryQueryable<T>; LibrarianPage<T> page = await query.ToPage(defaults?.PageSize ?? DataConstants.DefaultCosmosPageSize, defaults?.ContinuationToken, cancellationToken); return (page.Items as List<T> ?? page.Items.ToList(), page.ContinuationToken);
     }
 
     public virtual async ValueTask<(List<TDocument> items, string? continuationToken)> GetItemsPaged(IQueryable<TDocument> query, int pageSize, string? continuation,
         CosmosReadOptions? readOptions = null, CancellationToken cancellationToken = default)
     {
-        LibrarianPage<TDocument> page = await query.ToPage(pageSize, continuation, cancellationToken); return (page.Items.ToList(), page.ContinuationToken);
+        LibrarianPage<TDocument> page = await query.ToPage(pageSize, continuation, cancellationToken); return (page.Items as List<TDocument> ?? page.Items.ToList(), page.ContinuationToken);
     }
 
     public virtual async ValueTask<CosmosItem<TDocument>> PatchItemIfMatch(CosmosItem<TDocument> item, List<PatchOperation> operations,
         CancellationToken cancellationToken = default)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(item.ETag);
         return await Patch(item.Document.Id!, operations, item.ETag, cancellationToken) ?? throw Conflict();
     }
 
@@ -686,6 +694,7 @@ public abstract class CosmosLibrarianRepository<TDocument> : ICosmosRepository<T
     public virtual async ValueTask<CosmosItem<TDocument>> PatchItemIfMatch(string id, List<PatchOperation> operations, string expectedETag,
         CancellationToken cancellationToken = default)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(expectedETag);
         return await Patch(id, operations, expectedETag, cancellationToken) ?? throw Conflict();
     }
 
@@ -777,9 +786,9 @@ public abstract class CosmosLibrarianRepository<TDocument> : ICosmosRepository<T
                 throw new InvalidOperationException("A patch cannot change repository scope.");
         }
         ICosmosLibrarianContainer store = await Store(token);
-        LibrarianItem<string>? result = await store.PatchItem(id, operations, version, token);
+        LibrarianItem<TDocument>? result = await store.PatchDocument<TDocument>(id, operations, version, token);
         if (result is null) return null;
-        TDocument document = store.DeserializeDocument<TDocument>(result.Document, result.Version);
+        TDocument document = result.Document;
         if (AuditEnabled) await CreateAuditItem(CrudEventType.Update, id, result.Document, CancellationToken.None);
         return new CosmosItem<TDocument>(document, result.Version);
     }

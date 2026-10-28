@@ -62,19 +62,19 @@ public sealed partial class CosmosLibrarianDatabase
             foreach (LibrarianWrite write in batch.Writes)
             {
                 string id = LibrarianDocumentJson.Address(write.Id, partition).Id;
-                var options = new TransactionalBatchItemRequestOptions { IfMatchEtag = write.ExpectedVersion };
+                var options = new TransactionalBatchItemRequestOptions { IfMatchEtag = write.ExpectedVersion, EnableContentResponseOnWrite = false };
                 if (write.Value is null)
                     transaction.DeleteItem(id, options);
                 else
                 {
-                    var stream = new MemoryStream(Encoding.UTF8.GetBytes(write.Value));
+                    var stream = new CosmosUtf8Stream(write.Value);
                     streams.Add(stream);
                     if (write.CreateOnly)
-                        transaction.CreateItemStream(stream);
+                        transaction.CreateItemStream(stream, options);
                     else if (write.ExpectedVersion is not null)
                         transaction.ReplaceItemStream(id, stream, options);
                     else
-                        transaction.UpsertItemStream(stream);
+                        transaction.UpsertItemStream(stream, options);
                 }
             }
 

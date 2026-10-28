@@ -1,5 +1,6 @@
 using System;
 using System.Net;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Azure.Cosmos;
@@ -12,6 +13,28 @@ namespace Soenneker.Librarian.Suite.Tests;
 
 public sealed class CosmosBatchTests
 {
+    [Test]
+    public async Task Batch_writes_suppress_unused_document_responses(CancellationToken cancellationToken)
+    {
+        var store = new Mock<Container>(MockBehavior.Strict);
+        store.SetupGet(c => c.Id).Returns("items");
+        var transaction = new Mock<TransactionalBatch>(MockBehavior.Strict);
+        var response = new Mock<TransactionalBatchResponse>();
+        response.SetupGet(r => r.IsSuccessStatusCode).Returns(true);
+        store.Setup(c => c.CreateTransactionalBatch(new PartitionKey("org"))).Returns(transaction.Object);
+        transaction.Setup(t => t.CreateItemStream(It.IsAny<Stream>(), It.Is<TransactionalBatchItemRequestOptions>(o => o.EnableContentResponseOnWrite == false))).Returns(transaction.Object);
+        transaction.Setup(t => t.UpsertItemStream(It.IsAny<Stream>(), It.Is<TransactionalBatchItemRequestOptions>(o => o.EnableContentResponseOnWrite == false))).Returns(transaction.Object);
+        transaction.Setup(t => t.ReplaceItemStream("replace", It.IsAny<Stream>(), It.Is<TransactionalBatchItemRequestOptions>(o => o.EnableContentResponseOnWrite == false && o.IfMatchEtag == "original"))).Returns(transaction.Object);
+        transaction.Setup(t => t.ExecuteAsync(It.IsAny<CancellationToken>())).ReturnsAsync(response.Object);
+        await using var database = new CosmosLibrarianDatabase(store.Object);
+        var batch = new LibrarianBatch([
+            new LibrarianWrite("items", "org:create", NativeDocumentJson.Create("org:create", "{}"), CreateOnly: true),
+            new LibrarianWrite("items", "org:upsert", NativeDocumentJson.Create("org:upsert", "{}")),
+            new LibrarianWrite("items", "org:replace", NativeDocumentJson.Create("org:replace", "{}"), "original")]);
+        Check(await database.Execute(batch, cancellationToken), "Successful batch was rejected.");
+        transaction.VerifyAll();
+    }
+
     [Test]
     public async Task Native_conflicts_return_false_and_service_errors_propagate_without_replay(CancellationToken cancellationToken)
     {

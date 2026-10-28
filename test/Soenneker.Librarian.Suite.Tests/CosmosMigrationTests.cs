@@ -14,6 +14,7 @@ using System.Threading;
 
 namespace Soenneker.Librarian.Suite.Tests;
 
+[NotInParallel("Cosmos")]
 public sealed class CosmosMigrationTests
 {
     [Test]

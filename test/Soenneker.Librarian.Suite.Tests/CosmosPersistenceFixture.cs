@@ -23,6 +23,7 @@ internal sealed class CosmosPersistenceFixture : IAsyncDisposable
     private readonly ServiceProvider _services;
     private readonly string _name;
     internal CosmosLibrarianDatabase Database { get; }
+    internal T Resolve<T>() where T : notnull => _services.GetRequiredService<T>();
     internal Container Store(string name) => _client.GetContainer(_name, "librarian.test." + name);
     internal CosmosLibrarianDatabase CreateDatabase(string key = "test") => new(_services.GetRequiredService<ICosmosContainerUtil>(), key);
     private CosmosPersistenceFixture(CosmosClient client, ServiceProvider services, string name)
@@ -32,15 +33,16 @@ internal sealed class CosmosPersistenceFixture : IAsyncDisposable
         _name = name;
         Database = CreateDatabase();
     }
-    internal static Task<CosmosPersistenceFixture> Create()
+    internal static Task<CosmosPersistenceFixture> Create(CosmosSerializer? serializer = null)
     {
         string? connection = Environment.GetEnvironmentVariable("LIBRARIAN_TEST_COSMOS");
         if (string.IsNullOrWhiteSpace(connection)) Skip.Test("Set LIBRARIAN_TEST_COSMOS to run Cosmos integration tests (creates and deletes an isolated test database).");
         var options = new CosmosClientOptions
         {
-            ConnectionMode = ConnectionMode.Gateway, RequestTimeout = TimeSpan.FromSeconds(15),
-            UseSystemTextJsonSerializerWithOptions = new JsonSerializerOptions(JsonSerializerDefaults.Web)
+            ConnectionMode = ConnectionMode.Gateway, RequestTimeout = TimeSpan.FromSeconds(15)
         };
+        if (serializer is null) options.UseSystemTextJsonSerializerWithOptions = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        else options.Serializer = serializer;
         if (Environment.GetEnvironmentVariable("LIBRARIAN_TEST_COSMOS_EMULATOR") == "1")
         {
             if (!connection!.Contains("AccountEndpoint=https://localhost:", StringComparison.OrdinalIgnoreCase) &&
@@ -49,7 +51,7 @@ internal sealed class CosmosPersistenceFixture : IAsyncDisposable
             options.HttpClientFactory = () => new HttpClient(new HttpClientHandler { ServerCertificateCustomValidationCallback = (_, _, _, _) => true });
         }
         var client = new CosmosClient(connection, options);
-        string name = "librarian-test-" + Guid.NewGuid().ToString("N");
+        string name = "librarian-test-" + Guid.NewGuid();
         var parsed = new DbConnectionStringBuilder { ConnectionString = connection! };
         IConfiguration configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
         {
@@ -60,7 +62,9 @@ internal sealed class CosmosPersistenceFixture : IAsyncDisposable
         var clients = new Mock<ICosmosClientUtil>();
         clients.Setup(c => c.Get(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync(client);
         ServiceProvider services = new ServiceCollection().AddLogging().AddSingleton(configuration).AddSingleton(clients.Object)
-            .AddCosmosContainerUtilAsSingleton().BuildServiceProvider();
+            .AddCosmosContainerUtilAsSingleton()
+            .AddSingleton<ICosmosLibrarianDatabaseFactory, CosmosLibrarianDatabaseFactory>()
+            .AddSingleton<CosmosPageRepository>().BuildServiceProvider();
         return Task.FromResult(new CosmosPersistenceFixture(client, services, name));
     }
     public async ValueTask DisposeAsync()

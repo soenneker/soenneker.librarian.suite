@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Azure.Cosmos;
 using Soenneker.Extensions.Task;
+using Soenneker.Extensions.ValueTask;
 using Soenneker.Librarian.Abstractions.Queries;
 
 namespace Soenneker.Librarian.Cosmos;
@@ -33,6 +34,25 @@ internal sealed partial class CosmosLibrarianContainer
         return result;
     }
 
+    public async ValueTask QueryPages<T>(QueryDefinition query, int pageSize, Func<List<T>, ValueTask> consume,
+        CancellationToken cancellationToken = default)
+    {
+        Check(cancellationToken);
+        ArgumentNullException.ThrowIfNull(query);
+        ArgumentNullException.ThrowIfNull(consume);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(pageSize);
+        QueryRequestOptions options = QueryOptions;
+        options.MaxItemCount = pageSize;
+        using FeedIterator<T> iterator = store.GetItemQueryIterator<T>(query, requestOptions: options);
+        while (iterator.HasMoreResults)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            FeedResponse<T> page = await iterator.ReadNextAsync(cancellationToken).NoSync();
+            database.Observe(name, "SqlQueryPage", page.StatusCode, page.Headers, page.Diagnostics);
+            await consume(CosmosFeedPage.Materialize(page)).NoSync();
+        }
+    }
+
     public async ValueTask<LibrarianPage<T>> QueryPage<T>(QueryDefinition query, int pageSize = 100,
         string? continuationToken = null, CancellationToken cancellationToken = default)
     {
@@ -44,6 +64,6 @@ internal sealed partial class CosmosLibrarianContainer
         using FeedIterator<T> iterator = store.GetItemQueryIterator<T>(query, continuationToken, options);
         FeedResponse<T> response = await iterator.ReadNextAsync(cancellationToken).NoSync();
         database.Observe(name, "SqlQueryPage", response.StatusCode, response.Headers, response.Diagnostics);
-        return new LibrarianPage<T>(response.ToList(), response.ContinuationToken);
+        return new LibrarianPage<T>(CosmosFeedPage.Materialize(response), string.IsNullOrEmpty(response.ContinuationToken) ? null : response.ContinuationToken);
     }
 }

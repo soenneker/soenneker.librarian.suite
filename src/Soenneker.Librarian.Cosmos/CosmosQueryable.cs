@@ -8,7 +8,6 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -20,23 +19,21 @@ namespace Soenneker.Librarian.Cosmos;
 
 // This adapts asynchronous terminal execution only. The Cosmos SDK translates the entire query expression.
 internal sealed class CosmosQueryable<T>
-    : IOrderedQueryable<T>, ILibrarianAsyncQueryProvider, ILibrarianPagedQueryProvider
+    : IOrderedQueryable<T>, ILibrarianAsyncQueryProvider, ILibrarianPagedQueryProvider, ICosmosPageReader
 {
     private readonly IQueryable<T> _native;
     private readonly Action _check;
     private readonly Container _store;
-    private readonly string _scope;
     private readonly CosmosLibrarianDatabase _database;
     private readonly string _name;
     private readonly string? _partition;
 
-    internal CosmosQueryable(IQueryable<T> native, Action check, Container store, string scope, CosmosLibrarianDatabase database, string name, string? partition)
+    internal CosmosQueryable(IQueryable<T> native, Action check, Container store, CosmosLibrarianDatabase database, string name, string? partition)
     {
         QueryTypes.Register<T>();
         _native = native;
         _check = check;
         _store = store;
-        _scope = scope;
         _database = database;
         _name = name;
         _partition = partition;
@@ -45,7 +42,7 @@ internal sealed class CosmosQueryable<T>
     public Type ElementType => typeof(T);
     public Expression Expression => _native.Expression;
     public IQueryProvider Provider => this;
-    public IQueryable<TElement> CreateQuery<TElement>(Expression expression) => new CosmosQueryable<TElement>(_native.Provider.CreateQuery<TElement>(expression), _check, _store, _scope, _database, _name, _partition);
+    public IQueryable<TElement> CreateQuery<TElement>(Expression expression) => new CosmosQueryable<TElement>(_native.Provider.CreateQuery<TElement>(expression), _check, _store, _database, _name, _partition);
     public IQueryable CreateQuery(Expression expression) => QueryTypes.CreateQuery(this, expression);
 
     public IEnumerator<T> GetEnumerator() => throw new NotSupportedException("Synchronous query execution is not supported by this provider. Use Librarian asynchronous query operations.");
@@ -60,10 +57,20 @@ internal sealed class CosmosQueryable<T>
         cancellationToken.ThrowIfCancellationRequested();
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(pageSize);
         QueryDefinition query = _native.Provider.CreateQuery<TElement>(expression).WithNullSemantics().ToQueryDefinition() ?? new QueryDefinition("SELECT VALUE c FROM c");
-        string fingerprint = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new CosmosQueryFingerprint(
-            _scope, _store.Database.Id, _store.Id, typeof(TElement).FullName, query.QueryText,
-            query.GetQueryParameters()?.Select(parameter => new CosmosQueryParameter(parameter.Name, ParameterJson(parameter.Value))).ToArray()),
-            CosmosInternalJsonContext.Default.CosmosQueryFingerprint))));
+        string? fingerprint = null;
+        string? token = DecodeContinuation<TElement>(query, continuationToken, ref fingerprint);
+        QueryRequestOptions options = _database.QueryOptions(_name, _partition);
+        options.MaxItemCount = pageSize;
+        using FeedIterator<TElement> iterator = _store.GetItemQueryIterator<TElement>(query, token, options);
+        FeedResponse<TElement> page = await iterator.ReadNextAsync(cancellationToken).NoSync();
+        _database.Observe(_name, "QueryPage", page.StatusCode, page.Headers, page.Diagnostics);
+        string? next = string.IsNullOrEmpty(page.ContinuationToken) ? null
+            : Convert.ToBase64String(JsonSerializer.SerializeToUtf8Bytes(new CosmosContinuation(fingerprint ?? Fingerprint<TElement>(query), page.ContinuationToken), CosmosInternalJsonContext.Default.CosmosContinuation));
+        return new LibrarianPage<TElement>(CosmosFeedPage.Materialize(page), next);
+    }
+
+    private string? DecodeContinuation<TElement>(QueryDefinition query, string? continuationToken, ref string? fingerprint)
+    {
         string? token = null;
         if (continuationToken is not null)
         {
@@ -71,7 +78,7 @@ internal sealed class CosmosQueryable<T>
             {
                 CosmosContinuation saved = JsonSerializer.Deserialize(Convert.FromBase64String(continuationToken), CosmosInternalJsonContext.Default.CosmosContinuation)
                     ?? throw new FormatException();
-                if (saved.Query != fingerprint || string.IsNullOrEmpty(saved.Token)) throw new FormatException();
+                if (saved.Query != (fingerprint = Fingerprint<TElement>(query)) || string.IsNullOrEmpty(saved.Token)) throw new FormatException();
                 token = saved.Token;
             }
             catch (Exception exception) when (exception is FormatException or JsonException)
@@ -79,14 +86,29 @@ internal sealed class CosmosQueryable<T>
                 throw new ArgumentException("The continuation token is invalid or belongs to a different query or partition.", nameof(continuationToken), exception);
             }
         }
+        return token;
+    }
+
+    public async ValueTask ReadPages<TElement>(Expression expression, int pageSize, string? continuationToken,
+        Func<List<TElement>, ValueTask> consume, CancellationToken cancellationToken)
+    {
+        _check();
+        cancellationToken.ThrowIfCancellationRequested();
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(pageSize);
+        ArgumentNullException.ThrowIfNull(consume);
+        QueryDefinition query = _native.Provider.CreateQuery<TElement>(expression).WithNullSemantics().ToQueryDefinition();
+        string? fingerprint = null;
+        string? token = DecodeContinuation<TElement>(query, continuationToken, ref fingerprint);
         QueryRequestOptions options = _database.QueryOptions(_name, _partition);
         options.MaxItemCount = pageSize;
         using FeedIterator<TElement> iterator = _store.GetItemQueryIterator<TElement>(query, token, options);
-        FeedResponse<TElement> page = await iterator.ReadNextAsync(cancellationToken).NoSync();
-        _database.Observe(_name, "QueryPage", page.StatusCode, page.Headers, page.Diagnostics);
-        string? next = string.IsNullOrEmpty(page.ContinuationToken) ? null
-            : Convert.ToBase64String(JsonSerializer.SerializeToUtf8Bytes(new CosmosContinuation(fingerprint, page.ContinuationToken), CosmosInternalJsonContext.Default.CosmosContinuation));
-        return new LibrarianPage<TElement>(page.ToList(), next);
+        while (iterator.HasMoreResults)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            FeedResponse<TElement> page = await iterator.ReadNextAsync(cancellationToken).NoSync();
+            _database.Observe(_name, "QueryPage", page.StatusCode, page.Headers, page.Diagnostics);
+            await consume(CosmosFeedPage.Materialize(page)).NoSync();
+        }
     }
 
     public async ValueTask<TResult> Execute<TResult>(Expression expression, CancellationToken cancellationToken = default)
@@ -127,6 +149,20 @@ internal sealed class CosmosQueryable<T>
         List<TResult> result = await Read(_native.Provider.CreateQuery<TResult>(expression), cancellationToken).NoSync();
         return result.Single();
     }
+    private string Fingerprint<TElement>(QueryDefinition query)
+    {
+        using var buffer = new CosmosJsonBuffer();
+        string scope = JsonSerializer.Serialize(new[] { _database.Key, _name, _partition }, CosmosInternalJsonContext.Default.StringArray);
+        using (var writer = new Utf8JsonWriter(buffer))
+            JsonSerializer.Serialize(writer, new CosmosQueryFingerprint(
+                scope, _store.Database.Id, _store.Id, typeof(TElement).FullName, query.QueryText,
+                query.GetQueryParameters()?.Select(parameter => new CosmosQueryParameter(parameter.Name, ParameterJson(parameter.Value))).ToArray()),
+                CosmosInternalJsonContext.Default.CosmosQueryFingerprint);
+        Span<byte> hash = stackalloc byte[SHA256.HashSizeInBytes];
+        SHA256.HashData(buffer.WrittenSpan, hash);
+        return Convert.ToHexString(hash);
+    }
+
     private JsonElement ParameterJson(object? value)
     {
         CosmosSerializer serializer = _store.Database.Client.ClientOptions.Serializer

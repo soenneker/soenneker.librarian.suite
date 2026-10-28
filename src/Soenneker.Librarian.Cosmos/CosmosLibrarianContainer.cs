@@ -2,7 +2,6 @@ using Soenneker.Atomics.ValueBools;
 using Soenneker.Extensions.ValueTask;
 using Soenneker.Extensions.Task;
 using System;
-using System.Buffers;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -20,6 +19,9 @@ namespace Soenneker.Librarian.Cosmos;
 
 internal sealed partial class CosmosLibrarianContainer(CosmosLibrarianDatabase database, Container store, string name, string? partition) : ICosmosLibrarianContainer
 {
+    internal ICosmosLibrarianContainer WithOptions(CosmosLibrarianOptions options, string? selectedPartition) =>
+        new CosmosLibrarianContainer(new CosmosLibrarianDatabase(database, options), store, name, selectedPartition);
+
     private ValueAtomicBool _disposed = new(false);
     private void Check(CancellationToken token = default) { ObjectDisposedException.ThrowIf(_disposed.Value, this); database.Check(token); }
     public void Dispose() => _disposed.TrySetTrue();
@@ -28,19 +30,21 @@ internal sealed partial class CosmosLibrarianContainer(CosmosLibrarianDatabase d
     private MemoryStream Content(string id, string document)
     {
         LibrarianDocumentJson.Validate(id, document, partition);
-        return new MemoryStream(Encoding.UTF8.GetBytes(document));
+        return new CosmosUtf8Stream(document);
     }
     private static string Json(JsonElement document)
     {
-        var buffer = new ArrayBufferWriter<byte>();
-        using (var writer = new Utf8JsonWriter(buffer))
+        bool hasMetadata = false;
+        foreach (JsonProperty property in document.EnumerateObject())
         {
-            writer.WriteStartObject();
-            foreach (JsonProperty property in document.EnumerateObject())
-                if (!property.NameEquals("_rid") && !property.NameEquals("_self") && !property.NameEquals("_etag") &&
-                    !property.NameEquals("_attachments") && !property.NameEquals("_ts")) property.WriteTo(writer);
-            writer.WriteEndObject();
+            if (!property.NameEquals("_rid") && !property.NameEquals("_self") && !property.NameEquals("_etag") &&
+                !property.NameEquals("_attachments") && !property.NameEquals("_ts")) continue;
+            hasMetadata = true;
+            break;
         }
+        if (!hasMetadata) return document.GetRawText();
+        using var buffer = new CosmosJsonBuffer();
+        WriteDocument(buffer, document);
         return Encoding.UTF8.GetString(buffer.WrittenSpan);
     }
 
@@ -48,7 +52,7 @@ internal sealed partial class CosmosLibrarianContainer(CosmosLibrarianDatabase d
     {
         Check();
         IQueryable<T> query = store.GetItemLinqQueryable<T>(allowSynchronousQueryExecution: false, requestOptions: QueryOptions);
-        return new CosmosQueryable<T>(query, () => Check(), store, JsonSerializer.Serialize(new[] { database.Key, name, partition }, CosmosInternalJsonContext.Default.StringArray), database, name, partition);
+        return new CosmosQueryable<T>(query, () => Check(), store, database, name, partition);
     }
 
     public async ValueTask<string> AddItem(string id, string document, CancellationToken cancellationToken = default)
@@ -110,20 +114,39 @@ internal sealed partial class CosmosLibrarianContainer(CosmosLibrarianDatabase d
         if (response.StatusCode != HttpStatusCode.NotFound) response.EnsureSuccessStatusCode();
     }
 
-    public async ValueTask<string?[]> GetItems(IReadOnlyList<string> ids, CancellationToken cancellationToken = default)
+    public ValueTask<string?[]> GetItems(IReadOnlyList<string> ids, CancellationToken cancellationToken = default) =>
+        ReadMany(ids, Json, cancellationToken);
+
+    private async ValueTask<T?[]> ReadMany<T>(IReadOnlyList<string> ids, Func<JsonElement, T> materialize,
+        CancellationToken cancellationToken) where T : class
     {
         Check(cancellationToken);
         ArgumentNullException.ThrowIfNull(ids);
-        (string Id, string Partition)[] addresses = ids.Select(Address).ToArray();
         if (ids.Count == 0) return [];
-        using ResponseMessage response = await store.ReadManyItemsStreamAsync(addresses.Distinct().Select(a => (a.Id, new PartitionKey(a.Partition))).ToList(), database.Options.ReadManyRequestOptionsFactory?.Invoke(name), cancellationToken: cancellationToken).NoSync();
+        var addresses = new (string Id, string Partition)[ids.Count];
+        var unique = new Dictionary<(string, string), JsonElement>(ids.Count);
+        var request = new List<(string, PartitionKey)>(ids.Count);
+        for (int i = 0; i < ids.Count; i++)
+        {
+            var address = Address(ids[i]);
+            addresses[i] = address;
+            if (unique.TryAdd(address, default)) request.Add((address.Id, new PartitionKey(address.Partition)));
+        }
+        using ResponseMessage response = await store.ReadManyItemsStreamAsync(request,
+            database.Options.ReadManyRequestOptionsFactory?.Invoke(name), cancellationToken: cancellationToken).NoSync();
         database.Observe(name, "GetItems", response.StatusCode, response.Headers, response.Diagnostics);
         response.EnsureSuccessStatusCode();
         using JsonDocument body = await JsonDocument.ParseAsync(response.Content, cancellationToken: cancellationToken).NoSync();
-        var found = new Dictionary<(string, string), string>();
         foreach (JsonElement item in body.RootElement.GetProperty("Documents").EnumerateArray())
-            found.Add((item.GetProperty("id").GetString()!, item.GetProperty("partitionKey").GetString()!), Json(item));
-        return addresses.Select(found.GetValueOrDefault).ToArray();
+            unique[(item.GetProperty("id").GetString()!, item.GetProperty("partitionKey").GetString()!)] = item;
+        var result = new T?[addresses.Length];
+        // Materialize each occurrence separately so duplicate IDs never alias mutable document instances.
+        for (int i = 0; i < addresses.Length; i++)
+        {
+            JsonElement item = unique[addresses[i]];
+            if (item.ValueKind != JsonValueKind.Undefined) result[i] = materialize(item);
+        }
+        return result;
     }
 
     private static QueryDefinition Query(string select, string suffix = "") => new($"SELECT VALUE {select} FROM c WHERE true {suffix}");
@@ -145,8 +168,34 @@ internal sealed partial class CosmosLibrarianContainer(CosmosLibrarianDatabase d
         }
         return items;
     }
-    public async ValueTask<int> CountItems(CancellationToken cancellationToken = default) =>
-        (await Query(Query("COUNT(1)"), value => value.GetInt32(), cancellationToken).NoSync()).Single();
+    private async ValueTask<int> QueryScalar(QueryDefinition query, bool existence, CancellationToken token)
+    {
+        Check(token);
+        QueryRequestOptions options = QueryOptions;
+        if (existence) options.MaxItemCount = 1;
+        using FeedIterator iterator = store.GetItemQueryStreamIterator(query, requestOptions: options);
+        bool found = false;
+        int result = 0;
+        while (iterator.HasMoreResults)
+        {
+            token.ThrowIfCancellationRequested();
+            using ResponseMessage response = await iterator.ReadNextAsync(token).NoSync();
+            database.Observe(name, "Query", response.StatusCode, response.Headers, response.Diagnostics);
+            response.EnsureSuccessStatusCode();
+            using JsonDocument page = await JsonDocument.ParseAsync(response.Content, cancellationToken: token).NoSync();
+            foreach (JsonElement value in page.RootElement.GetProperty("Documents").EnumerateArray())
+            {
+                if (existence) return 1;
+                if (found) throw new InvalidOperationException("Sequence contains more than one element");
+                result = value.GetInt32();
+                found = true;
+            }
+        }
+        if (!found && !existence) throw new InvalidOperationException("Sequence contains no elements");
+        return result;
+    }
+    public ValueTask<int> CountItems(CancellationToken cancellationToken = default) =>
+        QueryScalar(Query("COUNT(1)"), false, cancellationToken);
     public ValueTask<List<string>> GetAllItems(CancellationToken cancellationToken = default) => Query(Query("c"), Json, cancellationToken);
     public ValueTask<List<string>> GetAllIds(CancellationToken cancellationToken = default) => Query(Query("{\"id\":c.id,\"partitionKey\":c.partitionKey}"), LibrarianDocumentJson.Id, cancellationToken);
     public ValueTask<List<IdValuePair>> GetLibrarianItems(CancellationToken cancellationToken = default) =>
@@ -154,7 +203,18 @@ internal sealed partial class CosmosLibrarianContainer(CosmosLibrarianDatabase d
     public async ValueTask DeleteAllItems(CancellationToken cancellationToken = default)
     {
         Check(cancellationToken);
-        List<string> ids = await GetAllIds(cancellationToken).NoSync();
-        foreach (string id in ids) await DeleteItem(id, cancellationToken).NoSync();
+        QueryRequestOptions options = QueryOptions;
+        if (options.MaxItemCount is null or <= 0) options.MaxItemCount = 100;
+        using FeedIterator iterator = store.GetItemQueryStreamIterator(Query("{\"id\":c.id,\"partitionKey\":c.partitionKey}"), requestOptions: options);
+        while (iterator.HasMoreResults)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            using ResponseMessage response = await iterator.ReadNextAsync(cancellationToken).NoSync();
+            database.Observe(name, "Query", response.StatusCode, response.Headers, response.Diagnostics);
+            response.EnsureSuccessStatusCode();
+            using JsonDocument page = await JsonDocument.ParseAsync(response.Content, cancellationToken: cancellationToken).NoSync();
+            foreach (JsonElement document in page.RootElement.GetProperty("Documents").EnumerateArray())
+                await DeleteItem(LibrarianDocumentJson.Id(document), cancellationToken).NoSync();
+        }
     }
 }

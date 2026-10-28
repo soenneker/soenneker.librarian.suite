@@ -4,6 +4,7 @@ using Soenneker.Extensions.Task;
 using Soenneker.Extensions.ValueTask;
 using System;
 using System.Collections.Generic;
+using System.Collections.Concurrent;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -17,12 +18,24 @@ namespace Soenneker.Librarian.Cosmos;
 public sealed partial class CosmosLibrarianDatabase : ILibrarianDatabase
 {
     private readonly Func<string, CancellationToken, ValueTask<Container>> _getContainer;
-    private readonly AsyncSemaphore _gate = new(1);
-    private readonly Dictionary<(string Name, string? Partition), CosmosLibrarianContainer> _containers = new();
-    private readonly Dictionary<string, Container> _stores = new(StringComparer.Ordinal);
+    private readonly AsyncSemaphore _gate;
+    private readonly ConcurrentDictionary<(string Name, string? Partition), CosmosLibrarianContainer> _containers;
+    private readonly Dictionary<string, Container> _stores;
+    private readonly CosmosLibrarianDatabase? _owner;
     private ValueAtomicBool _disposed = new(false);
     internal string Key { get; }
     internal CosmosLibrarianOptions Options { get; }
+
+    internal CosmosLibrarianDatabase(CosmosLibrarianDatabase owner, CosmosLibrarianOptions options)
+    {
+        _owner = owner;
+        _gate = owner._gate;
+        _containers = owner._containers;
+        _stores = owner._stores;
+        _getContainer = owner._getContainer;
+        Key = owner.Key;
+        Options = options;
+    }
 
     public CosmosLibrarianDatabase(IConfiguration configuration, ICosmosContainerUtil containerUtil, CosmosLibrarianOptions? options = null)
         : this(containerUtil, configuration["Librarian:Cosmos:Key"] ?? "librarian", configuration["Librarian:Cosmos:ContainerName"] ?? "librarian", options) { }
@@ -30,6 +43,9 @@ public sealed partial class CosmosLibrarianDatabase : ILibrarianDatabase
     /// <summary>Lazily provisions one physical container per logical name using the shared Cosmos utilities. Names are prefix.key.name, with escaped segments.</summary>
     public CosmosLibrarianDatabase(ICosmosContainerUtil containerUtil, string key, string containerName = "librarian", CosmosLibrarianOptions? options = null)
     {
+        _gate = new(1);
+        _containers = new();
+        _stores = new(StringComparer.Ordinal);
         ArgumentNullException.ThrowIfNull(containerUtil);
         ArgumentException.ThrowIfNullOrWhiteSpace(key);
         ArgumentException.ThrowIfNullOrWhiteSpace(containerName);
@@ -40,6 +56,9 @@ public sealed partial class CosmosLibrarianDatabase : ILibrarianDatabase
     /// <summary>Uses a caller-owned container partitioned by /partitionKey. GetContainer must use that container's ID.</summary>
     public CosmosLibrarianDatabase(Container container, string key = "librarian", CosmosLibrarianOptions? options = null)
     {
+        _gate = new(1);
+        _containers = new();
+        _stores = new(StringComparer.Ordinal);
         ArgumentNullException.ThrowIfNull(container);
         ArgumentException.ThrowIfNullOrWhiteSpace(key);
         Key = key;
@@ -51,6 +70,9 @@ public sealed partial class CosmosLibrarianDatabase : ILibrarianDatabase
     public CosmosLibrarianDatabase(Func<string, CancellationToken, ValueTask<Container>> containerResolver,
         string key = "librarian", CosmosLibrarianOptions? options = null)
     {
+        _gate = new(1);
+        _containers = new();
+        _stores = new(StringComparer.Ordinal);
         ArgumentNullException.ThrowIfNull(containerResolver);
         ArgumentException.ThrowIfNullOrWhiteSpace(key);
         _getContainer = containerResolver;
@@ -64,10 +86,13 @@ public sealed partial class CosmosLibrarianDatabase : ILibrarianDatabase
         (ICosmosLibrarianContainer)await (partitionKey is null ? GetContainer(containerName, cancellationToken)
             : GetContainer(containerName, partitionKey, cancellationToken)).NoSync();
 
-    internal ItemRequestOptions ItemOptions(string name, string operation, string? version = null)
+    internal ItemRequestOptions? ItemOptions(string name, string operation, string? version = null)
     {
-        ItemRequestOptions result = Options.ItemRequestOptionsFactory?.Invoke(name, operation) ?? new ItemRequestOptions();
-        if (operation is "AddItem" or "UpdateItem" or "UpdateItemIfVersion" or "DeleteItem" or "DeleteItemIfVersion")
+        bool write = operation is "AddItem" or "UpdateItem" or "UpdateItemIfVersion" or "DeleteItem" or "DeleteItemIfVersion";
+        ItemRequestOptions? result = Options.ItemRequestOptionsFactory?.Invoke(name, operation);
+        if (result is null && !write && version is null) return null;
+        result ??= new ItemRequestOptions();
+        if (write)
             result.EnableContentResponseOnWrite = false;
         if (version is not null) { result.IfMatchEtag = version; result.IfNoneMatchEtag = null; }
         return result;
@@ -95,7 +120,7 @@ public sealed partial class CosmosLibrarianDatabase : ILibrarianDatabase
     }
 
     private static string Escape(string value) => Uri.EscapeDataString(value).Replace(".", "%2E", StringComparison.Ordinal);
-    internal void Check(CancellationToken token = default) { ObjectDisposedException.ThrowIf(_disposed.Value, this); token.ThrowIfCancellationRequested(); }
+    internal void Check(CancellationToken token = default) { ObjectDisposedException.ThrowIf(_disposed.Value, this); _owner?.Check(token); token.ThrowIfCancellationRequested(); }
     private async ValueTask<Container> Store(string name, CancellationToken token)
     {
         Check(token);
@@ -111,11 +136,13 @@ public sealed partial class CosmosLibrarianDatabase : ILibrarianDatabase
     private async ValueTask<ILibrarianContainer> GetPartitionContainer(string name, string? partition, CancellationToken token)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        Check(token);
+        if (_containers.TryGetValue((name, partition), out CosmosLibrarianContainer? cached)) return cached;
         using (await _gate.Acquire(token).NoSync())
         {
             Container store = await Store(name, token).NoSync();
             if (!_containers.TryGetValue((name, partition), out CosmosLibrarianContainer? container))
-                _containers.Add((name, partition), container = new CosmosLibrarianContainer(this, store, name, partition));
+                _containers.TryAdd((name, partition), container = new CosmosLibrarianContainer(this, store, name, partition));
             return container;
         }
     }
@@ -129,7 +156,8 @@ public sealed partial class CosmosLibrarianDatabase : ILibrarianDatabase
         {
             Check(cancellationToken);
             (string Name, string? Partition)[] keys = _containers.Keys.Where(key => key.Name == containerName).ToArray();
-            foreach ((string Name, string? Partition) key in keys) { _containers[key].Dispose(); _containers.Remove(key); }
+            foreach ((string Name, string? Partition) key in keys)
+                if (_containers.TryRemove(key, out CosmosLibrarianContainer? container)) container.Dispose();
             return keys.Length != 0;
         }
     }

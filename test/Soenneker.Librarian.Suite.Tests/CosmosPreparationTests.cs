@@ -37,7 +37,10 @@ public sealed class CosmosPreparationTests
             {
                 requests.Add(options);
                 var response = new Mock<FeedResponse<ExampleDocument>>();
-                response.Setup(value => value.GetEnumerator()).Returns(() => new List<ExampleDocument> { new() { Id = "one", Name = "owned" } }.GetEnumerator());
+                var documents = new List<ExampleDocument> { new() { Id = "one", Name = "owned" } };
+                response.SetupGet(value => value.Count).Returns(documents.Count);
+                response.SetupGet(value => value.Resource).Returns(documents);
+                response.Setup(value => value.GetEnumerator()).Returns(() => documents.GetEnumerator());
                 response.SetupGet(value => value.Headers).Returns(Response(HttpStatusCode.OK, "{}").Headers);
                 response.SetupGet(value => value.StatusCode).Returns(HttpStatusCode.OK);
                 var iterator = new Mock<FeedIterator<ExampleDocument>>();

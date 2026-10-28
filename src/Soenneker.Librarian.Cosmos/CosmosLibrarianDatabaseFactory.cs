@@ -1,5 +1,5 @@
 using System;
-using System.Collections.Concurrent;
+using Soenneker.Atomics.ValueBools;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Azure.Cosmos;
@@ -11,28 +11,27 @@ namespace Soenneker.Librarian.Cosmos;
 
 public sealed class CosmosLibrarianDatabaseFactory(ICosmosContainerUtil containers) : ICosmosLibrarianDatabaseFactory
 {
-    private readonly ConcurrentBag<CosmosLibrarianDatabase> _databases = [];
+    private ValueAtomicBool _disposed = new(false);
     private readonly Lazy<CosmosLibrarianDatabase> _defaultDatabase = new(() =>
         new CosmosLibrarianDatabase((container, token) => containers.Get(container, token), "repositories"));
 
     public async ValueTask<ICosmosLibrarianContainer> Open(string name, CosmosReadOptions? readOptions = null,
         QueryRequestOptions? queryOptions = null, CancellationToken cancellationToken = default)
     {
+        ObjectDisposedException.ThrowIf(_disposed.Value, this);
         cancellationToken.ThrowIfCancellationRequested();
-        if (readOptions is null && queryOptions is null)
+        if (queryOptions is null && readOptions?.ReadConsistencyStrategy is null && readOptions?.SessionToken is null)
             return await _defaultDatabase.Value.GetCosmosContainer(name, cancellationToken: cancellationToken);
         QueryRequestOptions? snapshot = queryOptions is null ? null : CosmosQueryOptions.Copy(queryOptions);
-        var database = new CosmosLibrarianDatabase((container, token) => containers.Get(container, token), "repositories",
-            new CosmosLibrarianOptions
+        string? partition = Partition(snapshot?.PartitionKey);
+        var container = (CosmosLibrarianContainer)await _defaultDatabase.Value.GetCosmosContainer(name, cancellationToken: cancellationToken);
+        return container.WithOptions(new CosmosLibrarianOptions
             {
                 ItemRequestOptionsFactory = (_, _) => new ItemRequestOptions { ReadConsistencyStrategy = readOptions?.ReadConsistencyStrategy, SessionToken = readOptions?.SessionToken },
                 QueryRequestOptionsFactory = _ => snapshot is not null ? CosmosQueryOptions.Copy(snapshot) : new QueryRequestOptions
                 { ReadConsistencyStrategy = readOptions?.ReadConsistencyStrategy, SessionToken = readOptions?.SessionToken },
                 ReadManyRequestOptionsFactory = _ => new ReadManyRequestOptions { ReadConsistencyStrategy = readOptions?.ReadConsistencyStrategy, SessionToken = readOptions?.SessionToken }
-            });
-        _databases.Add(database);
-        // Queries may outlive their construction call, so options and handles live until the DI scope ends.
-        return await database.GetCosmosContainer(name, Partition(snapshot?.PartitionKey), cancellationToken);
+            }, partition);
     }
 
     private static string? Partition(PartitionKey? partition)
@@ -46,7 +45,8 @@ public sealed class CosmosLibrarianDatabaseFactory(ICosmosContainerUtil containe
 
     public async ValueTask DisposeAsync()
     {
-        if (_defaultDatabase.IsValueCreated) await _defaultDatabase.Value.DisposeAsync();
-        foreach (CosmosLibrarianDatabase database in _databases) await database.DisposeAsync();
+        if (!_disposed.TrySetTrue()) return;
+        // Force lazy initialization so a racing first Open cannot create an undisposed owner.
+        await _defaultDatabase.Value.DisposeAsync();
     }
 }

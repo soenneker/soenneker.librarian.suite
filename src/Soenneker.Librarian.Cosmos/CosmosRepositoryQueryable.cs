@@ -11,7 +11,7 @@ namespace Soenneker.Librarian.Cosmos;
 
 // Carries legacy repository page defaults through LINQ composition without executing the query.
 internal sealed class CosmosRepositoryQueryable<T>(IQueryable<T> query, int pageSize, string? continuationToken)
-    : IOrderedQueryable<T>, ILibrarianAsyncQueryProvider, ILibrarianPagedQueryProvider
+    : IOrderedQueryable<T>, ILibrarianAsyncQueryProvider, ILibrarianPagedQueryProvider, ICosmosPageReader
 {
     private readonly int _pageSize = pageSize > 0 ? pageSize : throw new ArgumentOutOfRangeException(nameof(pageSize));
     internal int PageSize => _pageSize;
@@ -31,4 +31,7 @@ internal sealed class CosmosRepositoryQueryable<T>(IQueryable<T> query, int page
     public ValueTask<LibrarianPage<TElement>> ReadPage<TElement>(Expression expression, int size, string? token = null,
         CancellationToken cancellationToken = default) =>
         ((ILibrarianPagedQueryProvider)query.Provider).ReadPage<TElement>(expression, size, token, cancellationToken);
+    public ValueTask ReadPages<TElement>(Expression expression, int size, string? token,
+        Func<List<TElement>, ValueTask> consume, CancellationToken cancellationToken) =>
+        ((ICosmosPageReader)query.Provider).ReadPages(expression, size, token, consume, cancellationToken);
 }

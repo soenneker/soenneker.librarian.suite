@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Net;
+using System.IO;
+using Soenneker.Documents.Document;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -12,8 +14,20 @@ namespace Soenneker.Librarian.Cosmos;
 
 internal sealed partial class CosmosLibrarianContainer
 {
-    public async ValueTask<LibrarianItem<string>?> PatchItem(string id, IReadOnlyList<PatchOperation> operations,
-        string? expectedVersion = null, CancellationToken cancellationToken = default)
+    public ValueTask<LibrarianItem<string>?> PatchItem(string id, IReadOnlyList<PatchOperation> operations,
+        string? expectedVersion = null, CancellationToken cancellationToken = default) =>
+        PatchCore(id, operations, expectedVersion, static stream =>
+        {
+            using JsonDocument body = JsonDocument.Parse(stream);
+            return Json(body.RootElement);
+        }, cancellationToken);
+
+    public ValueTask<LibrarianItem<T>?> PatchDocument<T>(string id, IReadOnlyList<PatchOperation> operations,
+        string? expectedVersion = null, CancellationToken cancellationToken = default) where T : Document =>
+        PatchCore(id, operations, expectedVersion, stream => Serializer.FromStream<T>(stream), cancellationToken);
+
+    private async ValueTask<LibrarianItem<T>?> PatchCore<T>(string id, IReadOnlyList<PatchOperation> operations,
+        string? expectedVersion, Func<Stream, T> deserialize, CancellationToken cancellationToken)
     {
         Check(cancellationToken);
         ArgumentNullException.ThrowIfNull(operations);
@@ -46,15 +60,15 @@ internal sealed partial class CosmosLibrarianContainer
         database.Observe(name, nameof(PatchItem), response.StatusCode, response.Headers, response.Diagnostics);
         if (response.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.PreconditionFailed) return null;
         response.EnsureSuccessStatusCode();
-        using JsonDocument body = await JsonDocument.ParseAsync(response.Content, cancellationToken: cancellationToken).NoSync();
-        return new LibrarianItem<string>(Json(body.RootElement), response.Headers.ETag);
+        return new LibrarianItem<T>(deserialize(response.Content), response.Headers.ETag);
     }
 
     private static void ValidatePatchPath(string path)
     {
         if (string.IsNullOrEmpty(path) || path[0] != '/' || path == "/")
             throw new ArgumentException("A patch must target a document field.", nameof(path));
-        string field = path.Split('/')[1].Replace("~1", "/", StringComparison.Ordinal).Replace("~0", "~", StringComparison.Ordinal);
+        int end = path.IndexOf('/', 1);
+        string field = path[1..(end < 0 ? path.Length : end)].Replace("~1", "/", StringComparison.Ordinal).Replace("~0", "~", StringComparison.Ordinal);
         if (field is "id" or "partitionKey" or "_id" or "_librarianVersion" or "_etag" or "_rid" or "_self" or "_attachments" or "_ts")
             throw new ArgumentException("Identity and provider metadata cannot be patched.", nameof(path));
     }

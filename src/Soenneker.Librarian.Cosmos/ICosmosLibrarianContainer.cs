@@ -9,6 +9,22 @@ namespace Soenneker.Librarian.Cosmos;
 /// <summary>Native Cosmos operations in addition to the portable container contract.</summary>
 public interface ICosmosLibrarianContainer : ILibrarianContainer
 {
+    /// <summary>Reads a typed Cosmos document directly through the configured serializer. Response metadata remains in the SDK payload; the returned version is the authoritative response ETag.</summary>
+    ValueTask<LibrarianItem<T>?> ReadDocument<T>(string id, CancellationToken cancellationToken = default) where T : Soenneker.Documents.Document.Document;
+
+    /// <summary>Reads typed documents through the native bulk API, preserving input order, missing slots, and independent instances for duplicate IDs.</summary>
+    ValueTask<T?[]> ReadDocuments<T>(IReadOnlyList<string> ids, CancellationToken cancellationToken = default) where T : Soenneker.Documents.Document.Document;
+
+    /// <summary>Creates a native typed document, validating its address and suppressing the unused response body.</summary>
+    ValueTask CreateDocument<T>(T document, CancellationToken cancellationToken = default) where T : Soenneker.Documents.Document.Document;
+
+    /// <summary>Replaces a native typed document and returns the submitted instance with the response ETag. Null indicates absence or a failed version condition.</summary>
+    ValueTask<LibrarianItem<T>?> ReplaceDocument<T>(T document, string? version = null, CancellationToken cancellationToken = default) where T : Soenneker.Documents.Document.Document;
+
+    /// <summary>Applies the same identity-safe, version-conditional native patch as PatchItem and directly deserializes the updated document.</summary>
+    ValueTask<LibrarianItem<T>?> PatchDocument<T>(string id, IReadOnlyList<PatchOperation> operations, string? expectedVersion = null,
+        CancellationToken cancellationToken = default) where T : Soenneker.Documents.Document.Document;
+
     /// <summary>Checks a document's existence using a point read without deserializing its body. Only not-found returns false.</summary>
     ValueTask<bool> Exists(string id, CancellationToken cancellationToken = default);
 
@@ -20,6 +36,10 @@ public interface ICosmosLibrarianContainer : ILibrarianContainer
 
     /// <summary>Drains a native SQL query using one iterator, optionally delaying after each nonempty page.</summary>
     ValueTask<List<T>> QueryItems<T>(QueryDefinition query, double? delayMs = null, CancellationToken cancellationToken = default);
+
+    /// <summary>Drains one native SQL iterator and awaits each independently owned page before fetching the next.</summary>
+    ValueTask QueryPages<T>(QueryDefinition query, int pageSize, System.Func<List<T>, ValueTask> consume,
+        CancellationToken cancellationToken = default);
 
     /// <summary>Executes a native SQL query page within this handle's partition scope. SQL and projections are caller-owned.
     /// The continuation token is the native Cosmos token and must be reused only with the same query and scope.</summary>

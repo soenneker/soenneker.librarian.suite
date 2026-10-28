@@ -1,8 +1,6 @@
 using System;
 using System.IO;
-using System.Text;
 using System.Text.Json;
-using System.Text.Json.Nodes;
 using Microsoft.Azure.Cosmos;
 
 namespace Soenneker.Librarian.Cosmos;
@@ -23,13 +21,30 @@ internal sealed partial class CosmosLibrarianContainer
     public T DeserializeDocument<T>(string json, string? version = null)
     {
         Check();
-        if (version is not null)
+        using var buffer = new CosmosJsonBuffer();
+        if (version is null) buffer.Write(json);
+        else
         {
-            JsonNode document = JsonNode.Parse(json)!;
-            document["_etag"] = version;
-            json = document.ToJsonString();
+            using JsonDocument document = JsonDocument.Parse(json);
+            WriteDocument(buffer, document.RootElement, version, stripMetadata: false);
         }
-        using var stream = new MemoryStream(Encoding.UTF8.GetBytes(json));
+        using MemoryStream stream = buffer.OpenRead();
         return Serializer.FromStream<T>(stream);
     }
+
+    private static void WriteDocument(CosmosJsonBuffer buffer, JsonElement document, string? version = null, bool stripMetadata = true)
+    {
+        using var writer = new Utf8JsonWriter(buffer);
+        writer.WriteStartObject();
+        foreach (JsonProperty property in document.EnumerateObject())
+        {
+            if (property.NameEquals("_etag") && (stripMetadata || version is not null)) continue;
+            if (stripMetadata && (property.NameEquals("_rid") || property.NameEquals("_self") ||
+                property.NameEquals("_attachments") || property.NameEquals("_ts"))) continue;
+            property.WriteTo(writer);
+        }
+        if (version is not null) writer.WriteString("_etag", version);
+        writer.WriteEndObject();
+    }
+
 }
