@@ -12,7 +12,7 @@
     <DefaultItemExcludes>$(DefaultItemExcludes);artifacts/**;out/**;node_modules/**</DefaultItemExcludes>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="Soenneker.Gen.Razor.Sitemaps" Version="11.0.172" PrivateAssets="all" />
+    <PackageReference Include="Soenneker.Gen.Razor.Sitemaps" Version="11.0.173" PrivateAssets="all" />
     <PackageReference Include="Soenneker.Quark.Suite" Version="11.0.1630" />
     <EmbeddedResource Include="../../benchmarks/Soenneker.Librarian.Benchmarks/sqlite-net-results.csv" LogicalName="Librarian.BenchmarkComparison.csv" />
   </ItemGroup>
