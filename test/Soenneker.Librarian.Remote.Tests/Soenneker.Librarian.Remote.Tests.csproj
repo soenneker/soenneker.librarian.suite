@@ -2,7 +2,7 @@
   <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net11.0</TargetFramework>
         <Features>$(Features);runtime-async=on</Features>
 <Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings><IsPackable>false</IsPackable></PropertyGroup>
-  <ItemGroup><PackageReference Include="TUnit" Version="1.76.28" /></ItemGroup>
+  <ItemGroup><PackageReference Include="TUnit" Version="1.76.45" /></ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/Soenneker.Librarian.Turbopuffer/Soenneker.Librarian.Turbopuffer.csproj" />
     <ProjectReference Include="../../src/Soenneker.Librarian.Turso/Soenneker.Librarian.Turso.csproj" />
