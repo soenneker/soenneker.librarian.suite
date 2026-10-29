@@ -54,7 +54,7 @@
         <PackageReference Include="Soenneker.Atomics.ValueBools" Version="11.0.55" />
         <PackageReference Include="Microsoft.Azure.Cosmos" Version="3.63.3" />
         <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
-        <PackageReference Include="Soenneker.Cosmos.Container" Version="11.0.2618" />
+        <PackageReference Include="Soenneker.Cosmos.Container" Version="11.0.2619" />
         <ProjectReference Include="../Soenneker.Librarian.Abstractions/Soenneker.Librarian.Abstractions.csproj" />
     </ItemGroup>
 </Project>
