@@ -48,8 +48,8 @@
     <ItemGroup>
         <PackageReference Include="Soenneker.Cosmos.Linq" Version="11.0.25" />
         <PackageReference Include="Soenneker.Cosmos.Repository" Version="11.0.8478" />
-        <PackageReference Include="Soenneker.Cosmos.Repositories.General" Version="11.0.797" />
-        <PackageReference Include="Soenneker.Cosmos.Repositories.Audits" Version="11.0.880" />
+        <PackageReference Include="Soenneker.Cosmos.Repositories.General" Version="11.0.798" />
+        <PackageReference Include="Soenneker.Cosmos.Repositories.Audits" Version="11.0.881" />
         <PackageReference Include="Soenneker.Asyncs.Semaphores" Version="11.0.36" />
         <PackageReference Include="Soenneker.Atomics.ValueBools" Version="11.0.55" />
         <PackageReference Include="Microsoft.Azure.Cosmos" Version="3.63.3" />
