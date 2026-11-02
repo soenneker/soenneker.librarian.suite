@@ -49,7 +49,6 @@
     <ItemGroup>
         <PackageReference Include="Turso.Data.Sqlite.Provider" Version="0.8.3" />
         <PackageReference Include="Soenneker.Asyncs.Semaphores" Version="11.0.36" />
-        <PackageReference Include="Soenneker.Atomics.ValueBools" Version="11.0.55" />
         <ProjectReference Include="../Soenneker.Librarian.Abstractions/Soenneker.Librarian.Abstractions.csproj" />
     </ItemGroup>
 </Project>
