@@ -29,7 +29,7 @@ public sealed partial class LibrarianContainer : ILibrarianContainer
 
     private ValueAtomicBool _disposed = new(false);
 
-    public LibrarianContainer(string containerName, ILibrarianDatabase database, ILogger logger, List<IdValuePair>? existingData = null, AsyncLock? mutationGate = null)
+    public LibrarianContainer(string containerName, ILibrarianDatabase database, ILogger logger, List<IdValuePair>? existingData = null, AsyncLock? mutationGate = null, bool allowEmpty = false)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(containerName);
         ArgumentNullException.ThrowIfNull(database);
@@ -42,7 +42,8 @@ public sealed partial class LibrarianContainer : ILibrarianContainer
         if (existingData is null || existingData.Count == 0)
         {
             _items = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            _logger.LogWarning("No existing data found for container ({containerName})", containerName);
+            if (!allowEmpty)
+                _logger.LogWarning("No existing data found for container ({containerName})", containerName);
             return;
         }
 

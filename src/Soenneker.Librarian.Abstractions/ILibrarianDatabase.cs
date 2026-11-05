@@ -99,6 +99,17 @@ public interface ILibrarianDatabase : IAsyncDisposable
     /// <remarks>MongoDB and Cosmos unscoped handles query all Document partitions. Point operations use Document.Id.</remarks>
     ValueTask<ILibrarianContainer> GetContainer(string containerName, CancellationToken cancellationToken = default);
 
+    /// <summary>Opens or creates an optional container without warning when it is empty.</summary>
+    /// <remarks>Supported by snapshot providers. Creation is in memory until Save or a batch persists it.</remarks>
+    ValueTask<ILibrarianContainer> GetOrCreateContainer(string containerName, CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException("This provider does not support explicit container creation.");
+
+    /// <summary>Opens an existing container, including a persisted empty container.</summary>
+    /// <remarks>Supported by snapshot providers. Throws KeyNotFoundException when the container is absent
+    /// from both the loaded containers and persisted snapshot. Does not create missing containers.</remarks>
+    ValueTask<ILibrarianContainer> GetExistingContainer(string containerName, CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException("This provider does not support existing-only container lookup.");
+
     /// <summary>
     /// Saves pending changes when supported by the provider; memory databases perform no disk I/O.
     /// </summary>

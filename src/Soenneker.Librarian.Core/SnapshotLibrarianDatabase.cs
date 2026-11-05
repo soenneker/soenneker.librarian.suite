@@ -52,11 +52,11 @@ public abstract class SnapshotLibrarianDatabase(ILogger logger) : ILibrarianData
         _snapshot = snapshot;
     }
 
-    private LibrarianContainer GetOrCreate(string name)
+    private LibrarianContainer GetOrCreate(string name, bool allowEmpty = false)
     {
         if (!_containers.TryGetValue(name, out LibrarianContainer? container))
         {
-            container = new LibrarianContainer(name, this, logger, _snapshot!.GetValueOrDefault(name), _batches.Gate);
+            container = new LibrarianContainer(name, this, logger, _snapshot!.GetValueOrDefault(name), _batches.Gate, allowEmpty);
             _containers.Add(name, container);
         }
         return container;
@@ -70,6 +70,30 @@ public abstract class SnapshotLibrarianDatabase(ILogger logger) : ILibrarianData
             ObjectDisposedException.ThrowIf(_disposed.Value, this);
             await Load(cancellationToken).NoSync();
             return GetOrCreate(containerName);
+        }
+    }
+
+    public async ValueTask<ILibrarianContainer> GetOrCreateContainer(string containerName, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(containerName);
+        using (await _gate.Lock(cancellationToken).NoSync())
+        {
+            ObjectDisposedException.ThrowIf(_disposed.Value, this);
+            await Load(cancellationToken).NoSync();
+            return GetOrCreate(containerName, allowEmpty: true);
+        }
+    }
+
+    public async ValueTask<ILibrarianContainer> GetExistingContainer(string containerName, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(containerName);
+        using (await _gate.Lock(cancellationToken).NoSync())
+        {
+            ObjectDisposedException.ThrowIf(_disposed.Value, this);
+            await Load(cancellationToken).NoSync();
+            if (!_containers.ContainsKey(containerName) && !_snapshot!.ContainsKey(containerName))
+                throw new KeyNotFoundException($"Container '{containerName}' does not exist.");
+            return GetOrCreate(containerName, allowEmpty: true);
         }
     }
 
