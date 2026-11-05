@@ -9,6 +9,7 @@ namespace Soenneker.Librarian.Suite.Tests;
 [JsonSerializable(typeof(AuditRow), TypeInfoPropertyName = "AuditRow")]
 [JsonSerializable(typeof(FieldRow), TypeInfoPropertyName = "FieldRow")]
 [JsonSerializable(typeof(CountedRow), TypeInfoPropertyName = "CountedRow")]
+[JsonSerializable(typeof(RevisionDocument))]
 [JsonSerializable(typeof(ExampleDocument), TypeInfoPropertyName = "ExampleDocument")]
 [JsonSerializable(typeof(IndexRow), TypeInfoPropertyName = "IndexRow")]
 [JsonSerializable(typeof(OtherRow), TypeInfoPropertyName = "OtherRow")]
@@ -32,6 +33,7 @@ internal partial class TestJsonContext : JsonSerializerContext
         LibrarianJson.Register(Default.FieldRow);
         LibrarianJson.Register(Default.CountedRow);
         LibrarianJson.Register(Default.ExampleDocument);
+        LibrarianJson.Register(Default.RevisionDocument);
         LibrarianJson.Register(Default.IndexRow);
         LibrarianJson.Register(Default.OtherRow);
         LibrarianJson.Register(Default.PlannerRow);
