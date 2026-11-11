@@ -45,9 +45,9 @@
     </ItemGroup>
 
     <ItemGroup>
-        <PackageReference Include="Soenneker.Utils.Json" Version="11.0.2780" />
-        <PackageReference Include="Soenneker.Dtos.IdValuePair" Version="11.0.169" />
-        <PackageReference Include="Soenneker.Documents.Document" Version="11.0.2759" />
-        <PackageReference Include="Soenneker.Dtos.IdNamePair" Version="11.0.748" />
+        <PackageReference Include="Soenneker.Utils.Json" Version="11.0.2783" />
+        <PackageReference Include="Soenneker.Dtos.IdValuePair" Version="11.0.170" />
+        <PackageReference Include="Soenneker.Documents.Document" Version="11.0.2761" />
+        <PackageReference Include="Soenneker.Dtos.IdNamePair" Version="11.0.750" />
     </ItemGroup>
 </Project>

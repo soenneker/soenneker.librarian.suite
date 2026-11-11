@@ -50,7 +50,7 @@
         <PackageReference Include="Soenneker.Utils.AsyncInitializers" Version="4.0.5" />
         <PackageReference Include="Microsoft.Extensions.Logging" Version="11.0.0" />
         <PackageReference Include="Npgsql" Version="10.0.3" />
-        <PackageReference Include="Soenneker.Extensions.Configuration" Version="11.0.916" />
+        <PackageReference Include="Soenneker.Extensions.Configuration" Version="11.0.917" />
         <ProjectReference Include="../Soenneker.Librarian.Abstractions/Soenneker.Librarian.Abstractions.csproj" />
     </ItemGroup>
 </Project>
