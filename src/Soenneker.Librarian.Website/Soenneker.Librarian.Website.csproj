@@ -13,7 +13,7 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Soenneker.Gen.Razor.Sitemaps" Version="11.0.187" PrivateAssets="all" />
-    <PackageReference Include="Soenneker.Quark.Suite" Version="11.0.1718" />
+    <PackageReference Include="Soenneker.Quark.Suite" Version="11.0.1719" />
     <EmbeddedResource Include="../../benchmarks/Soenneker.Librarian.Benchmarks/sqlite-net-results.csv" LogicalName="Librarian.BenchmarkComparison.csv" />
   </ItemGroup>
 </Project>
