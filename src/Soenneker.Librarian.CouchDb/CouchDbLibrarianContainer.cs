@@ -37,7 +37,7 @@ internal sealed partial class CouchDbLibrarianContainer(CouchDbLibrarianDatabase
         JsonElement parsed = LibrarianDocumentJson.Parse(id, document, partition);
         foreach (JsonProperty property in parsed.EnumerateObject())
             if (property.Name.StartsWith('_')) throw new ArgumentException("CouchDB reserves top-level fields starting with an underscore.", nameof(document));
-        var result = JsonNode.Parse(parsed.GetRawText())!.AsObject();
+        var result = JsonObject.Create(parsed)!;
         result["_id"] = Identity(id);
         if (revision is not null) result["_rev"] = revision;
         return result;

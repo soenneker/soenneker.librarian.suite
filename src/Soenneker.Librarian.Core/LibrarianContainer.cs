@@ -228,7 +228,8 @@ public sealed partial class LibrarianContainer : ILibrarianContainer
         if (!_disposed.TrySetTrue())
             return;
 
-        _logger.LogDebug("Disposing container ({containerName})", _containerName);
+        if (_logger.IsEnabled(LogLevel.Debug))
+            _logger.LogDebug("Disposing container ({containerName})", _containerName);
 
         // The owner must stop operations before disposal, as required by the container contract.
         _indexes.Clear();

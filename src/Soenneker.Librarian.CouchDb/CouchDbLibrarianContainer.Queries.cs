@@ -75,7 +75,7 @@ internal sealed partial class CouchDbLibrarianContainer
         decimal v => JsonValue.Create(v), double v when double.IsFinite(v) => JsonValue.Create(v),
         float v when float.IsFinite(v) => JsonValue.Create(v),
         JsonElement v when v.ValueKind is JsonValueKind.Null or JsonValueKind.String or JsonValueKind.Number
-            or JsonValueKind.True or JsonValueKind.False => JsonNode.Parse(v.GetRawText()),
+            or JsonValueKind.True or JsonValueKind.False => JsonValue.Create(v.Clone()),
         _ => throw new ArgumentException("Index bounds must be finite JSON scalars.", nameof(value))
     };
 

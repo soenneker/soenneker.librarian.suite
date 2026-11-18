@@ -31,10 +31,9 @@ public static class LibrarianDocumentJson
     public static JsonElement Parse(string id, string json, string? partition = null)
     {
         ArgumentNullException.ThrowIfNull(json);
-        using JsonDocument parsed = JsonDocument.Parse(json);
-        JsonElement root = parsed.RootElement;
+        JsonElement root = JsonElement.Parse(json);
         Validate(id, root, partition);
-        return root.Clone();
+        return root;
     }
 
     /// <summary>Validates native document JSON without retaining a copy of its parsed contents.</summary>
@@ -49,9 +48,9 @@ public static class LibrarianDocumentJson
     {
         (string documentId, string partitionKey) = Address(id, partition);
         if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("id", out JsonElement actualId) ||
-            actualId.ValueKind != JsonValueKind.String || actualId.GetString() != documentId ||
+            actualId.ValueKind != JsonValueKind.String || !actualId.ValueEquals(documentId) ||
             !root.TryGetProperty("partitionKey", out JsonElement actualPartition) ||
-            actualPartition.ValueKind != JsonValueKind.String || actualPartition.GetString() != partitionKey)
+            actualPartition.ValueKind != JsonValueKind.String || !actualPartition.ValueEquals(partitionKey))
             throw new ArgumentException("Native providers require Document JSON with id and partitionKey matching Document.Id and the selected partition.", "json");
         foreach (JsonProperty property in root.EnumerateObject())
             if (property.Name is "_id" or "_librarianVersion" or "_etag" or "_rid" or "_self" or "_attachments" or "_ts")
