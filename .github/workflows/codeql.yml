@@ -5,13 +5,15 @@ concurrency:
   cancel-in-progress: true
 
 on:
-  push:
-    branches: [ "main" ]
-    paths-ignore:
-      - 'test/**'
+  schedule:
+    - cron: '28 17 * * *'
   workflow_dispatch:
 
 env:
+  DOTNET_NOLOGO: 'true'
+  DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+  DOTNET_CLI_WORKLOAD_UPDATE_NOTIFY_DISABLE: 'true'
+  DOTNET_GENERATE_ASPNET_CERTIFICATE: 'false'
   NUGET_XMLDOC_MODE: skip
 
 permissions:
@@ -41,11 +43,11 @@ jobs:
           languages: csharp
           build-mode: manual
 
-      - name: Restore src
-        run: dotnet restore ./Soenneker.Librarian.Suite.slnx --verbosity minimal
-
-      - name: Build src
-        run: dotnet build ./Soenneker.Librarian.Suite.slnx --configuration Release --no-restore --verbosity minimal
+      - name: Build source projects
+        run: |
+          dotnet new sln --name CodeQL --format slnx
+          dotnet sln CodeQL.slnx add src/*/*.csproj
+          dotnet build CodeQL.slnx --configuration Release --verbosity minimal
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v4
