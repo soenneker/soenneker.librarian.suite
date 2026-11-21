@@ -38,7 +38,7 @@ jobs:
           --health-timeout 3s
           --health-retries 10
       postgres:
-        image: postgres:18
+        image: postgres:19
         env:
           POSTGRES_USER: librarian
           POSTGRES_PASSWORD: librarian
