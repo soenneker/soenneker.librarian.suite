@@ -46,7 +46,7 @@ jobs:
       - name: Build source projects
         run: |
           dotnet new sln --name CodeQL --format slnx
-          dotnet sln CodeQL.slnx add src/*/*.csproj
+          dotnet sln CodeQL.slnx add --include-references false src/*/*.csproj
           dotnet build CodeQL.slnx --configuration Release --verbosity minimal
 
       - name: Perform CodeQL Analysis
