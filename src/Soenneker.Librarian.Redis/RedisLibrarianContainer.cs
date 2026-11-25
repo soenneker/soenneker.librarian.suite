@@ -321,6 +321,11 @@ public sealed partial class RedisLibrarianContainer : ILibrarianContainer
     {
         IDatabase store = await Store(cancellationToken).NoSync();
         await EnsureQueryIndexes(store, plan, cancellationToken).NoSync();
+        if (!plan.CountOnly && plan.Order is not null && (long)plan.Skip + plan.Take <= 16)
+        {
+            RedisResult? page = await TryOrderedHead(store, plan, cancellationToken).NoSync();
+            if (page is not null) return page;
+        }
         if (plan.CountOnly && plan.Order is null && TryDirectSet(plan.Filter, out RedisKey direct))
         {
             long count = await store.SetLengthAsync(direct).WaitAsync(cancellationToken).NoSync();

@@ -10,14 +10,18 @@ internal sealed class RedisBatchCommands
 {
     private const string Script = """
         local p = 1
-        local versions = tonumber(ARGV[p])
+        local guards = tonumber(ARGV[p])
         p = p + 1
-        for i = 1, versions do
-            local actual = redis.call('GET', KEYS[tonumber(ARGV[p])])
-            if ARGV[p + 1] == '0' then
-                if actual ~= false then return 0 end
-            elseif actual ~= ARGV[p + 2] then
-                return 0
+        for i = 1, guards do
+            local key, kind, expected = KEYS[tonumber(ARGV[p])], ARGV[p + 1], ARGV[p + 2]
+            if kind == 'schema-empty' then
+                if redis.call('SCARD', key) ~= 0 then return 0 end
+            elseif kind == 'missing' or kind == 'value' then
+                local actual = redis.call('HGET', key, 'json')
+                if (kind == 'missing' and actual ~= false) or (kind == 'value' and actual ~= expected) then return -1 end
+            else
+                local actual = redis.call('GET', key)
+                if (kind == '0' and actual ~= false) or (kind == '1' and actual ~= expected) then return 0 end
             end
             p = p + 3
         end
@@ -66,7 +70,7 @@ internal sealed class RedisBatchCommands
 
     private readonly List<RedisKey> _keys = [];
     private readonly Dictionary<RedisKey, int> _keyIndexes = [];
-    private readonly List<RedisValue> _versions = [];
+    private readonly List<RedisValue> _guards = [];
     private readonly List<RedisValue> _commands = [];
 
     private int Key(RedisKey key)
@@ -81,10 +85,26 @@ internal sealed class RedisBatchCommands
     internal void Version(RedisKey key, RedisValue expected, bool changed)
     {
         int index = Key(key);
-        _versions.Add(index);
-        _versions.Add(expected.IsNull ? "0" : "1");
-        _versions.Add(expected.IsNull ? "" : expected);
+        _guards.Add(index);
+        _guards.Add(expected.IsNull ? "0" : "1");
+        _guards.Add(expected.IsNull ? "" : expected);
         if (changed) { _commands.Add("version"); _commands.Add(index); }
+    }
+
+    internal void Condition(RedisKey key, string? expected)
+    {
+        _guards.Add(Key(key));
+        _guards.Add(expected is null ? "missing" : "value");
+        _guards.Add(expected ?? "");
+    }
+
+    internal void UnindexedWrite(RedisKey schema, RedisKey version)
+    {
+        _guards.Add(Key(schema));
+        _guards.Add("schema-empty");
+        _guards.Add("");
+        _commands.Add("version");
+        _commands.Add(Key(version));
     }
 
     internal void Write(RedisKey document, RedisKey ids, string normalized, string id, string? value, string? revision = null)
@@ -115,10 +135,10 @@ internal sealed class RedisBatchCommands
 
     internal Task<RedisResult> Execute(IDatabase store)
     {
-        var arguments = new RedisValue[1 + _versions.Count + _commands.Count];
-        arguments[0] = _versions.Count / 3;
-        _versions.CopyTo(arguments, 1);
-        _commands.CopyTo(arguments, 1 + _versions.Count);
+        var arguments = new RedisValue[1 + _guards.Count + _commands.Count];
+        arguments[0] = _guards.Count / 3;
+        _guards.CopyTo(arguments, 1);
+        _commands.CopyTo(arguments, 1 + _guards.Count);
         return store.ScriptEvaluateAsync(Script, _keys.ToArray(), arguments);
     }
 }

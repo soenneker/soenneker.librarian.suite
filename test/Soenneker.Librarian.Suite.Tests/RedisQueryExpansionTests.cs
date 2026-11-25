@@ -32,6 +32,12 @@ public class RedisQueryExpansionTests
                 .Skip(17).Take(take).Select(row => row.Name).ToArray();
             Check(actual.SequenceEqual(expected), "Compound page changed ordering or membership across a window.");
         }
+        string[] excluded = ["row-0348", "row-0349"];
+        string[] firstPage = await query.Where(row => !excluded.Contains(row.Name) && (row.Amount >= 9 || row.Amount < 1))
+            .OrderByDescending(row => row.Amount).Skip(2).Take(4).Select(row => row.Name).ToArray(cancellationToken: cancellationToken);
+        Check(firstPage.SequenceEqual(rows.Where(row => !excluded.Contains(row.Name) && (row.Amount >= 9 || row.Amount < 1))
+            .OrderByDescending(row => row.Amount).ThenByDescending(row => row.Name, StringComparer.Ordinal)
+            .Skip(2).Take(4).Select(row => row.Name)), "Bounded compound page lost a match or changed tie ordering.");
         Check(await query.Count(row => !names.Contains(row.Name), cancellationToken: cancellationToken) == 51, "Negation omitted missing properties.");
         Check((await query.Where(row => row.Name == "row-0349" || row.Name == "missing")
             .OrderBy(row => row.Amount).Take(2).ToArray(cancellationToken: cancellationToken)).Single().Name == "row-0349",

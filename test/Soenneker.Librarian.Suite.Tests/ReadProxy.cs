@@ -11,6 +11,7 @@ public class ReadProxy : DispatchProxy
     public Func<Task>? AfterRange;
     public Func<Task>? AfterSnapshot;
     public Func<Task>? AfterFields;
+    public Func<Task>? AfterBatchPrepare;
     protected override object? Invoke(MethodInfo? method, object?[]? args)
     {
         object? result = method!.Invoke(Inner, args);
@@ -18,7 +19,10 @@ public class ReadProxy : DispatchProxy
             return After((Task<RedisResult>)result!, AfterRange);
         if (method.Name == "ScriptEvaluateAsync" && args?[0] is string script)
         {
-            if (script.Contains("local temporary = {}", StringComparison.Ordinal))
+            if (script.Contains("local paths = redis.call('SMEMBERS', KEYS[2])", StringComparison.Ordinal))
+                return After((Task<RedisResult>)result!, AfterBatchPrepare);
+            if (script.Contains("local temporary = {}", StringComparison.Ordinal) ||
+                script.Contains("local items = redis.call(ARGV[1]", StringComparison.Ordinal))
                 return After((Task<RedisResult>)result!, AfterSnapshot);
             if (script.Contains("for j = 3, #ARGV do", StringComparison.Ordinal))
                 return After((Task<RedisResult>)result!, AfterFields);

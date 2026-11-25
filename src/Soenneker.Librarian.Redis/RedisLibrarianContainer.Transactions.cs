@@ -17,15 +17,14 @@ public sealed partial class RedisLibrarianContainer
     private const string PrepareBatchScript = """
         for i = 3, #KEYS do
             local value = redis.call('HGET', KEYS[i], 'json')
-            local p = (i - 3) * 2 + 2
+            local p = (i - 3) * 2 + 1
             if ARGV[p] == '0' then
-                if value ~= false then return false end
+                if value ~= false then return {i - 2} end
             elseif value ~= ARGV[p + 1] then
-                return false
+                return {i - 2}
             end
         end
-        local paths = {}
-        if ARGV[1] == '1' then paths = redis.call('SMEMBERS', KEYS[2]) end
+        local paths = redis.call('SMEMBERS', KEYS[2])
         return { redis.call('GET', KEYS[1]), paths }
         """;
 
@@ -41,27 +40,50 @@ public sealed partial class RedisLibrarianContainer
         IReadOnlyList<LibrarianWrite> writes, RedisBatchCommands commands, CancellationToken token)
     {
         ObjectDisposedException.ThrowIf(_disposed.Value, this);
+        if (writes.Count == 0)
+        {
+            lock (commands) AddDocumentConditions();
+            return true;
+        }
         var keys = new RedisKey[conditions.Count + 2];
         keys[0] = Version;
         keys[1] = Schema;
-        var arguments = new RedisValue[conditions.Count * 2 + 1];
-        arguments[0] = writes.Count == 0 ? "0" : "1";
+        var arguments = new RedisValue[conditions.Count * 2];
         for (var i = 0; i < conditions.Count; i++)
         {
             keys[i + 2] = BatchDocument(conditions[i].Id);
             string? expected = conditions[i].ExpectedValue;
-            arguments[i * 2 + 1] = expected is null ? "0" : "1";
-            arguments[i * 2 + 2] = expected ?? "";
+            arguments[i * 2] = expected is null ? "0" : "1";
+            arguments[i * 2 + 1] = expected ?? "";
         }
         RedisResult snapshot = await store.ScriptEvaluateAsync(PrepareBatchScript, keys, arguments).WaitAsync(token).NoSync();
-        if (snapshot.IsNull) return false;
         var parts = (RedisResult[])snapshot!;
+        if (parts.Length == 1)
+        {
+            RedisLibrarianDatabase.RecordConditionConflict(conditions[(int)parts[0] - 1]);
+            return false;
+        }
         var version = (RedisValue)parts[0];
         var paths = (string[])parts[1]!;
-        commands.Version(Version, version, writes.Count != 0);
-        if (writes.Count == 0) return true;
+        lock (commands)
+        {
+            if (paths.Length == 0)
+            {
+                // No index delta depends on old rows. Fence the schema and the exact document
+                // conditions so independent writes can commit during preparation.
+                commands.UnindexedWrite(Schema, Version);
+                AddDocumentConditions();
+            }
+            else commands.Version(Version, version, changed: true);
+        }
         await PrepareWrites(store, writes, paths, commands, token).NoSync();
         return true;
+
+        void AddDocumentConditions()
+        {
+            foreach (LibrarianCondition condition in conditions)
+                commands.Condition(BatchDocument(condition.Id), condition.ExpectedValue);
+        }
     }
 
     private async ValueTask PrepareWrites(IDatabase store, IReadOnlyList<LibrarianWrite> writes, string[] paths,
@@ -75,24 +97,28 @@ public sealed partial class RedisLibrarianContainer
         for (var i = 0; i < paths.Length; i++) { fields[i] = Field(paths[i]); sortFields[i] = SortField(paths[i]); }
         RedisResult[] previous = paths.Length == 0 ? [] : (RedisResult[])(await store.ScriptEvaluateAsync(
             ReadIndexFieldsScript, documentKeys, fields).WaitAsync(token).NoSync())!;
-        for (var i = 0; i < writes.Count; i++)
+        // A batch pipelines independent container reads. Append this container's commands in write order.
+        lock (commands)
         {
-            token.ThrowIfCancellationRequested();
-            LibrarianWrite write = writes[i];
-            string id = ids[i];
-            using JsonDocument? json = write.Value is not null && paths.Length > 0 ? JsonDocument.Parse(write.Value) : null;
-            RedisResult[] oldValues = paths.Length == 0 ? [] : (RedisResult[])previous[i]!;
-            for (var j = 0; j < paths.Length; j++)
+            for (var i = 0; i < writes.Count; i++)
             {
-                string path = paths[j];
-                string? old = oldValues[j].IsNull ? null : (string?)oldValues[j];
-                string? next = json is null ? null : RedisIndexValue.Read(json.RootElement, path);
-                if (string.Equals(old, next, StringComparison.Ordinal)) continue;
-                commands.Index(documentKeys[i], Index(path), Distinct(path), Present(path),
-                    old is null ? default : Bucket(path, old), next is null ? default : Bucket(path, next),
-                    fields[j].ToString(), sortFields[j], id, old, next);
+                token.ThrowIfCancellationRequested();
+                LibrarianWrite write = writes[i];
+                string id = ids[i];
+                using JsonDocument? json = write.Value is not null && paths.Length > 0 ? JsonDocument.Parse(write.Value) : null;
+                RedisResult[] oldValues = paths.Length == 0 ? [] : (RedisResult[])previous[i]!;
+                for (var j = 0; j < paths.Length; j++)
+                {
+                    string path = paths[j];
+                    string? old = oldValues[j].IsNull ? null : (string?)oldValues[j];
+                    string? next = json is null ? null : RedisIndexValue.Read(json.RootElement, path);
+                    if (string.Equals(old, next, StringComparison.Ordinal)) continue;
+                    commands.Index(documentKeys[i], Index(path), Distinct(path), Present(path),
+                        old is null ? default : Bucket(path, old), next is null ? default : Bucket(path, next),
+                        fields[j].ToString(), sortFields[j], id, old, next);
+                }
+                commands.Write(documentKeys[i], Ids, id, write.Id, write.Value, revision);
             }
-            commands.Write(documentKeys[i], Ids, id, write.Id, write.Value, revision);
         }
     }
 }

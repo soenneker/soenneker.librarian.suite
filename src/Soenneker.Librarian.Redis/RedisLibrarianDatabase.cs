@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Soenneker.Asyncs.Locks;
+using Soenneker.Asyncs.Semaphores;
 using Soenneker.Atomics.ValueBools;
 using Soenneker.Extensions.ValueTask;
 using Soenneker.Librarian.Abstractions;
@@ -20,6 +21,10 @@ public sealed partial class RedisLibrarianDatabase : ILibrarianDatabase
     private readonly Func<CancellationToken, ValueTask<IDatabase>>? _storeFactory;
     private readonly int _database;
     private readonly AsyncLock _gate = new();
+    private readonly AsyncSemaphore _batchSlots = new(4);
+    private readonly Lock _batchLifetime = new();
+    private int _activeBatches;
+    private TaskCompletionSource? _batchesDrained;
     private readonly Dictionary<string, ILibrarianContainer> _containers = new(StringComparer.Ordinal);
     private ValueAtomicBool _disposed = new(false);
 
@@ -88,12 +93,31 @@ public sealed partial class RedisLibrarianDatabase : ILibrarianDatabase
         return ValueTask.CompletedTask;
     }
 
+    // Called under the registry gate, which prevents new batches from entering while handles are retired.
+    private Task WaitForBatches()
+    {
+        lock (_batchLifetime)
+            return _activeBatches == 0 ? Task.CompletedTask :
+                (_batchesDrained ??= new(TaskCreationOptions.RunContinuationsAsynchronously)).Task;
+    }
+
+    private void EndBatch()
+    {
+        lock (_batchLifetime)
+        {
+            if (--_activeBatches != 0) return;
+            _batchesDrained?.TrySetResult();
+            _batchesDrained = null;
+        }
+    }
+
     public async ValueTask<bool> UnloadContainer(string containerName, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(containerName);
         using (await _gate.Lock(cancellationToken).NoSync())
         {
             ObjectDisposedException.ThrowIf(_disposed.Value, this);
+            await WaitForBatches().WaitAsync(cancellationToken).ConfigureAwait(false);
             if (!_containers.Remove(containerName, out ILibrarianContainer? container)) return false;
             container.Dispose();
             return true;
@@ -104,6 +128,7 @@ public sealed partial class RedisLibrarianDatabase : ILibrarianDatabase
     {
         using (await _gate.Lock(CancellationToken.None).NoSync())
         {
+            await WaitForBatches().ConfigureAwait(false);
             if (!_disposed.TrySetTrue()) return;
             foreach (ILibrarianContainer container in _containers.Values) container.Dispose();
             _containers.Clear();
